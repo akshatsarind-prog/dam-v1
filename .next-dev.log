@@ -1,0 +1,20 @@
+
+> dam-v1@0.1.0 dev
+> next dev --webpack --hostname 127.0.0.1 --port 3000
+
+▲ Next.js 16.2.4 (webpack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+- Environments: .env.local
+✓ Ready in 429ms
+- Experiments (use with caution):
+  ⨯ preloadEntriesOnStart
+  ⨯ serverSourceMaps
+  ✓ webpackMemoryOptimizations
+
+ GET / 200 in 959ms (next.js: 846ms, application-code: 114ms)
+ POST /api/analyze 400 in 961ms (next.js: 948ms, application-code: 13ms)
+ GET / 200 in 224ms (next.js: 72ms, application-code: 152ms)
+ GET / 200 in 53ms (next.js: 2ms, application-code: 51ms)
+ POST /api/analyze 200 in 7.8s (next.js: 3ms, application-code: 7.8s)
+[?25h

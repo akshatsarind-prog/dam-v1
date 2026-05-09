@@ -1,0 +1,38 @@
+Evidence analysis failed: Error: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.
+    at async decomposeClaim (app\api\analyze\route.ts:615:22)
+    at async POST (app\api\analyze\route.ts:657:27)
+  613 |
+  614 | async function decomposeClaim(openai: OpenAI, rawClaim: string): Promise<ClaimDecompositi...
+> 615 |   const completion = await openai.chat.completions.create({
+      |                      ^
+  616 |     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+  617 |     temperature: 0,
+  618 |     max_tokens: 520, {
+  status: 429,
+  headers: Headers {
+    date: 'Thu, 07 May 2026 04:19:56 GMT',
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': '337',
+    connection: 'keep-alive',
+    'set-cookie': '__cf_bm=024A6kR5h_h2e.bGIVgZ3w5ArkWNsVoQx144oT8BWDg-1778127595.8799152-1.0.1.1-nMrKwCig32vBxvLvDaINh4wB9L1qmf_Agd2lFp.d2vUpl0NsbeHc9PYWZ5xANS76.yhuojepfxaXP_B6j.HmdMAlft1M3L6uwgPS9iv3Od6VRDlryb8Zz3ZqnGfl._dV; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Thu, 07 May 2026 04:49:56 GMT, _cfuvid=KIhscClKjLZEY4BwrhGEBpfVmAkmnw6gwdA8h6zjRYE-1778127595.8799152-1.0.1.1-.w6lmuCRCgyvAseaMbc1BqvZXGNUvQ.qHSgZDAp5u3w; HttpOnly; SameSite=None; Secure; Path=/; Domain=api.openai.com',
+    'cf-ray': '9f7d6de23b90597c-DEL',
+    'cf-cache-status': 'DYNAMIC',
+    server: 'cloudflare',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    vary: 'Origin',
+    'x-content-type-options': 'nosniff',
+    'x-openai-proxy-wasm': 'v0.1',
+    'x-request-id': 'req_0e4312fb4bd74d2286e15909df066624',
+    'alt-svc': 'h3=":443"; ma=86400'
+  },
+  requestID: 'req_0e4312fb4bd74d2286e15909df066624',
+  error: {
+    message: 'You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.',
+    type: 'insufficient_quota',
+    param: null,
+    code: 'insufficient_quota'
+  },
+  code: 'insufficient_quota',
+  param: null,
+  type: 'insufficient_quota'
+}
