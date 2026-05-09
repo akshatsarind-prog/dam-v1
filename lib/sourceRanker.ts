@@ -29,6 +29,19 @@ export type ConflictSignal = {
 }
 
 const HIGH_TRUST_DOMAINS = ['reuters.com', 'apnews.com', 'who.int'] as const
+const HIGH_TRUST_INSTITUTION_DOMAINS = [
+  'nasa.gov',
+  'esa.int',
+  'cdc.gov',
+  'nih.gov',
+  'rbi.org.in',
+  'imf.org',
+  'worldbank.org',
+  'gov.in',
+  'pib.gov.in',
+  'cybercrime.gov.in',
+  'mohfw.gov.in',
+] as const
 const MODERATE_TRUST_DOMAINS = ['bbc.com', 'bbc.co.uk', 'nytimes.com', 'theguardian.com'] as const
 const LOW_TRUST_DOMAINS = [
   'medium.com',
@@ -124,6 +137,14 @@ function domainMatches(domain: string, candidates: readonly string[]) {
   return candidates.some((candidate) => domain === candidate || domain.endsWith(`.${candidate}`))
 }
 
+function normalizeDomains(domains: string[] | undefined) {
+  if (!domains?.length) {
+    return []
+  }
+
+  return Array.from(new Set(domains.map((domain) => domain.trim().toLowerCase()).filter(Boolean)))
+}
+
 function cueScore(text: string, cues: readonly string[]) {
   return cues.reduce((total, cue) => total + (text.includes(cue) ? 1 : 0), 0)
 }
@@ -195,7 +216,13 @@ export function scoreSourceCredibility(domain: string): {
     }
   }
 
-  if (domainMatches(domain, HIGH_TRUST_DOMAINS) || domain.endsWith('.gov')) {
+  if (
+    domainMatches(domain, HIGH_TRUST_DOMAINS) ||
+    domainMatches(domain, HIGH_TRUST_INSTITUTION_DOMAINS) ||
+    domain.endsWith('.gov') ||
+    domain.endsWith('.gov.in') ||
+    domain.endsWith('.nic.in')
+  ) {
     return {
       label: 'High',
       weightedScore: 90,
@@ -222,9 +249,16 @@ export function scoreSourceCredibility(domain: string): {
   }
 }
 
-function credibilityRationale(label: CredibilityLabel, domain: string) {
+function credibilityRationale(label: CredibilityLabel, domain: string, preferredDomains: string[] = []) {
+  if (preferredDomains.length && domainMatches(domain, preferredDomains)) {
+    return 'Matches the category-targeted source list and has strong trust signals.'
+  }
+
   if (label === 'High') {
-    return domain.endsWith('.gov') || domain === 'who.int'
+    return domain.endsWith('.gov') ||
+      domain.endsWith('.gov.in') ||
+      domain.endsWith('.nic.in') ||
+      domain === 'who.int'
       ? 'Official or public-interest source with high trust.'
       : 'High-trust wire or institutional source.'
   }
@@ -240,10 +274,14 @@ function credibilityRationale(label: CredibilityLabel, domain: string) {
   return 'Source domain is not in the trust registry.'
 }
 
-export function rankEvidence(evidence: RetrievedEvidence[]): RankedEvidence[] {
+export function rankEvidence(
+  evidence: RetrievedEvidence[],
+  options: { preferredDomains?: string[] } = {}
+): RankedEvidence[] {
+  const preferredDomains = normalizeDomains(options?.preferredDomains)
   const seenUrls = new Set<string>()
 
-  return evidence
+  const ranked = evidence
     .filter((item) => {
       const normalizedUrl = item.url.trim().toLowerCase()
 
@@ -257,6 +295,9 @@ export function rankEvidence(evidence: RetrievedEvidence[]): RankedEvidence[] {
     .map((item, index) => {
       const domain = extractHostname(item.url)
       const credibility = scoreSourceCredibility(domain)
+      const preferredDomainMatch = preferredDomains.length && domainMatches(domain, preferredDomains)
+      const rankingScore =
+        credibility.weightedScore + item.score + (preferredDomainMatch ? 18 : 0)
 
       return {
         ...item,
@@ -264,11 +305,17 @@ export function rankEvidence(evidence: RetrievedEvidence[]): RankedEvidence[] {
         domain,
         credibility: credibility.label,
         credibilityScore: credibility.weightedScore,
-        credibilityRationale: credibilityRationale(credibility.label, domain),
+        credibilityRationale: credibilityRationale(credibility.label, domain, preferredDomains),
+        rankingScore,
       }
     })
-    .sort((a, b) => b.credibilityScore + b.score - (a.credibilityScore + a.score))
-    .slice(0, 8)
+    .sort((a, b) => b.rankingScore - a.rankingScore)
+
+  return ranked.slice(0, 5).map((item) => {
+    const { rankingScore, ...rest } = item
+    void rankingScore
+    return rest
+  })
 }
 
 export function summarizeSourceCredibility(evidence: RankedEvidence[]): SourceCredibilitySummary {
