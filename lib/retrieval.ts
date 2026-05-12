@@ -159,7 +159,10 @@ export function buildRetrievalQueries(
 
   if (stableFactHint) {
     const hintedQuery = `${cleanClaim} ${stableFactHint}`.trim()
-    return uniqueQueries([hintedQuery]).filter((query) => query.length >= 3).slice(0, 1)
+    if (stableFactHint.includes('water boiling point at sea level')) {
+      return uniqueQueries([hintedQuery]).filter((query) => query.length >= 3).slice(0, 1)
+    }
+    return uniqueQueries([cleanClaim, hintedQuery]).filter((query) => query.length >= 3).slice(0, 2)
   }
 
   if (normalizedCategory === 'health') {
@@ -226,20 +229,48 @@ export function detectClaimCategory(claim: string): ClaimCategory {
   const normalized = normalizeText(claim)
 
   const scamSignals = [
-    'forward this message',
-    'click this link',
-    'kyc',
-    'otp',
+    'kyc update',
+    'e-kyc',
     'account will be blocked',
-    'blocked unless',
+    'bank account blocked',
+    'account suspension',
+    'otp',
+    'pin',
+    'password',
+    'whatsapp registration link',
+    'forward this message',
+    'forward to 10 people',
+    'click this link',
+    'registration link',
+    'verification link',
+    'share with 10 people',
     'free reward',
+    'free iphone',
+    'free iPhone',
+    'reward',
+    'prize',
+    'lottery',
+    'cashback',
     'government reward',
+    'government relief',
+    'relief payment',
+    'subsidy',
     'whatsapp',
+    'telegram',
     'share this',
     'missed calls',
     'unknown number',
     'phishing',
     'scam',
+    'impersonation',
+    'rbi',
+    'bank',
+    'government',
+    'police',
+    'courier',
+    'amazon',
+    'flipkart',
+    'platform',
     'virus is spreading',
   ]
 

@@ -1,0 +1,96 @@
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] openai_timeout_or_abort
+[api/analyze] unexpected_route_failure { name: 'Error', message: '502 status code (no body)' }
+[api/analyze] openai_timeout_or_abort
+[api/analyze] retrieval_failed
+[api/analyze] openai_timeout_or_abort
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] retrieval_failed
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] retrieval_failed
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+⨯ ./app/api/analyze/route.ts
+Error:   x Unexpected token `,`. Expected identifier
+      ,-[C:\Users\AKSHAT\projects\dam-v1\app\api\analyze\route.ts:5553:1]
+ 5550 | Do not corroborate a claim unless the evidence directly states the claim. Trusted source presence alone is not enough.
+ 5551 | If the claim is a high-risk health claim involving dangerous substances or dangerous treatment instructions, do not return "Insufficient Verification" as the main verdict. Use "Dangerous unsupported claim" or "Likely incorrect".
+ 5552 | If evidence is weak, limited, or conflicting, reduce confidence and avoid certainty.`,
+ 5553 |               'Sharper wording must not increase confidence.',
+      :                                                              ^
+ 5554 |                 },
+ 5555 |               ],
+ 5556 |             },
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/api/analyze/route.ts
+⨯ ./app/api/analyze/route.ts
+Error:   x Unexpected token `ident`. Expected ... , *,  (, [, :, , ?, =, an identifier, public, protected, private, readonly, <.
+      ,-[C:\Users\AKSHAT\projects\dam-v1\app\api\analyze\route.ts:5553:1]
+ 5550 | Do not corroborate a claim unless the evidence directly states the claim. Trusted source presence alone is not enough.
+ 5551 | If the claim is a high-risk health claim involving dangerous substances or dangerous treatment instructions, do not return "Insufficient Verification" as the main verdict. Use "Dangerous unsupported claim" or "Likely incorrect".
+ 5552 | If evidence is weak, limited, or conflicting, reduce confidence and avoid certainty.`,
+ 5553 | Sharper wording must not increase confidence.`,
+      :         ^^^^^^^
+ 5554 |                 },
+ 5555 |               ],
+ 5556 |             },
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/api/analyze/route.ts
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] openai_timeout_or_abort
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
+[api/analyze] retrieval_failed
