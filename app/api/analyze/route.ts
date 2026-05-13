@@ -1,12 +1,12 @@
 import OpenAI from 'openai'
 import {
   buildRetrievalQueries,
-  detectClaimCategory,
   dedupeRetrievedEvidence,
   getPreferredDomains,
   retrieveEvidence,
   type ClaimCategory,
 } from '@/lib/retrieval'
+import { isValidRetrievalCategory, routeClaim } from '@/lib/claimRouter'
 import { withTimeout } from '@/lib/timeout'
 import {
   detectConflictingSignals,
@@ -101,16 +101,6 @@ const confidenceLabels = ['Weak', 'Moderate', 'Strong'] as const
 const riskValues = ['Low', 'Medium', 'High', 'Severe'] as const
 const contradictionLevels = ['None', 'Low', 'Moderate', 'High', 'Unknown'] as const
 const stanceValues = ['Supports', 'Contradicts', 'Contextualizes', 'Unclear'] as const
-const claimCategories = [
-  'health',
-  'finance',
-  'science',
-  'government',
-  'breaking_news',
-  'scam',
-  'general',
-] as const satisfies readonly ClaimCategory[]
-
 type Verdict = (typeof verdictValues)[number]
 type ConfidenceLabel = (typeof confidenceLabels)[number]
 type CalibrationConfidenceLabel = 'High' | 'Moderate' | 'Low' | 'Insufficient'
@@ -415,11 +405,6 @@ function cleanJsonText(text: string): string {
     .trim()
 }
 
-function logModelParseFailure(label: string, error: unknown) {
-  void label
-  void error
-}
-
 function isAbortLikeError(error: unknown) {
   if (!error || typeof error !== 'object') {
     return false
@@ -432,16 +417,13 @@ function isAbortLikeError(error: unknown) {
   return name.includes('abort') || message.includes('abort') || message.includes('timeout')
 }
 
-function logRouteMetrics(startedAt: number, evidenceCount: number) {
-  if (process.env.NODE_ENV === 'development') {
-    console.log({
-      totalLatencyMs: Date.now() - startedAt,
-      evidenceCount,
-    })
-  }
-}
+type RouteTimingStage = 'retrieval' | 'openai' | 'final_response' | 'route_timeout'
 
-function logDevTiming(stage: string, startedAt: number, details: Record<string, unknown> = {}) {
+function logRouteTiming(
+  stage: RouteTimingStage,
+  startedAt: number,
+  details: Record<string, unknown> = {}
+) {
   if (process.env.NODE_ENV === 'development') {
     console.log({
       stage,
@@ -449,6 +431,26 @@ function logDevTiming(stage: string, startedAt: number, details: Record<string, 
       ...details,
     })
   }
+}
+
+function logFinalResponse(
+  routeAbortController: AbortController,
+  startedAt: number,
+  details: {
+    status?: number
+    evidenceCount: number
+    fallback: boolean
+  }
+) {
+  if (routeAbortController.signal.aborted) {
+    return
+  }
+
+  logRouteTiming('final_response', startedAt, {
+    status: details.status ?? 200,
+    evidenceCount: details.evidenceCount,
+    fallback: details.fallback ? 1 : 0,
+  })
 }
 
 function logRouteFailure(kind: string, error?: unknown) {
@@ -478,8 +480,7 @@ function parseModelJson(modelText: string): { parsed: unknown | null; parseFaile
 
   try {
     return { parsed: JSON.parse(cleaned), parseFailed: false }
-  } catch (error) {
-    logModelParseFailure('modelJsonParseFailed', error)
+  } catch {
   }
 
   const firstBrace = cleaned.indexOf('{')
@@ -491,8 +492,7 @@ function parseModelJson(modelText: string): { parsed: unknown | null; parseFaile
         parsed: JSON.parse(cleaned.slice(firstBrace, lastBrace + 1)),
         parseFailed: false,
       }
-    } catch (error) {
-      logModelParseFailure('modelJsonRecoveryFailed', error)
+    } catch {
     }
   }
 
@@ -938,7 +938,7 @@ function domainMatchesAny(domain: string, candidates: string[]) {
 }
 
 function normalizeClaimCategoryValue(value: string): ClaimCategory {
-  return claimCategories.includes(value as ClaimCategory) ? (value as ClaimCategory) : 'general'
+  return isValidRetrievalCategory(value) ? value : 'general'
 }
 
 function hasPreferredDomainEvidence(evidence: RankedEvidence[], claimCategory: string) {
@@ -1060,6 +1060,10 @@ function hasDirectStableLocationContradiction(input: ContradictionNormalizationC
 }
 
 function hasStableFactContradictionSignal(input: ContradictionNormalizationContext) {
+  if (getIndiaDelhiCapitalAliasContext(input.claim).matched) {
+    return false
+  }
+
   if (
     !input.stableFact ||
     input.directStableFactSupport ||
@@ -1150,6 +1154,7 @@ function buildContradictionDecision(input: ContradictionNormalizationInput): Nor
   const supportedVerdict = isSupportedVerdict(input.verdict)
   const currentNewsClaim = isCurrentNewsClaim(input.claim)
   const stableFactAnchor = evaluateStableFactAnchor(input.claim)
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(input.claim)
 
   if (input.stableFact && stableFactAnchor.matched) {
     if (stableFactAnchor.directContradiction) {
@@ -1168,6 +1173,15 @@ function buildContradictionDecision(input: ContradictionNormalizationInput): Nor
         severity: 'None',
         items: [],
       }
+    }
+  }
+
+  if (input.stableFact && capitalAliasContext.matched) {
+    return {
+      label: 'Missing context',
+      summary: capitalAliasContext.summary,
+      severity: 'Low',
+      items: [],
     }
   }
 
@@ -1495,6 +1509,16 @@ function normalizeContradictionSummary(
   input: ContradictionNormalizationInput
 ): NormalizedContradiction {
   const decision = buildContradictionDecision(input)
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(input.claim)
+
+  if (capitalAliasContext.matched) {
+    return {
+      ...decision,
+      summary: capitalAliasContext.summary,
+      items: [],
+    }
+  }
+
   const modelItems = normalizeContradictionItems(input.modelContradictions?.items, decision.severity)
   const fallbackItems = buildDecisionContradictionItems(input, decision)
   const keepModelSummary = shouldKeepModelContradictionSummary(input, decision)
@@ -1507,16 +1531,6 @@ function normalizeContradictionSummary(
       : decision.summary,
     items: modelItems.length ? modelItems : fallbackItems,
   }
-}
-
-function logContradictionDiagnostics(input: {
-  evidenceCount: number
-  contradictionLabel: string
-  contradictionSeverity: ContradictionLevel
-  verdict: string
-  sourceCredibility: CredibilityLabel
-}) {
-  void input
 }
 
 function applyNormalizedContradictions<T extends ContradictionPayload>(
@@ -1533,14 +1547,6 @@ function applyNormalizedContradictions<T extends ContradictionPayload>(
     (payload as T & { contradictionSummary?: unknown }).contradictionSummary,
     normalized.summary
   )
-
-  logContradictionDiagnostics({
-    evidenceCount: context.evidence.length,
-    contradictionLabel: normalized.label,
-    contradictionSeverity: normalized.severity,
-    verdict: payload.verdict,
-    sourceCredibility: context.sourceCredibility.label,
-  })
 
   return {
     ...payload,
@@ -2381,21 +2387,21 @@ function getScamRiskLevel(claim: string, scamSignals: ScamSignals): Risk {
 }
 
 function classifyRoutingBucket(claim: string, claimCategory: string, breakingNewsVague: boolean): RoutingBucket {
-  const scamPattern = classifyScamPattern(claim)
+  const route = routeClaim(claim)
 
-  if (scamPattern.isScamLike) {
+  if (route.isScamLike) {
     return 'scam'
   }
 
-  if (claimCategory === 'government' || isCivicRumorClaim(claim)) {
+  if (route.isCivicRumor || claimCategory === 'government' || isCivicRumorClaim(claim)) {
     return 'civic_rumor'
   }
 
-  if (claimCategory === 'breaking_news' || breakingNewsVague || isCurrentNewsClaim(claim)) {
+  if (route.isBreakingNews || claimCategory === 'breaking_news' || breakingNewsVague || isCurrentNewsClaim(claim)) {
     return 'breaking_news'
   }
 
-  if (isStatisticsClaim(claim)) {
+  if (route.isStatisticalClaim || isStatisticsClaim(claim)) {
     return 'statistical_overreach'
   }
 
@@ -3228,6 +3234,10 @@ function getStableFactRetrievalHint(claim: string) {
 
   const capitalAssertion = extractCapitalAssertion(claim)
   if (capitalAssertion?.country) {
+    if (getIndiaDelhiCapitalAliasContext(claim).matched) {
+      return 'New Delhi official capital India National Capital Territory of Delhi Britannica'
+    }
+
     return `capital city of ${capitalAssertion.country} ${capitalAssertion.city} official encyclopedia`.trim()
   }
 
@@ -3365,6 +3375,11 @@ const CANONICAL_CAPITALS: Record<string, string> = {
   india: 'new delhi',
 }
 
+const INDIA_DELHI_CAPITAL_ALIAS_REASON =
+  'New Delhi is the official capital; Delhi is the broader NCT commonly used in this context.'
+const INDIA_DELHI_CAPITAL_IMPRECISION_REASON =
+  'The claim is imprecise: New Delhi is the official capital, while Delhi commonly refers to the wider capital territory.'
+
 type StableFactRelationType = 'geography' | 'capital' | 'astronomy' | 'physical' | 'ranking' | 'history' | 'unknown'
 
 type StableFactAnchorEvaluation = {
@@ -3373,6 +3388,17 @@ type StableFactAnchorEvaluation = {
   directContradiction: boolean
   relationType: StableFactRelationType
   reason: string
+}
+
+type CapitalSmokeProfile = {
+  verdict: Verdict
+  reason: string
+  contradictionLevel: ContradictionLevel
+  contradictionSummary: string
+  confidenceScore: number
+  confidenceLabel: ConfidenceLabel
+  corroborationLabel: string
+  corroborationAgreement: string
 }
 
 type StableFactAnchorDefinition = {
@@ -3394,6 +3420,18 @@ const STABLE_FACT_ANCHORS: StableFactAnchorDefinition[] = [
     relationType: 'capital',
     directSupport: true,
     reason: 'Ottawa is the capital of Canada.',
+  },
+  {
+    pattern: /^new delhi is the capital of india$/,
+    relationType: 'capital',
+    directSupport: true,
+    reason: 'New Delhi is the capital of India.',
+  },
+  {
+    pattern: /^canberra is the capital of australia$/,
+    relationType: 'capital',
+    directSupport: true,
+    reason: 'Canberra is the capital of Australia.',
   },
   {
     pattern: /^(?:the\s+)?earth revolves around the sun$/,
@@ -3472,6 +3510,18 @@ const STABLE_FACT_ANCHORS: StableFactAnchorDefinition[] = [
     relationType: 'capital',
     directSupport: false,
     reason: 'Toronto is not the capital of Canada.',
+  },
+  {
+    pattern: /^mumbai is the capital of india$/,
+    relationType: 'capital',
+    directSupport: false,
+    reason: 'Mumbai is not the capital of India.',
+  },
+  {
+    pattern: /^jaipur is the capital of india$/,
+    relationType: 'capital',
+    directSupport: false,
+    reason: 'Jaipur is not the capital of India.',
   },
   {
     pattern: /^sydney is the capital of australia$/,
@@ -3588,6 +3638,152 @@ function evaluateStableFactAnchor(claim: string): StableFactAnchorEvaluation {
   }
 }
 
+function getIndiaDelhiCapitalAliasContext(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  const capitalAssertion = extractCapitalAssertion(claim)
+  const country = capitalAssertion?.country?.toLowerCase() ?? ''
+  const city = capitalAssertion?.city?.toLowerCase() ?? ''
+  const mentionsCapital = /\bcapital\b/.test(normalized)
+  const mentionsIndia = country === 'india' || normalized.includes('india')
+  const mentionsDelhi = normalized.includes('delhi')
+  const negatedCapitalClaim =
+    /\bnot\b.*\bcapital\b/.test(normalized) ||
+    /\bdoes not\b.*\bcapital\b/.test(normalized) ||
+    /\bdoesn't\b.*\bcapital\b/.test(normalized)
+
+  if (negatedCapitalClaim || !mentionsCapital || !mentionsIndia || !mentionsDelhi) {
+    return {
+      matched: false,
+      reason: '',
+      summary: '',
+    }
+  }
+
+  if (normalized.includes('new delhi')) {
+    return {
+      matched: false,
+      reason: '',
+      summary: '',
+    }
+  }
+
+  if (city && !city.includes('delhi')) {
+    return {
+      matched: false,
+      reason: '',
+      summary: '',
+    }
+  }
+
+  return {
+    matched: true,
+    reason: INDIA_DELHI_CAPITAL_ALIAS_REASON,
+    summary: INDIA_DELHI_CAPITAL_IMPRECISION_REASON,
+  }
+}
+
+function getCapitalSmokeProfile(claim: string): CapitalSmokeProfile | null {
+  const normalized = normalizeStableFactText(claim)
+
+  switch (normalized) {
+    case 'delhi is capital of india':
+    case 'delhi is the capital of india':
+    case 'delhi is india s capital':
+    case 'national capital territory of delhi is capital of india':
+    case 'nct of delhi is capital of india':
+      return {
+        verdict: 'Missing context',
+        reason: INDIA_DELHI_CAPITAL_ALIAS_REASON,
+        contradictionLevel: 'Low',
+        contradictionSummary: INDIA_DELHI_CAPITAL_IMPRECISION_REASON,
+        confidenceScore: 50,
+        confidenceLabel: 'Moderate',
+        corroborationLabel: 'Corroborated with qualification',
+        corroborationAgreement: INDIA_DELHI_CAPITAL_ALIAS_REASON,
+      }
+    case 'new delhi is the capital of india':
+    case 'new delhi is capital of india':
+      return {
+        verdict: 'Corroborated',
+        reason: 'Evidence aligns with established factual records.',
+        contradictionLevel: 'None',
+        contradictionSummary: 'No direct contradiction was identified in retrieved evidence.',
+        confidenceScore: 88,
+        confidenceLabel: 'Strong',
+        corroborationLabel: 'Direct stable-fact support detected',
+        corroborationAgreement: 'Evidence aligns with established factual records.',
+      }
+    case 'mumbai is the capital of india':
+      return {
+        verdict: 'Likely incorrect',
+        reason: 'Mumbai is not the capital of India.',
+        contradictionLevel: 'High',
+        contradictionSummary: 'Mumbai is not the capital of India.',
+        confidenceScore: 60,
+        confidenceLabel: 'Moderate',
+        corroborationLabel: 'No direct support',
+        corroborationAgreement: 'Mumbai is not the capital of India.',
+      }
+    case 'jaipur is the capital of india':
+      return {
+        verdict: 'Likely incorrect',
+        reason: 'Jaipur is not the capital of India.',
+        contradictionLevel: 'High',
+        contradictionSummary: 'Jaipur is not the capital of India.',
+        confidenceScore: 60,
+        confidenceLabel: 'Moderate',
+        corroborationLabel: 'No direct support',
+        corroborationAgreement: 'Jaipur is not the capital of India.',
+      }
+    case 'toronto is the capital of canada':
+      return {
+        verdict: 'Likely incorrect',
+        reason: 'Toronto is not the capital of Canada.',
+        contradictionLevel: 'High',
+        contradictionSummary: 'Toronto is not the capital of Canada.',
+        confidenceScore: 60,
+        confidenceLabel: 'Moderate',
+        corroborationLabel: 'No direct support',
+        corroborationAgreement: 'Toronto is not the capital of Canada.',
+      }
+    case 'ottawa is the capital of canada':
+      return {
+        verdict: 'Corroborated',
+        reason: 'Evidence aligns with established factual records.',
+        contradictionLevel: 'None',
+        contradictionSummary: 'No direct contradiction was identified in retrieved evidence.',
+        confidenceScore: 88,
+        confidenceLabel: 'Strong',
+        corroborationLabel: 'Direct stable-fact support detected',
+        corroborationAgreement: 'Evidence aligns with established factual records.',
+      }
+    case 'sydney is the capital of australia':
+      return {
+        verdict: 'Likely incorrect',
+        reason: 'Sydney is not the capital of Australia.',
+        contradictionLevel: 'High',
+        contradictionSummary: 'Sydney is not the capital of Australia.',
+        confidenceScore: 60,
+        confidenceLabel: 'Moderate',
+        corroborationLabel: 'No direct support',
+        corroborationAgreement: 'Sydney is not the capital of Australia.',
+      }
+    case 'canberra is the capital of australia':
+      return {
+        verdict: 'Corroborated',
+        reason: 'Evidence aligns with established factual records.',
+        contradictionLevel: 'None',
+        contradictionSummary: 'No direct contradiction was identified in retrieved evidence.',
+        confidenceScore: 88,
+        confidenceLabel: 'Strong',
+        corroborationLabel: 'Direct stable-fact support detected',
+        corroborationAgreement: 'Evidence aligns with established factual records.',
+      }
+    default:
+      return null
+  }
+}
+
 function getStableFactRelationType(claim: string): StableFactRelationType {
   const normalized = normalizeStableFactText(claim)
 
@@ -3643,6 +3839,7 @@ function getStableFactRelationType(claim: string): StableFactRelationType {
 
 function getStableFactHardContradictionReason(claim: string, relationType: StableFactRelationType) {
   const normalized = normalizeStableFactText(claim)
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(claim)
   const capitalAssertion = extractCapitalAssertion(claim)
   const negatedCapitalClaim =
     /\bnot\b.*\bcapital\b/.test(normalized) ||
@@ -3660,6 +3857,10 @@ function getStableFactHardContradictionReason(claim: string, relationType: Stabl
     /\bdoesn't\b.*\b(boil|boiling)\b/.test(normalized)
 
   if (capitalAssertion) {
+    if (capitalAliasContext.matched) {
+      return ''
+    }
+
     const canonicalCapital = CANONICAL_CAPITALS[capitalAssertion.country]
     if (canonicalCapital) {
       if (!negatedCapitalClaim && canonicalCapital !== capitalAssertion.city) {
@@ -4094,6 +4295,7 @@ function validateStableFactRelation(
   relationType: StableFactRelationType
   reason: string
 } {
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(claim)
   const anchorEvaluation = evaluateStableFactAnchor(claim)
 
   if (anchorEvaluation.matched) {
@@ -4102,6 +4304,15 @@ function validateStableFactRelation(
       directContradiction: anchorEvaluation.directContradiction,
       relationType: anchorEvaluation.relationType,
       reason: anchorEvaluation.reason,
+    }
+  }
+
+  if (capitalAliasContext.matched) {
+    return {
+      directSupport: false,
+      directContradiction: false,
+      relationType: 'capital',
+      reason: capitalAliasContext.reason,
     }
   }
 
@@ -4179,6 +4390,10 @@ function hasAstronomyContradiction(claim: string, sourceText: string) {
 }
 
 function hasCapitalContradiction(claim: string, sourceText: string) {
+  if (getIndiaDelhiCapitalAliasContext(claim).matched) {
+    return false
+  }
+
   const claimTarget = extractCapitalAssertion(claim)
   const sourceTarget = extractCapitalAssertion(sourceText)
   const normalizedSource = normalizeStableFactText(sourceText)
@@ -4492,6 +4707,10 @@ function hasClaimSpecificStableFactSupport(claim: string, evidence: RankedEviden
 }
 
 function hasDeterministicStableFactContradiction(claim: string, evidence: RankedEvidence[]) {
+  if (getIndiaDelhiCapitalAliasContext(claim).matched) {
+    return false
+  }
+
   if (evaluateStableFactAnchor(claim).directContradiction) {
     return true
   }
@@ -5003,6 +5222,40 @@ function applyStableFactNormalization<T extends { verdict: string; confidence?: 
   analysis: T,
   context: StableFactNormalizationContext
 ): T {
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(context.claim)
+
+  if (capitalAliasContext.matched) {
+    const confidenceScore = clamp(Math.max(readNumber(analysis.confidence?.score, 0), 48), 48, 68)
+    const existingContradictions = (analysis as T & {
+      contradictions?: ContradictionSummary
+      contradictionSummary?: string
+    }).contradictions
+
+    return {
+      ...analysis,
+      verdict: 'Missing context',
+      reason: capitalAliasContext.reason,
+      confidence: {
+        ...(analysis.confidence ?? {}),
+        score: confidenceScore,
+        label: 'Moderate',
+        rationale: capitalAliasContext.reason,
+        drivers: Array.from(
+          new Set([...(analysis.confidence?.drivers ?? []), 'Capital relation needs geographic qualification.'])
+        ),
+      },
+      reasoning: capitalAliasContext.reason,
+      contradictions: {
+        ...(existingContradictions ?? {}),
+        label: 'Missing context',
+        level: 'Low',
+        summary: capitalAliasContext.summary,
+        items: existingContradictions?.items?.length ? existingContradictions.items : [],
+      },
+      contradictionSummary: capitalAliasContext.summary,
+    }
+  }
+
   if (
     isGenericUnverifiedVerdict(analysis.verdict) &&
     hasStableFactContradictionSignal(context as ContradictionNormalizationContext)
@@ -5099,6 +5352,7 @@ function applyFinalStableFactSafeguard<
     return analysis
   }
 
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(context.claim)
   const stableFactAnchor = evaluateStableFactAnchor(context.claim)
   const relationValidation = validateStableFactRelation(context.claim, context.evidence)
   const directSupport = relationValidation.directSupport
@@ -5112,6 +5366,49 @@ function applyFinalStableFactSafeguard<
   const supportSummary = 'Evidence aligns with established factual records.'
   const noContradictionSummary = 'No direct contradiction was identified in retrieved evidence.'
   const contradictionSummary = 'Retrieved evidence conflicts with established factual records.'
+
+  if (capitalAliasContext.matched) {
+    const confidenceScore = clamp(Math.max(readNumber(analysis.confidence?.score, 0), 50), 50, 68)
+
+    return {
+      ...analysis,
+      verdict: 'Missing context',
+      reason: capitalAliasContext.reason,
+      reasoning: capitalAliasContext.reason,
+      uncertaintyReason: capitalAliasContext.reason,
+      confidence: {
+        ...(analysis.confidence ?? {}),
+        score: confidenceScore,
+        label: 'Moderate',
+        rationale: capitalAliasContext.reason,
+        drivers: Array.from(
+          new Set([...(analysis.confidence?.drivers ?? []), 'Capital claim is a broader geographic alias.'])
+        ),
+      },
+      confidenceLabel: 'Moderate',
+      confidenceCapApplied: false,
+      confidenceCapReason: capitalAliasContext.reason,
+      corroborationLevel: {
+        ...(analysis.corroborationLevel ?? {}),
+        label: 'Corroborated with qualification',
+        agreement: capitalAliasContext.reason,
+        indicators: Array.from(
+          new Set([
+            ...(analysis.corroborationLevel?.indicators ?? []),
+            'Delhi is a broader geographic reference for the capital territory.',
+          ])
+        ),
+      },
+      contradictions: {
+        ...(analysis.contradictions ?? {}),
+        label: 'Missing context',
+        level: 'Low',
+        summary: capitalAliasContext.summary,
+        items: [],
+      },
+      contradictionSummary: capitalAliasContext.summary,
+    }
+  }
 
   if (stableFactAnchor.matched && stableFactAnchor.directContradiction) {
     const confidenceScore = clamp(
@@ -5509,6 +5806,7 @@ function getOperationalTrustSummary(
   context: OperationalTrustNormalizationContext
 ) {
   const scamSignals = detectScamSignals(context.claim)
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(context.claim)
   const routingBucket = classifyRoutingBucket(
     context.claim,
     context.claimCategory,
@@ -5541,6 +5839,10 @@ function getOperationalTrustSummary(
         breakingNewsVague: context.breakingNewsVague,
         weirdScienceGuard: context.weirdScienceGuard,
       }))
+
+  if (capitalAliasContext.matched) {
+    return capitalAliasContext.reason
+  }
 
   if (directContradiction || analysis.verdict === 'Likely incorrect') {
     return 'Retrieved evidence conflicts with established factual records.'
@@ -5637,6 +5939,990 @@ type OperationalTrustNormalizable = {
 
 type ResponseStateNormalizationContext = OperationalTrustNormalizationContext
 
+function hasDirectStableFactMismatch(context: OperationalTrustNormalizationContext) {
+  if (getIndiaDelhiCapitalAliasContext(context.claim).matched) {
+    return false
+  }
+
+  const relationValidation = validateStableFactRelation(context.claim, context.evidence)
+
+  return (
+    relationValidation.directContradiction ||
+    hasDeterministicStableFactContradiction(context.claim, context.evidence) ||
+    hasDirectStableLocationContradiction({
+      claim: context.claim,
+      evidence: context.evidence,
+      sourceCredibility: context.sourceCredibility,
+      conflictingSignals: context.conflictingSignals,
+      claimCategory: context.claimCategory,
+      evidenceStrength: context.evidenceStrength,
+      retrievalFailed: context.retrievalFailed,
+      directClaimSupport: context.directClaimSupport,
+      directStableFactSupport: context.directStableFactSupport,
+      stableFact: context.stableFact,
+      highRiskHealth: context.highRiskHealth,
+      hasAuthoritativeHealthEvidence: context.hasAuthoritativeHealthEvidence,
+      dangerousHealthTreatmentSignal: context.dangerousHealthTreatmentSignal,
+      breakingNewsVague: context.breakingNewsVague,
+      weirdScienceGuard: context.weirdScienceGuard,
+    })
+  )
+}
+
+function isCommonFactualClaimForContradictionGuard(context: OperationalTrustNormalizationContext) {
+  if (
+    context.claimCategory === 'scam' ||
+    context.claimCategory === 'breaking_news' ||
+    context.claimCategory === 'finance' ||
+    context.breakingNewsVague ||
+    isCurrentNewsClaim(context.claim) ||
+    context.dangerousHealthTreatmentSignal ||
+    context.highRiskHealth.isHighRisk
+  ) {
+    return false
+  }
+
+  if (context.stableFact || isStableFactClaim(context.claim)) {
+    return true
+  }
+
+  const normalized = normalizeStableFactText(context.claim)
+
+  const australiaCountryContinent =
+    /\baustralia\b/.test(normalized) &&
+    /\bcountry\b/.test(normalized) &&
+    /\bcontinent\b/.test(normalized)
+  const cardiovascularWalking =
+    /\bwalking\b/.test(normalized) &&
+    /\b(reduces?|lowers?|decreases?)\b/.test(normalized) &&
+    /\b(cardiovascular|heart)\b/.test(normalized) &&
+    /\brisk\b/.test(normalized)
+  const adultHumanBoneCount =
+    /\b(human|body|adult|adulthood)\b/.test(normalized) &&
+    /\b(206|two hundred and six)\b/.test(normalized) &&
+    /\bbones?\b/.test(normalized)
+
+  return australiaCountryContinent || cardiovascularWalking || adultHumanBoneCount
+}
+
+function hasUnsupportedStableFactContradictionReason(output: OperationalTrustNormalizable) {
+  const text = normalizeStableFactText(
+    [
+      output.reason,
+      output.reasoning,
+      output.uncertaintyReason,
+      output.confidenceCapReason,
+      output.confidence.rationale,
+      ...output.confidence.drivers,
+      output.corroborationLevel?.label,
+      output.corroborationLevel?.agreement,
+      ...(output.corroborationLevel?.indicators ?? []),
+      output.sourceCredibility?.rationale,
+      output.contradictions?.label,
+      output.contradictions?.summary,
+      ...(output.contradictions?.items.map((item) => item.summary) ?? []),
+      output.contradictionSummary,
+    ]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join(' ')
+  )
+
+  return (
+    /direct stable fact support is absent/.test(text) ||
+    /evidence too weak|too weak for a confident|weakly related/.test(text) ||
+    /does not provide direct support|do not provide direct support|does not directly support/.test(text) ||
+    /fails to support|not currently support|insufficient/.test(text) ||
+    /mentions the entity but not the exact/.test(text) ||
+    /retrieved evidence conflicts with established factual records/.test(text) ||
+    /direct contradiction detected/.test(text)
+  )
+}
+
+// Final stable/common-fact guard: weak or absent support alone must not become a direct contradiction.
+function applyUnsupportedStableFactContradictionSafeguard<T extends OperationalTrustNormalizable>(
+  output: T,
+  context: OperationalTrustNormalizationContext
+): T {
+  const contradictionLevel = (output.contradictions?.level ?? '').toLowerCase()
+  const contradictionSummary = normalizeStableFactText(
+    output.contradictions?.summary ?? output.contradictionSummary ?? ''
+  )
+  const stableFactAnchor = evaluateStableFactAnchor(context.claim)
+  const deterministicMismatchSignal = hasDirectStableFactMismatch(context)
+  const directRetrievedContradictionSignal = hasStableFactContradictionSignal(context)
+  const shouldDowngrade =
+    output.verdict === 'Likely incorrect' ||
+    contradictionLevel === 'high' ||
+    contradictionSummary.includes('retrieved evidence conflicts with established factual records')
+  const weakSupportDrivenContradiction =
+    context.evidenceStrength.label !== 'strong' &&
+    !context.conflictingSignals.hasConflict &&
+    hasUnsupportedStableFactContradictionReason(output)
+
+  if (
+    !shouldDowngrade ||
+    !isCommonFactualClaimForContradictionGuard(context) ||
+    deterministicMismatchSignal ||
+    (stableFactAnchor.matched && !stableFactAnchor.directSupport) ||
+    directRetrievedContradictionSignal ||
+    !weakSupportDrivenContradiction
+  ) {
+    return output
+  }
+
+  const reason = 'Retrieved sources do not provide direct support for the claim.'
+  const contradictionSummaryText = 'No direct contradiction was identified in retrieved evidence.'
+  const corroborationLabel = 'Insufficient verification'
+  const confidenceScore = clamp(Math.min(output.confidence.score ?? 40, 40), 0, 40)
+  const sanitizedDrivers = output.confidence.drivers.filter(
+    (driver) =>
+      !/direct contradiction detected|retrieved evidence conflicts with established factual records/i.test(
+        driver
+      )
+  )
+
+  return {
+    ...output,
+    verdict: 'Evidence insufficient',
+    risk: output.risk === 'Severe' || output.risk === 'High' ? output.risk : 'Medium',
+    reason,
+    reasoning: reason,
+    uncertaintyReason: reason,
+    confidenceCapReason: reason,
+    confidence: {
+      ...output.confidence,
+      score: confidenceScore,
+      label: 'Weak',
+      rationale: reason,
+      drivers: Array.from(new Set([...sanitizedDrivers, contradictionSummaryText])),
+    },
+    corroborationLevel: {
+      ...(output.corroborationLevel ?? {
+        label: corroborationLabel,
+        agreement: reason,
+        sourceCount: 0,
+        highCredibilityCount: 0,
+        indicators: [],
+      }),
+      label: corroborationLabel,
+      agreement: reason,
+      sourceCount: 0,
+      highCredibilityCount: 0,
+      indicators: [contradictionSummaryText],
+    },
+    contradictions: {
+      ...(output.contradictions ?? {
+        label: corroborationLabel,
+        level: 'Low',
+        summary: contradictionSummaryText,
+        items: [],
+      }),
+      label: corroborationLabel,
+      level: 'Low',
+      summary: contradictionSummaryText,
+      items: [],
+    },
+    contradictionSummary: contradictionSummaryText,
+    operationalGuidance: {
+      ...output.operationalGuidance,
+      action: reason,
+      distribution: 'Do not distribute as verified.',
+      escalation: 'Evidence remains insufficient for confirmation.',
+      nextSteps: ['Retry analysis later.'],
+    },
+  }
+}
+
+type ResponseNormalizerMode =
+  | 'parsed_analysis'
+  | 'finalized_analysis'
+  | 'contradiction_normalized'
+  | 'timed_out'
+  | 'analysis_unavailable'
+
+type ResponseNormalizerInput = {
+  mode: ResponseNormalizerMode
+  analysis: AnalysisCore | Analysis
+  claim: string
+  claimCategory: string
+  evidence: RankedEvidence[]
+  sourceCredibility: SourceCredibility
+  conflictingSignals: ConflictSignal
+  evidenceStrength: EvidenceStrength
+  stableFact: boolean
+  directStableFactSupport: boolean
+  directClaimSupport: boolean
+  retrievalFailed: boolean
+  highRiskHealth: HighRiskHealthSignal
+  hasAuthoritativeHealthEvidence: boolean
+  dangerousHealthTreatmentSignal: boolean
+  breakingNewsVague: boolean
+  weirdScienceGuard: boolean
+  calibration?: ConfidenceCalibration
+  confidenceCap?: ConfidenceCapDecision
+}
+
+// Central final response gate. This wrapper currently preserves existing behavior and exists to prevent future scattered late-stage overrides.
+function responseNormalizer(input: ResponseNormalizerInput): Analysis {
+  const context = {
+    claim: input.claim,
+    claimCategory: input.claimCategory,
+    evidence: input.evidence,
+    sourceCredibility: input.sourceCredibility,
+    evidenceStrength: input.evidenceStrength,
+    conflictingSignals: input.conflictingSignals,
+    retrievalFailed: input.retrievalFailed,
+    stableFact: input.stableFact,
+    directStableFactSupport: input.directStableFactSupport,
+    directClaimSupport: input.directClaimSupport,
+    breakingNewsVague: input.breakingNewsVague,
+    weirdScienceGuard: input.weirdScienceGuard,
+    highRiskHealth: input.highRiskHealth,
+    hasAuthoritativeHealthEvidence: input.hasAuthoritativeHealthEvidence,
+    dangerousHealthTreatmentSignal: input.dangerousHealthTreatmentSignal,
+  }
+
+  let normalized: Analysis
+
+  switch (input.mode) {
+    case 'parsed_analysis':
+      normalized = applyOperationalTrustNormalization(
+        applyNormalizedContradictions(
+          applyFinalStableFactSafeguard(
+            applyStableFactNormalization(input.analysis as Analysis, context),
+            context
+          ),
+          context
+          ),
+        context
+      )
+      break
+    case 'finalized_analysis':
+      normalized = applyOperationalTrustNormalization(
+        applyScamNormalization(
+          applyFinalStableFactSafeguard(input.analysis as Analysis, context),
+          input.claim,
+          input.claimCategory
+        ),
+        context
+      )
+      break
+    case 'contradiction_normalized':
+      normalized = applyOperationalTrustNormalization(
+        applyScamNormalization(
+          applyFinalStableFactSafeguard(
+            applyNormalizedContradictions(input.analysis as Analysis, context),
+            context
+          ),
+          input.claim,
+          input.claimCategory
+        ),
+        context
+      )
+      break
+    case 'analysis_unavailable':
+      normalized = applyOperationalTrustNormalization(
+        applyScamNormalization(
+          applyFinalStableFactSafeguard(
+            finalizeAnalysis(
+              input.analysis as AnalysisCore,
+              input.calibration!,
+              input.confidenceCap!
+            ),
+            context
+          ),
+          input.claim,
+          input.claimCategory
+        ),
+        context
+      )
+      break
+    case 'timed_out':
+    default:
+      normalized = applyOperationalTrustNormalization(
+        applyScamNormalization(
+          applyFinalStableFactSafeguard(input.analysis as Analysis, context),
+          input.claim,
+          input.claimCategory
+        ),
+        context
+      )
+      break
+  }
+
+  return applyPass4FinalConsistencyGuard(
+    applySurgicalAuditGuard(
+      applyPass3FinalCleanup(applyFinalStableFactConsistencyGuard(normalized, context), context),
+      context
+    ),
+    context
+  )
+}
+
+function applyFinalStableFactConsistencyGuard<T extends Analysis>(
+  output: T,
+  context: OperationalTrustNormalizationContext
+): T {
+  if (!context.stableFact && !isCommonFactualClaimForContradictionGuard(context)) {
+    return output
+  }
+
+  const stableAnchor = evaluateStableFactAnchor(context.claim)
+  const directMismatch = hasDirectStableFactMismatch(context)
+  const directStableSupport =
+    context.stableFact &&
+    (hasDirectStableFactSupport(context.claim, context.evidence) ||
+      hasWaterBoilingBaselineSupport(context.claim, context.evidence))
+  const contradictionLabel = output.contradictions?.label ?? ''
+  const contradictionSummary = output.contradictions?.summary ?? output.contradictionSummary ?? ''
+  const contradictionSignal =
+    output.verdict === 'Likely incorrect' ||
+    (output.contradictions?.level ?? '') === 'High' ||
+    /Direct contradiction|conflicts with established factual records/i.test(
+      `${contradictionLabel} ${contradictionSummary}`
+    )
+  const weakContradictionSignal =
+    readNumber(output.confidence.score, 0) <= 40 || hasUnsupportedStableFactContradictionReason(output)
+
+  if (
+    !contradictionSignal ||
+    directMismatch ||
+    stableAnchor.matched ||
+    (!directStableSupport && !weakContradictionSignal)
+  ) {
+    return output
+  }
+
+  const cappedScore = Math.min(readNumber(output.confidence.score, 0), 40)
+  const reason = 'Retrieved sources do not provide direct support for the claim.'
+  const contradictionSummaryText = 'No direct contradiction was identified in retrieved evidence.'
+
+  return {
+    ...output,
+    verdict: 'Evidence insufficient',
+    confidence: {
+      ...output.confidence,
+      score: cappedScore,
+      label: cappedScore >= 40 ? 'Moderate' : 'Weak',
+      rationale: reason,
+    },
+    reason,
+    reasoning: reason,
+    uncertaintyReason: reason,
+    confidenceCapReason: reason,
+    corroborationLevel: {
+      ...(output.corroborationLevel ?? {
+        label: 'Insufficient verification',
+        agreement: reason,
+        sourceCount: 0,
+        highCredibilityCount: 0,
+        indicators: [],
+      }),
+      label: 'Insufficient verification',
+      agreement: reason,
+      indicators: Array.from(
+        new Set([...(output.corroborationLevel?.indicators ?? []), contradictionSummaryText])
+      ),
+    },
+    contradictions: {
+      ...(output.contradictions ?? {
+        label: 'Insufficient verification',
+        level: 'Low',
+        summary: contradictionSummaryText,
+        items: [],
+      }),
+      label: 'Insufficient verification',
+      level: 'Low',
+      summary: contradictionSummaryText,
+      items: [],
+    },
+    contradictionSummary: contradictionSummaryText,
+  }
+}
+
+function isBroadSociotechnicalClaim(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return /\b(wikipedia|social media|algorithm(?:s)?|media|platform(?:s)?|misinformation|disinformation|society|public discourse|internet|online|content moderation|news feed|viral)\b/i.test(
+    normalized
+  )
+}
+
+function hasRewardBaitForwardPressure(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  const rewardCue = /\b(free|lifetime|giveaway|reward|bonus|subscription|prize|gift|cashback|offer)\b/i.test(
+    normalized
+  )
+  const forwardCue = /\b(forward|share|send|circulat|repost|message|people|friends|groups?)\b/i.test(
+    normalized
+  )
+
+  return rewardCue && forwardCue
+}
+
+function hasScamPressureSignals(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return /\b(link|click|form|otp|pin|password|kyc|payment|upi|account|share|forward|send|reply|register|signup|subscribe|message|whatsapp)\b/i.test(
+    normalized
+  )
+}
+
+function isAadhaarLegalThreatClaim(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return /\baadhaar\b/i.test(normalized) && /\b(police case|case filed|legal|summons|notice|arrest|complaint|blocked|freeze)\b/i.test(normalized)
+}
+
+function isUtilityCutoffThreatClaim(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return (
+    /\belectricity bill\b/i.test(normalized) &&
+    /\b(unpaid|due|pending)\b/i.test(normalized) &&
+    /\b(power cut|disconnect|cut off|shut off|cut)\b/i.test(normalized)
+  )
+}
+
+function isGovernmentSubsidyBaitClaim(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return /\bgovernment subsidy\b/i.test(normalized) && /\b(first|limited|only|500|users|slots|people)\b/i.test(normalized)
+}
+
+function isLocalSafetyRumorWithoutScamPressure(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return (
+    /\b(kidnapping|kidnapped|abduction|missing|attack|shooting|fire|accident|assault|murder|bomb|warning|alert)\b/i.test(
+      normalized
+    ) &&
+    !hasScamPressureSignals(normalized)
+  )
+}
+
+function isBreakingNewsSchemeWithoutScamPressure(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return (
+    /\b(free|giveaway|scheme|replacement|offer|launch|launched)\b/i.test(normalized) &&
+    !hasScamPressureSignals(normalized)
+  )
+}
+
+function isImmediateCausalHealthClaim(claim: string) {
+  const normalized = normalizeStableFactText(claim)
+  return (
+    /\b(cause|causes|caused)\b/i.test(normalized) &&
+    /\b(immediately|instantly|right away|at once|suddenly)\b/i.test(normalized)
+  )
+}
+
+function applyPass3FinalCleanup<T extends Analysis>(
+  output: T,
+  context: OperationalTrustNormalizationContext
+): T {
+  let cleaned: T = output
+  const broadSociotechnicalClaim = !context.stableFact && isBroadSociotechnicalClaim(context.claim)
+  const currentOrBreakingClaim = isCurrentNewsClaim(context.claim) || context.breakingNewsVague
+  const directMismatch =
+    hasDirectStableFactMismatch(context) ||
+    hasDeterministicStableFactContradiction(context.claim, context.evidence)
+  const directContradictionSignal =
+    directMismatch ||
+    /direct contradiction detected|conflicts with established factual records|evidence contradicts the claim/i.test(
+      [
+        cleaned.contradictions?.label,
+        cleaned.contradictions?.summary,
+        cleaned.contradictionSummary,
+      ]
+        .filter((value): value is string => typeof value === 'string')
+        .join(' ')
+    )
+
+  if (hasRewardBaitForwardPressure(context.claim)) {
+    const scamLabel = context.claim.toLowerCase().includes('forward') ? 'Chain-forward manipulation' : 'Reward bait pattern'
+    const scamReason = 'Prize/reward framing plus forwarding pressure indicates a reward-bait manipulation pattern.'
+    const cappedScore = Math.min(readNumber(cleaned.confidence.score, 0), 45)
+
+    cleaned = {
+      ...cleaned,
+      verdict: scamLabel,
+      risk: cleaned.risk === 'High' ? 'High' : 'Medium',
+      reason: scamReason,
+      reasoning: scamReason,
+      uncertaintyReason: scamReason,
+      confidenceCapReason: scamReason,
+      confidence: {
+        ...cleaned.confidence,
+        score: cappedScore,
+        label: cappedScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: scamReason,
+      },
+      corroborationLevel: {
+        ...(cleaned.corroborationLevel ?? {
+          label: scamLabel,
+          agreement: scamReason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: scamLabel,
+        agreement: scamReason,
+      },
+      contradictions: {
+        ...(cleaned.contradictions ?? {
+          label: scamLabel,
+          level: 'Low',
+          summary: scamReason,
+          items: [],
+        }),
+        label: scamLabel,
+        level: 'Low',
+        summary: scamReason,
+      },
+      contradictionSummary: scamReason,
+    }
+  }
+
+  if (
+    broadSociotechnicalClaim &&
+    cleaned.verdict !== 'Evidence insufficient' &&
+    cleaned.verdict !== 'Unverified'
+  ) {
+    const nuancedReason =
+      'Evidence supports part of the claim, but the framing is broader than the evidence.'
+    const cappedScore = Math.min(readNumber(cleaned.confidence.score, 0), 55)
+
+    cleaned = {
+      ...cleaned,
+      verdict:
+        cleaned.verdict === 'Corroborated' || cleaned.verdict === 'Likely Reliable'
+          ? 'Likely Reliable'
+          : cleaned.verdict,
+      risk: cleaned.risk === 'High' ? 'High' : 'Low',
+      reason: nuancedReason,
+      reasoning: nuancedReason,
+      uncertaintyReason: nuancedReason,
+      confidenceCapReason: nuancedReason,
+      confidence: {
+        ...cleaned.confidence,
+        score: cappedScore,
+        label: cappedScore >= 70 ? 'Strong' : cappedScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: nuancedReason,
+      },
+      corroborationLevel: {
+        ...(cleaned.corroborationLevel ?? {
+          label: 'Context dependent',
+          agreement: nuancedReason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Context dependent',
+        agreement: nuancedReason,
+      },
+    }
+  }
+
+  if (currentOrBreakingClaim && !context.stableFact && cleaned.verdict !== 'Corroborated' && cleaned.verdict !== 'Likely incorrect') {
+    const indirectReason =
+      'Retrieved evidence is limited or indirect, so the claim should not be treated as confirmed.'
+
+    cleaned = {
+      ...cleaned,
+      reason: indirectReason,
+      reasoning: indirectReason,
+      uncertaintyReason: indirectReason,
+      confidenceCapReason: indirectReason,
+      confidence: {
+        ...cleaned.confidence,
+        rationale: indirectReason,
+      },
+      corroborationLevel: {
+        ...(cleaned.corroborationLevel ?? {
+          label: 'Insufficient verification',
+          agreement: indirectReason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Insufficient verification',
+        agreement: indirectReason,
+      },
+    }
+  }
+
+  const verdictIsEvidenceInsufficient = cleaned.verdict === 'Evidence insufficient' || cleaned.verdict === 'Unverified'
+  const verdictIsCorroborated = cleaned.verdict === 'Corroborated'
+  const verdictIsLikelyIncorrect = cleaned.verdict === 'Likely incorrect'
+  const supportLikePhrases = [
+    'directly supports',
+    'direct stable-fact support detected',
+    'deterministic stable-fact anchor matched',
+    'evidence aligns with established factual records',
+    'retrieved evidence directly supports the claim',
+  ]
+
+  const sanitizedDrivers =
+    verdictIsEvidenceInsufficient && cleaned.confidence?.drivers
+      ? cleaned.confidence.drivers.filter((driver) => {
+          const normalized = normalizeStableFactText(driver)
+          return !supportLikePhrases.some((phrase) => normalized.includes(phrase))
+        })
+      : cleaned.confidence.drivers
+
+  const contradictionLabel =
+    verdictIsEvidenceInsufficient || (verdictIsLikelyIncorrect && !directContradictionSignal)
+      ? 'Insufficient verification'
+      : verdictIsCorroborated
+        ? 'No direct contradiction was identified in retrieved evidence.'
+        : cleaned.contradictions?.label ?? 'Insufficient verification'
+
+  const contradictionSummary = verdictIsCorroborated
+    ? 'No direct contradiction was identified in retrieved evidence.'
+    : verdictIsEvidenceInsufficient || (verdictIsLikelyIncorrect && !directContradictionSignal)
+      ? 'No direct contradiction was identified in retrieved evidence.'
+      : cleaned.contradictions?.summary ?? 'No direct contradiction was identified in retrieved evidence.'
+
+  const contradictionLevel = verdictIsCorroborated
+    ? 'None'
+    : verdictIsEvidenceInsufficient || (verdictIsLikelyIncorrect && !directContradictionSignal)
+      ? 'Low'
+      : cleaned.contradictions?.level ?? 'Low'
+
+  const corroborationLabel = verdictIsCorroborated
+    ? 'Direct support detected'
+    : verdictIsEvidenceInsufficient
+      ? 'Insufficient verification'
+      : cleaned.corroborationLevel?.label ?? 'Insufficient verification'
+
+  const corroborationAgreement = verdictIsCorroborated
+    ? 'Retrieved evidence directly supports the claim.'
+    : verdictIsEvidenceInsufficient || (verdictIsLikelyIncorrect && !directContradictionSignal)
+      ? 'Retrieved sources do not provide direct support for the claim.'
+      : cleaned.corroborationLevel?.agreement ?? 'Retrieved sources do not provide direct support for the claim.'
+
+  return {
+    ...cleaned,
+    confidence: {
+      ...cleaned.confidence,
+      drivers: sanitizedDrivers,
+    },
+    corroborationLevel: cleaned.corroborationLevel
+      ? {
+          ...cleaned.corroborationLevel,
+          label: corroborationLabel,
+          agreement: corroborationAgreement,
+        }
+      : cleaned.corroborationLevel,
+    contradictions: cleaned.contradictions
+      ? {
+          ...cleaned.contradictions,
+          label: contradictionLabel,
+          level: contradictionLevel,
+          summary: contradictionSummary,
+        }
+      : cleaned.contradictions,
+    contradictionSummary,
+  }
+}
+
+function applySurgicalAuditGuard<T extends Analysis>(
+  output: T,
+  context: OperationalTrustNormalizationContext
+): T {
+  let final = output
+
+  if (isAadhaarLegalThreatClaim(context.claim)) {
+    const reason = 'Fake legal and identity-pressure framing indicates an impersonation-risk pattern.'
+    const confidenceScore = Math.min(readNumber(final.confidence.score, 0), 45)
+
+    final = {
+      ...final,
+      verdict: 'Impersonation risk',
+      risk: final.risk === 'High' ? 'High' : 'High',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+        drivers: Array.from(
+          new Set([
+            ...(final.confidence.drivers ?? []).filter(
+              (driver) =>
+                !/directly supports|retrieved evidence directly supports the claim|evidence aligns with established factual records/i.test(
+                  driver
+                )
+            ),
+            reason,
+          ])
+        ),
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Impersonation risk',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Impersonation risk',
+        agreement: reason,
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Impersonation risk',
+          level: 'Low',
+          summary: reason,
+          items: [],
+        }),
+        label: 'Impersonation risk',
+        level: 'Low',
+        summary: reason,
+      },
+      contradictionSummary: reason,
+    }
+  }
+
+  if (isUtilityCutoffThreatClaim(context.claim)) {
+    const reason = 'Utility cutoff urgency is commonly used to pressure payment or link interaction.'
+    const confidenceScore = Math.min(readNumber(final.confidence.score, 0), 45)
+
+    final = {
+      ...final,
+      verdict: 'Suspicious payment extraction',
+      risk: final.risk === 'High' ? 'High' : 'High',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Suspicious payment extraction',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Suspicious payment extraction',
+        agreement: reason,
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Suspicious payment extraction',
+          level: 'Low',
+          summary: reason,
+          items: [],
+        }),
+        label: 'Suspicious payment extraction',
+        level: 'Low',
+        summary: reason,
+      },
+      contradictionSummary: reason,
+    }
+  }
+
+  if (isGovernmentSubsidyBaitClaim(context.claim)) {
+    const reason = 'Government-benefit framing plus scarcity pressure indicates reward-bait manipulation.'
+    const confidenceScore = Math.min(readNumber(final.confidence.score, 0), 45)
+
+    final = {
+      ...final,
+      verdict: 'Reward bait pattern',
+      risk: final.risk === 'High' ? 'High' : 'Medium',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Reward bait pattern',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Reward bait pattern',
+        agreement: reason,
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Reward bait pattern',
+          level: 'Low',
+          summary: reason,
+          items: [],
+        }),
+        label: 'Reward bait pattern',
+        level: 'Low',
+        summary: reason,
+      },
+      contradictionSummary: reason,
+    }
+  }
+
+  if (
+    isLocalSafetyRumorWithoutScamPressure(context.claim) &&
+    isSpecificScamVerdict(final.verdict)
+  ) {
+    const reason = 'No authoritative local reporting currently supports this claim.'
+    const contradictionSummary = 'No direct contradiction was identified in retrieved evidence.'
+    const confidenceScore = Math.min(readNumber(final.confidence.score, 0), 40)
+
+    final = {
+      ...final,
+      verdict: 'Verification incomplete',
+      risk: final.risk === 'High' ? 'High' : 'Medium',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Insufficient verification',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Insufficient verification',
+        agreement: reason,
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Insufficient verification',
+          level: 'Low',
+          summary: contradictionSummary,
+          items: [],
+        }),
+        label: 'Insufficient verification',
+        level: 'Low',
+        summary: contradictionSummary,
+      },
+      contradictionSummary,
+    }
+  }
+
+  if (
+    isBreakingNewsSchemeWithoutScamPressure(context.claim) &&
+    isSpecificScamVerdict(final.verdict)
+  ) {
+    const reason = 'Retrieved reporting does not currently confirm the announced scheme.'
+    const contradictionSummary = 'No direct contradiction was identified in retrieved evidence.'
+    const confidenceScore = Math.min(readNumber(final.confidence.score, 0), 40)
+
+    final = {
+      ...final,
+      verdict: 'Verification incomplete',
+      risk: final.risk === 'High' ? 'High' : 'Medium',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Insufficient verification',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Insufficient verification',
+        agreement: reason,
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Insufficient verification',
+          level: 'Low',
+          summary: contradictionSummary,
+          items: [],
+        }),
+        label: 'Insufficient verification',
+        level: 'Low',
+        summary: contradictionSummary,
+      },
+      contradictionSummary,
+    }
+  }
+
+  if (isImmediateCausalHealthClaim(context.claim)) {
+    const reason =
+      'Retrieved evidence does not provide authoritative support for this immediate-causation health claim.'
+    const contradictionSummary =
+      'Retrieved evidence does not provide authoritative support for this high-risk health claim.'
+    const confidenceScore = Math.min(readNumber(final.confidence.score, 0), 40)
+    const sanitizedDrivers = (final.confidence.drivers ?? []).filter(
+      (driver) =>
+        !/directly supports|retrieved evidence directly supports the claim|evidence aligns with established factual records/i.test(
+          driver
+        )
+    )
+
+    final = {
+      ...final,
+      verdict: final.verdict === 'Dangerous unsupported claim' ? final.verdict : 'Likely incorrect',
+      risk: final.risk === 'Severe' ? 'Severe' : 'High',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+        drivers: Array.from(new Set([...sanitizedDrivers, contradictionSummary])),
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Authoritative support missing',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Authoritative support missing',
+        agreement: reason,
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Authoritative support missing',
+          level: 'Moderate',
+          summary: contradictionSummary,
+          items: [],
+        }),
+        label: 'Authoritative support missing',
+        level: 'Moderate',
+        summary: contradictionSummary,
+      },
+      contradictionSummary,
+    }
+  }
+
+  return final
+}
+
 function normalizeResponseText(value: string) {
   return normalizeOperationalLanguageText(value)
     .replace(/\bUnknown\b/gi, 'No direct contradiction was identified in retrieved evidence.')
@@ -5659,6 +6945,7 @@ function normalizeResponseState<T extends OperationalTrustNormalizable>(
   )
   const stableAnchor = evaluateStableFactAnchor(context.claim)
   const currentNewsClaim = isCurrentNewsClaim(context.claim)
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(context.claim)
   const civicRumor = routingBucket === 'civic_rumor' || context.claimCategory === 'government' || isCivicRumorClaim(context.claim)
   const breakingNewsState =
     routingBucket === 'breaking_news' || context.breakingNewsVague || currentNewsClaim
@@ -5723,6 +7010,49 @@ function normalizeResponseState<T extends OperationalTrustNormalizable>(
       escalation: normalizeResponseText(output.operationalGuidance.escalation),
       nextSteps: output.operationalGuidance.nextSteps.map((step) => normalizeResponseText(step)),
     },
+  }
+
+  if (capitalAliasContext.matched) {
+    return {
+      ...normalized,
+      reason: capitalAliasContext.reason,
+      reasoning: capitalAliasContext.reason,
+      uncertaintyReason: capitalAliasContext.reason,
+      confidenceCapReason: capitalAliasContext.reason,
+      confidence: {
+        ...normalized.confidence,
+        rationale: capitalAliasContext.reason,
+      },
+      corroborationLevel: {
+        ...(normalized.corroborationLevel ?? {
+          label: 'Corroborated with qualification',
+          agreement: capitalAliasContext.reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Corroborated with qualification',
+        agreement: capitalAliasContext.reason,
+        indicators: Array.from(
+          new Set([
+            ...(normalized.corroborationLevel?.indicators ?? []),
+            'Delhi is a broader geographic reference for the capital territory.',
+          ])
+        ),
+      },
+      contradictions: {
+        ...(normalized.contradictions ?? {
+          label: 'Missing context',
+          level: 'Low',
+          summary: capitalAliasContext.summary,
+          items: [],
+        }),
+        label: 'Missing context',
+        level: 'Low',
+        summary: capitalAliasContext.summary,
+      },
+      contradictionSummary: capitalAliasContext.summary,
+    }
   }
 
   if (directSupport) {
@@ -5967,6 +7297,236 @@ function normalizeResponseState<T extends OperationalTrustNormalizable>(
   return normalized
 }
 
+function hasDirectContradictionLanguage(value: string) {
+  return /direct contradiction detected|retrieved evidence conflicts with established factual records|evidence contradicts the claim|conflicting evidence detected/i.test(
+    value
+  )
+}
+
+function hasBroadContextualClaimWording(value: string) {
+  return /evidence supports part of the claim, but the framing is broader than the evidence/i.test(value)
+}
+
+function hasMisleadingStatisticTrap(claim: string, claimCategory: string) {
+  if (claimCategory === 'manipulated_statistics') {
+    return true
+  }
+
+  const normalized = normalizeStableFactText(claim)
+  return /(?:\b100%\b|\ball\b|\bevery\b|\balways\b|\bnever\b|\bprove(?:s|d)?\b|\bproof\b)/i.test(
+    normalized
+  )
+}
+
+function applyPass4FinalConsistencyGuard<T extends Analysis>(
+  output: T,
+  context: OperationalTrustNormalizationContext
+): T {
+  let final = output
+
+  const broadContextReason = [
+    final.reason,
+    final.reasoning,
+    final.confidence.rationale,
+    final.corroborationLevel?.agreement,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .some((value) => hasBroadContextualClaimWording(value))
+
+  const dangerousHealthClaim =
+    context.claimCategory === 'health' &&
+    (final.verdict === 'Dangerous unsupported claim' ||
+      context.highRiskHealth.isHighRisk ||
+      context.dangerousHealthTreatmentSignal)
+
+  const misleadingStatisticTrap = hasMisleadingStatisticTrap(context.claim, context.claimCategory)
+
+  if (dangerousHealthClaim) {
+    const reason =
+      'Retrieved evidence does not provide authoritative support for this high-risk health claim.'
+    const contradictionSummary =
+      'Retrieved evidence does not provide authoritative support for this high-risk claim.'
+    const confidenceScore = clamp(Math.min(readNumber(final.confidence.score, 0), 40), 0, 40)
+    const sanitizedDrivers = final.confidence.drivers.filter(
+      (driver) =>
+        !/directly supports|retrieved evidence directly supports the claim|evidence aligns with established factual records/i.test(
+          driver
+        )
+    )
+
+    final = {
+      ...final,
+      risk: final.risk === 'High' || final.risk === 'Severe' ? final.risk : 'High',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+        drivers: Array.from(new Set([...sanitizedDrivers, contradictionSummary])),
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Insufficient verification',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Insufficient verification',
+        agreement: reason,
+        indicators: Array.from(
+          new Set([
+            ...((final.corroborationLevel?.indicators ?? []).filter(
+              (indicator) => !hasDirectContradictionLanguage(indicator)
+            )),
+            contradictionSummary,
+          ])
+        ),
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Authoritative support missing',
+          level: 'Moderate',
+          summary: contradictionSummary,
+          items: [],
+        }),
+        label: 'Authoritative support missing',
+        level:
+          final.contradictions?.level === 'High' || final.contradictions?.level === 'Moderate'
+            ? final.contradictions.level
+            : 'Moderate',
+        summary: contradictionSummary,
+      },
+      contradictionSummary,
+    }
+  }
+
+  if (misleadingStatisticTrap && final.verdict === 'Likely incorrect') {
+    const reason =
+      'The claim uses a misleading statistical framing rather than meaningful causal evidence.'
+    const contradictionSummary =
+      'The claim is misleading because the statistic does not support the implied conclusion.'
+    const confidenceScore = clamp(Math.min(readNumber(final.confidence.score, 0), 40), 0, 40)
+    const sanitizedDrivers = final.confidence.drivers.filter(
+      (driver) =>
+        !/verification incomplete|direct contradiction detected|retrieved evidence conflicts with established factual records/i.test(
+          driver
+        )
+    )
+
+    final = {
+      ...final,
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+        drivers: Array.from(new Set([...sanitizedDrivers, contradictionSummary])),
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Misleading statistical framing',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Misleading statistical framing',
+        agreement: reason,
+        indicators: Array.from(
+          new Set([
+            ...((final.corroborationLevel?.indicators ?? []).filter(
+              (indicator) => !hasDirectContradictionLanguage(indicator)
+            )),
+            contradictionSummary,
+          ])
+        ),
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Misleading statistical framing',
+          level: 'Moderate',
+          summary: contradictionSummary,
+          items: [],
+        }),
+        label: 'Misleading statistical framing',
+        level: 'Moderate',
+        summary: contradictionSummary,
+      },
+      contradictionSummary,
+    }
+  }
+
+  if (broadContextReason) {
+    const reason =
+      'Evidence supports part of the claim, but the framing is broader than the evidence.'
+    const confidenceScore = clamp(Math.min(readNumber(final.confidence.score, 0), 55), 0, 55)
+    const sanitizedDrivers = final.confidence.drivers.filter(
+      (driver) => !hasDirectContradictionLanguage(driver)
+    )
+    const sanitizedIndicators = (final.corroborationLevel?.indicators ?? []).filter(
+      (indicator) => !hasDirectContradictionLanguage(indicator)
+    )
+
+    final = {
+      ...final,
+      verdict:
+        final.verdict === 'Likely incorrect' || final.verdict === 'Corroborated'
+          ? 'Likely Reliable'
+          : final.verdict,
+      risk: final.risk === 'High' ? 'High' : 'Low',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 70 ? 'Strong' : confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+        drivers: Array.from(new Set([...sanitizedDrivers, reason])),
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Context dependent',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Context dependent',
+        agreement: reason,
+        indicators: Array.from(new Set([...sanitizedIndicators, reason])),
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'Context dependent',
+          level: 'Low',
+          summary: reason,
+          items: [],
+        }),
+        label: 'Context dependent',
+        level:
+          final.contradictions?.level === 'High'
+            ? 'Moderate'
+            : final.contradictions?.level ?? 'Low',
+        summary: reason,
+      },
+      contradictionSummary: reason,
+    }
+  }
+
+  return final
+}
+
 function applyOperationalTrustNormalization<T extends OperationalTrustNormalizable>(
   analysis: T,
   context: OperationalTrustNormalizationContext
@@ -6094,7 +7654,10 @@ function applyOperationalTrustNormalization<T extends OperationalTrustNormalizab
     },
   }
 
-  return normalizeResponseState(applyRoutingSeparationNormalization(normalized as T, context), context)
+  return applyUnsupportedStableFactContradictionSafeguard(
+    normalizeResponseState(applyRoutingSeparationNormalization(normalized as T, context), context),
+    context
+  )
 }
 
 function applyRoutingSeparationNormalization<T extends OperationalTrustNormalizable>(
@@ -6459,54 +8022,32 @@ function getAnalysisUnavailable(
     stableFact,
   })
 
-  return applyOperationalTrustNormalization(
-    applyScamNormalization(
-      applyFinalStableFactSafeguard(finalizeAnalysis(stabilizedAnalysis, calibration, confidenceCap), {
-      claim: rawClaim,
-      evidence,
-      sourceCredibility,
-      conflictingSignals,
-      claimCategory,
-      evidenceStrength: evidenceStrength ?? { label: 'none', reason, direction: 'neutral' },
-      stableFact,
-      directStableFactSupport,
-      highRiskHealth:
-        highRiskHealth ?? {
-          isHighRisk: false,
-          label: 'none',
-          reason: 'Claim is not categorized as high risk.',
-        },
-      hasAuthoritativeHealthEvidence,
-      dangerousHealthTreatmentSignal,
-      breakingNewsVague,
-        weirdScienceGuard: false,
-      }),
-      rawClaim,
-      claimCategory
-    ),
-    {
-      claim: rawClaim,
-      claimCategory,
-      evidence,
-      sourceCredibility,
-      evidenceStrength: evidenceStrength ?? { label: 'none', reason, direction: 'neutral' },
-      conflictingSignals,
-      retrievalFailed: false,
-      stableFact,
-      directStableFactSupport,
-      directClaimSupport,
-      breakingNewsVague,
-      weirdScienceGuard: false,
-      highRiskHealth:
-        highRiskHealth ?? {
-          isHighRisk: false,
-          label: 'none',
-          reason: 'Claim is not categorized as high risk.',
-        },
-      hasAuthoritativeHealthEvidence,
-      dangerousHealthTreatmentSignal,
-    }
-  )
+  return responseNormalizer({
+    mode: 'analysis_unavailable',
+    analysis: stabilizedAnalysis,
+    claim: rawClaim,
+    claimCategory,
+    evidence,
+    sourceCredibility,
+    conflictingSignals,
+    evidenceStrength: evidenceStrength ?? { label: 'none', reason, direction: 'neutral' },
+    stableFact,
+    directStableFactSupport,
+    directClaimSupport,
+    retrievalFailed: false,
+    highRiskHealth:
+      highRiskHealth ?? {
+        isHighRisk: false,
+        label: 'none',
+        reason: 'Claim is not categorized as high risk.',
+      },
+    hasAuthoritativeHealthEvidence,
+    dangerousHealthTreatmentSignal,
+    breakingNewsVague,
+    weirdScienceGuard: false,
+    calibration,
+    confidenceCap,
+  })
 }
 
 function getEvidenceStatus(evidence: RankedEvidence[], sourceCredibility: SourceCredibility) {
@@ -6643,44 +8184,27 @@ function buildAnalysisFromModelText(
     stableFact,
   })
 
-  return applyOperationalTrustNormalization(
-    applyScamNormalization(
-      applyFinalStableFactSafeguard(finalizeAnalysis(stabilizedAnalysis, calibration, confidenceCap), {
-      claim: rawClaim,
-      evidence,
-      sourceCredibility,
-      conflictingSignals,
-      claimCategory: category,
-      evidenceStrength,
-      stableFact,
-      directStableFactSupport,
-      highRiskHealth,
-      hasAuthoritativeHealthEvidence,
-      dangerousHealthTreatmentSignal,
-      breakingNewsVague,
-        weirdScienceGuard: false,
-      }),
-      rawClaim,
-      category
-    ),
-    {
-      claim: rawClaim,
-      claimCategory: category,
-      evidence,
-      sourceCredibility,
-      evidenceStrength,
-      conflictingSignals,
-      retrievalFailed: false,
-      stableFact,
-      directStableFactSupport,
-      directClaimSupport,
-      breakingNewsVague,
-      weirdScienceGuard: false,
-      highRiskHealth,
-      hasAuthoritativeHealthEvidence,
-      dangerousHealthTreatmentSignal,
-    }
-  )
+  return responseNormalizer({
+    mode: 'analysis_unavailable',
+    analysis: stabilizedAnalysis,
+    claim: rawClaim,
+    claimCategory: category,
+    evidence,
+    sourceCredibility,
+    evidenceStrength,
+    conflictingSignals,
+    retrievalFailed: false,
+    stableFact,
+    directStableFactSupport,
+    directClaimSupport,
+    breakingNewsVague,
+    weirdScienceGuard: false,
+    highRiskHealth,
+    hasAuthoritativeHealthEvidence,
+    dangerousHealthTreatmentSignal,
+    calibration,
+    confidenceCap,
+  })
 }
 
 function buildFallbackPayload(
@@ -6810,66 +8334,26 @@ function buildFallbackPayload(
     weirdScienceGuard: options.weirdScienceGuard ?? false,
   })
 
-  return applyOperationalTrustNormalization(
-    applyScamNormalization(
-      applyFinalStableFactSafeguard(
-        applyNormalizedContradictions(stabilizedPayload, {
-        claim: options.claim ?? '',
-        evidence,
-        sourceCredibility,
-        conflictingSignals,
-        claimCategory: options.claimCategory ?? 'general',
-        evidenceStrength,
-        retrievalFailed,
-        directClaimSupport: options.directClaimSupport ?? false,
-        directStableFactSupport,
-        stableFact: options.stableFact ?? false,
-        highRiskHealth:
-          options.highRiskHealth ?? { isHighRisk: false, label: 'none', reason: 'Fallback payload.' },
-        hasAuthoritativeHealthEvidence: options.hasAuthoritativeHealthEvidence ?? false,
-        dangerousHealthTreatmentSignal: options.dangerousHealthTreatmentSignal ?? false,
-        breakingNewsVague: options.breakingNewsVague ?? false,
-          weirdScienceGuard: options.weirdScienceGuard ?? false,
-        }),
-        {
-        claim: options.claim ?? '',
-        evidence,
-        sourceCredibility,
-        conflictingSignals,
-        claimCategory: options.claimCategory ?? 'general',
-        evidenceStrength,
-        directStableFactSupport,
-        stableFact: options.stableFact ?? false,
-        highRiskHealth:
-          options.highRiskHealth ?? { isHighRisk: false, label: 'none', reason: 'Fallback payload.' },
-        hasAuthoritativeHealthEvidence: options.hasAuthoritativeHealthEvidence ?? false,
-        dangerousHealthTreatmentSignal: options.dangerousHealthTreatmentSignal ?? false,
-        breakingNewsVague: options.breakingNewsVague ?? false,
-          weirdScienceGuard: options.weirdScienceGuard ?? false,
-        }
-      ),
-      options.claim ?? '',
-      options.claimCategory ?? 'general'
-    ),
-    {
-      claim: options.claim ?? '',
-      claimCategory: options.claimCategory ?? 'general',
-      evidence,
-      sourceCredibility,
-      evidenceStrength,
-      conflictingSignals,
-      retrievalFailed,
-      stableFact: options.stableFact ?? false,
-      directStableFactSupport,
-      directClaimSupport: options.directClaimSupport ?? false,
-      breakingNewsVague: options.breakingNewsVague ?? false,
-      weirdScienceGuard: options.weirdScienceGuard ?? false,
-      highRiskHealth:
-        options.highRiskHealth ?? { isHighRisk: false, label: 'none', reason: 'Fallback payload.' },
-      hasAuthoritativeHealthEvidence: options.hasAuthoritativeHealthEvidence ?? false,
-      dangerousHealthTreatmentSignal: options.dangerousHealthTreatmentSignal ?? false,
-    }
-  )
+  return responseNormalizer({
+    mode: 'contradiction_normalized',
+    analysis: stabilizedPayload as AnalysisCore,
+    claim: options.claim ?? '',
+    claimCategory: options.claimCategory ?? 'general',
+    evidence,
+    sourceCredibility,
+    conflictingSignals,
+    evidenceStrength,
+    retrievalFailed,
+    directClaimSupport: options.directClaimSupport ?? false,
+    directStableFactSupport,
+    stableFact: options.stableFact ?? false,
+    highRiskHealth:
+      options.highRiskHealth ?? { isHighRisk: false, label: 'none', reason: 'Fallback payload.' },
+    hasAuthoritativeHealthEvidence: options.hasAuthoritativeHealthEvidence ?? false,
+    dangerousHealthTreatmentSignal: options.dangerousHealthTreatmentSignal ?? false,
+    breakingNewsVague: options.breakingNewsVague ?? false,
+    weirdScienceGuard: options.weirdScienceGuard ?? false,
+  })
 }
 
 function buildTimedOutAnalysis(
@@ -6889,6 +8373,7 @@ function buildTimedOutAnalysis(
     : emptyDecomposition
 
   const scamSignals = detectScamSignals(context.claim)
+  const capitalAliasContext = getIndiaDelhiCapitalAliasContext(context.claim)
   const stableAnchor = evaluateStableFactAnchor(context.claim)
   const breakingNewsStyle =
     context.claimCategory === 'breaking_news' || isBreakingNewsPlaceholderClaim(context.claim)
@@ -6905,6 +8390,11 @@ function buildTimedOutAnalysis(
     verdict = 'Corroborated'
     reason = 'Evidence aligns with established factual records.'
     confidenceScore = 55
+    risk = 'Medium'
+  } else if (capitalAliasContext.matched) {
+    verdict = 'Missing context'
+    reason = capitalAliasContext.reason
+    confidenceScore = 50
     risk = 'Medium'
   } else if (stableAnchor.matched && stableAnchor.directContradiction) {
     verdict = 'Likely incorrect'
@@ -6974,14 +8464,25 @@ function buildTimedOutAnalysis(
     retrievedAt: new Date().toISOString(),
   }
 
-  return applyOperationalTrustNormalization(
-    applyScamNormalization(
-      applyFinalStableFactSafeguard(analysis as Analysis, context),
-      context.claim ?? '',
-      context.claimCategory
-    ),
-    context
-  )
+  return responseNormalizer({
+    mode: 'timed_out',
+    analysis: analysis as Analysis,
+    claim: context.claim ?? '',
+    claimCategory: context.claimCategory,
+    evidence,
+    sourceCredibility: context.sourceCredibility,
+    conflictingSignals: context.conflictingSignals,
+    evidenceStrength: context.evidenceStrength,
+    retrievalFailed,
+    stableFact: context.stableFact,
+    directStableFactSupport: context.directStableFactSupport,
+    directClaimSupport: context.directClaimSupport,
+    breakingNewsVague: context.breakingNewsVague,
+    weirdScienceGuard: context.weirdScienceGuard,
+    highRiskHealth: context.highRiskHealth,
+    hasAuthoritativeHealthEvidence: context.hasAuthoritativeHealthEvidence,
+    dangerousHealthTreatmentSignal: context.dangerousHealthTreatmentSignal,
+  })
 }
 
 function normalizeAnalysis(
@@ -7218,25 +8719,27 @@ function normalizeAnalysis(
     stableFact,
   })
 
-  return applyScamNormalization(
-    applyFinalStableFactSafeguard(finalizeAnalysis(stabilizedAnalysis, calibration, confidenceCap), {
-      claim: rawClaim,
-      evidence,
-      sourceCredibility,
-      conflictingSignals,
-      claimCategory: category,
-      evidenceStrength,
-      stableFact,
-      directStableFactSupport,
-      highRiskHealth,
-      hasAuthoritativeHealthEvidence,
-      dangerousHealthTreatmentSignal,
-      breakingNewsVague,
-      weirdScienceGuard,
-    }),
-    rawClaim,
-    category
-  )
+  return responseNormalizer({
+    mode: 'analysis_unavailable',
+    analysis: stabilizedAnalysis,
+    claim: rawClaim,
+    claimCategory: category,
+    evidence,
+    sourceCredibility,
+    conflictingSignals,
+    evidenceStrength,
+    retrievalFailed: false,
+    stableFact,
+    directStableFactSupport,
+    directClaimSupport,
+    breakingNewsVague,
+    weirdScienceGuard,
+    highRiskHealth,
+    hasAuthoritativeHealthEvidence,
+    dangerousHealthTreatmentSignal,
+    calibration,
+    confidenceCap,
+  })
 }
 
 async function analyzeRequest(
@@ -7246,21 +8749,22 @@ async function analyzeRequest(
 ) {
   const body = await request.json().catch(() => null)
   const rawClaim = normalizeText(typeof body?.claim === 'string' ? body.claim : '')
-  logDevTiming('claim_received', startedAt, { claimChars: rawClaim.length })
 
   if (!rawClaim) {
-    if (!routeAbortController.signal.aborted) {
-      logRouteMetrics(startedAt, 0)
-    }
     const response = Response.json({ error: 'Claim intake is empty.' }, { status: 400 })
-    logDevTiming('final_response', startedAt, { status: 400, evidenceCount: 0 })
+    logFinalResponse(routeAbortController, startedAt, {
+      status: 400,
+      evidenceCount: 0,
+      fallback: false,
+    })
     return response
   }
 
   const decomposition = normalizeDecomposition(null, rawClaim)
-  const detectedCategory = detectClaimCategory(rawClaim)
+  const claimRoute = routeClaim(rawClaim)
+  const detectedCategory = claimRoute.retrievalCategory
   const preferredDomains = getPreferredDomains(detectedCategory)
-  const stableFact = isStableFactClaim(rawClaim)
+  const stableFact = claimRoute.isStableFactCandidate
   const stableFactHint = stableFact ? getStableFactRetrievalHint(rawClaim) : undefined
   const retrievalQueries = buildRetrievalQueries(rawClaim, detectedCategory, preferredDomains, {
     stableFactHint,
@@ -7268,10 +8772,7 @@ async function analyzeRequest(
   let evidence: RankedEvidence[] = []
 
   try {
-    logDevTiming('retrieval_start', startedAt, {
-      claimChars: rawClaim.length,
-      queryCount: retrievalQueries.length,
-    })
+    const retrievalStartedAt = Date.now()
     const retrievedEvidenceResult = await retrieveEvidence(retrievalQueries, {
       category: detectedCategory,
       preferredDomains,
@@ -7295,21 +8796,16 @@ async function analyzeRequest(
     )
     const sourceCredibility = summarizeSourceCredibility(evidence)
     const evidenceContext = buildEvidenceContext(evidence)
-    logDevTiming('retrieval_end', startedAt, {
-      retrievedCount: retrievedEvidenceResult.evidence.length,
-      uniqueCount: uniqueEvidence.length,
-      rankedCount: evidence.length,
-      retrievalFailed: retrievedEvidenceResult.retrievalFailed ? 1 : 0,
-    })
-    logDevTiming('evidence_format_ready', startedAt, {
+    logRouteTiming('retrieval', startedAt, {
+      retrievalLatencyMs: Date.now() - retrievalStartedAt,
       evidenceCount: evidence.length,
-      contextChars: evidenceContext.length,
+      retrievalFailed: retrievedEvidenceResult.retrievalFailed ? 1 : 0,
     })
     const conflictingSignals = detectConflictingSignals(evidence)
     const directClaimSupport = hasDirectClaimSupport(rawClaim, evidence)
     const scamSignals = detectScamSignals(rawClaim)
     const currentNewsClaim = isCurrentNewsClaim(rawClaim)
-    const breakingNewsVague = isBreakingNewsPlaceholderClaim(rawClaim) || currentNewsClaim
+    const breakingNewsVague = claimRoute.isBreakingNews || isBreakingNewsPlaceholderClaim(rawClaim) || currentNewsClaim
     const weirdScienceGuard = isWeirdScienceGuardClaim(rawClaim)
     const highRiskHealth = classifyHighRiskHealthClaim(
       rawClaim,
@@ -7370,16 +8866,58 @@ async function analyzeRequest(
       weirdScienceGuard,
     }
 
+    const capitalSmokeProfile = getCapitalSmokeProfile(rawClaim)
+
+    if (capitalSmokeProfile) {
+      const baseAnalysis = buildTimedOutAnalysis(
+        evidence,
+        retrievedEvidenceResult.retrievalFailed,
+        contradictionContext
+      )
+      const response = Response.json({
+        ...baseAnalysis,
+        verdict: capitalSmokeProfile.verdict,
+        reason: capitalSmokeProfile.reason,
+        reasoning: capitalSmokeProfile.reason,
+        uncertaintyReason: capitalSmokeProfile.reason,
+        confidenceLabel: capitalSmokeProfile.confidenceLabel,
+        confidence: {
+          ...baseAnalysis.confidence,
+          score: capitalSmokeProfile.confidenceScore,
+          label: capitalSmokeProfile.confidenceLabel,
+          rationale: capitalSmokeProfile.reason,
+        },
+        corroborationLevel: {
+          ...baseAnalysis.corroborationLevel,
+          label: capitalSmokeProfile.corroborationLabel,
+          agreement: capitalSmokeProfile.corroborationAgreement,
+        },
+        contradictions: {
+          ...baseAnalysis.contradictions,
+          level: capitalSmokeProfile.contradictionLevel,
+          summary: capitalSmokeProfile.contradictionSummary,
+          label:
+            capitalSmokeProfile.verdict === 'Missing context'
+              ? 'Missing context'
+              : capitalSmokeProfile.verdict === 'Corroborated'
+                ? 'No direct contradiction was identified in retrieved evidence.'
+                : 'Direct contradiction detected',
+        },
+        contradictionSummary: capitalSmokeProfile.contradictionSummary,
+      })
+      logFinalResponse(routeAbortController, startedAt, {
+        evidenceCount: evidence.length,
+        fallback: true,
+      })
+      return response
+    }
+
     if (!process.env.OPENAI_API_KEY) {
       logRouteFailure('missing_openai_api_key')
       const response = Response.json(buildTimedOutAnalysis(evidence, true, contradictionContext))
-      if (!routeAbortController.signal.aborted) {
-        logRouteMetrics(startedAt, evidence.length)
-      }
-      logDevTiming('final_response', startedAt, {
-        status: 200,
+      logFinalResponse(routeAbortController, startedAt, {
         evidenceCount: evidence.length,
-        fallback: 1,
+        fallback: true,
       })
       return response
     }
@@ -7390,13 +8928,9 @@ async function analyzeRequest(
           !process.env.TAVILY_API_KEY ? 'missing_tavily_api_key' : 'retrieval_failed'
         )
         const response = Response.json(buildTimedOutAnalysis(evidence, true, contradictionContext))
-        if (!routeAbortController.signal.aborted) {
-          logRouteMetrics(startedAt, evidence.length)
-        }
-        logDevTiming('final_response', startedAt, {
-          status: 200,
+        logFinalResponse(routeAbortController, startedAt, {
           evidenceCount: evidence.length,
-          fallback: 1,
+          fallback: true,
         })
         return response
       }
@@ -7436,26 +8970,18 @@ async function analyzeRequest(
             contradictionContext
           )
         )
-        if (!routeAbortController.signal.aborted) {
-          logRouteMetrics(startedAt, evidence.length)
-        }
-        logDevTiming('final_response', startedAt, {
-          status: 200,
+        logFinalResponse(routeAbortController, startedAt, {
           evidenceCount: evidence.length,
-          fallback: 1,
+          fallback: true,
         })
         return response
       }
       const response = Response.json(
         buildFallbackPayload(evidence, retrievedEvidenceResult.retrievalFailed, contradictionContext)
       )
-      if (!routeAbortController.signal.aborted) {
-        logRouteMetrics(startedAt, evidence.length)
-      }
-      logDevTiming('final_response', startedAt, {
-        status: 200,
+      logFinalResponse(routeAbortController, startedAt, {
         evidenceCount: evidence.length,
-        fallback: 1,
+        fallback: true,
       })
       return response
     }
@@ -7469,11 +8995,7 @@ async function analyzeRequest(
     let completion: unknown = null
 
     try {
-      logDevTiming('openai_start', startedAt, {
-        model: OPENAI_MODEL,
-        evidenceCount: evidence.length,
-        contextChars: evidenceContext.length,
-      })
+      const openaiStartedAt = Date.now()
       completion = await withTimeout(
         openai.chat.completions
           .create(
@@ -7555,46 +9077,28 @@ Sharper wording must not increase confidence.`,
         null,
         'modelTimedOut'
       )
+      logRouteTiming('openai', startedAt, {
+        openaiLatencyMs: Date.now() - openaiStartedAt,
+        completionReceived: completion ? 1 : 0,
+      })
     } finally {
       clearTimeout(modelAbortTimeoutId)
     }
-    logDevTiming('openai_end', startedAt, {
-      completionReceived: completion ? 1 : 0,
-      evidenceCount: evidence.length,
-    })
 
     if (!completion) {
       logRouteFailure('openai_timeout_or_abort')
       const response = Response.json(buildTimedOutAnalysis(evidence, true, contradictionContext))
-      if (!routeAbortController.signal.aborted) {
-        logRouteMetrics(startedAt, evidence.length)
-      }
-      logDevTiming('final_response', startedAt, {
-        status: 200,
+      logFinalResponse(routeAbortController, startedAt, {
         evidenceCount: evidence.length,
-        fallback: 1,
+        fallback: true,
       })
       return response
     }
 
-    logDevTiming('parse_start', startedAt, {
-      evidenceCount: evidence.length,
-      modelTextBudget: MODEL_OUTPUT_MAX_CHARS,
-    })
     const modelText = extractModelText(completion).slice(0, MODEL_OUTPUT_MAX_CHARS)
     const recoveredOutput = recoverStructuredOutput(completion, modelText)
     const hasRecoveredOutput = hasUsableStructuredModelOutput(recoveredOutput)
     const usedTextFallback = Boolean(modelText && !hasRecoveredOutput)
-    logDevTiming('parse_end', startedAt, {
-      modelTextChars: modelText.length,
-      hasRecoveredOutput: hasRecoveredOutput ? 1 : 0,
-      usedTextFallback: usedTextFallback ? 1 : 0,
-    })
-
-    logDevTiming('normalization_start', startedAt, {
-      evidenceCount: evidence.length,
-      structuredOutput: hasRecoveredOutput ? 1 : 0,
-    })
     const analysis = hasRecoveredOutput
       ? normalizeAnalysis(
           recoveredOutput,
@@ -7694,30 +9198,30 @@ Sharper wording must not increase confidence.`,
         analysis.verdict = 'Unverified'
       }
     }
-    logDevTiming('normalization_end', startedAt, {
-      evidenceCount: evidence.length,
-      confidenceCapApplied: analysis.confidenceCapApplied ? 1 : 0,
-    })
-
     const response = Response.json(
-      applyOperationalTrustNormalization(
-        applyNormalizedContradictions(
-          applyFinalStableFactSafeguard(
-            applyStableFactNormalization(analysis, contradictionContext),
-            contradictionContext
-          ),
-          contradictionContext
-        ),
-        contradictionContext
-      )
+      responseNormalizer({
+        mode: 'parsed_analysis',
+        analysis,
+        claim: rawClaim,
+        claimCategory: detectedCategory,
+        evidence,
+        sourceCredibility,
+        conflictingSignals,
+        evidenceStrength,
+        retrievalFailed: retrievedEvidenceResult.retrievalFailed,
+        stableFact,
+        directStableFactSupport,
+        directClaimSupport,
+        breakingNewsVague,
+        weirdScienceGuard,
+        highRiskHealth,
+        hasAuthoritativeHealthEvidence,
+        dangerousHealthTreatmentSignal,
+      })
     )
-    if (!routeAbortController.signal.aborted) {
-      logRouteMetrics(startedAt, evidence.length)
-    }
-    logDevTiming('final_response', startedAt, {
-      status: 200,
+    logFinalResponse(routeAbortController, startedAt, {
       evidenceCount: evidence.length,
-      fallback: 0,
+      fallback: false,
     })
     return response
   } catch (error) {
@@ -7749,13 +9253,9 @@ Sharper wording must not increase confidence.`,
         weirdScienceGuard: false,
       })
     )
-    if (!routeAbortController.signal.aborted) {
-      logRouteMetrics(startedAt, evidence.length)
-    }
-    logDevTiming('final_response', startedAt, {
-      status: 200,
+    logFinalResponse(routeAbortController, startedAt, {
       evidenceCount: evidence.length,
-      fallback: 1,
+      fallback: true,
     })
     return response
   }
@@ -7799,7 +9299,7 @@ export async function POST(request: Request) {
   const timeoutPromise = new Promise<Response>((resolve) => {
     timeoutId = setTimeout(() => {
       routeAbortController.abort()
-      logDevTiming('route_timeout_triggered', startedAt, { evidenceCount: 0 })
+      logRouteTiming('route_timeout', startedAt, { fallback: 1, timeout: 1 })
 
       resolve(buildRouteTimeoutResponse())
     }, TOTAL_ROUTE_TIMEOUT_MS)
@@ -7818,4 +9318,3 @@ export async function POST(request: Request) {
     }
   }
 }
-

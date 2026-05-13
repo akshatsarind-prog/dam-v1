@@ -1,4 +1,5 @@
 import { tavily } from '@tavily/core'
+import { routeClaim } from '@/lib/claimRouter'
 import { withTimeout } from '@/lib/timeout'
 
 export type RetrievedEvidence = {
@@ -225,169 +226,6 @@ export function buildRetrievalQueries(
     .slice(0, 2)
 }
 
-export function detectClaimCategory(claim: string): ClaimCategory {
-  const normalized = normalizeText(claim)
-
-  const scamSignals = [
-    'kyc update',
-    'e-kyc',
-    'account will be blocked',
-    'bank account blocked',
-    'account suspension',
-    'otp',
-    'pin',
-    'password',
-    'whatsapp registration link',
-    'forward this message',
-    'forward to 10 people',
-    'click this link',
-    'registration link',
-    'verification link',
-    'share with 10 people',
-    'free reward',
-    'free iphone',
-    'free iPhone',
-    'reward',
-    'prize',
-    'lottery',
-    'cashback',
-    'government reward',
-    'government relief',
-    'relief payment',
-    'subsidy',
-    'whatsapp',
-    'telegram',
-    'share this',
-    'missed calls',
-    'unknown number',
-    'phishing',
-    'scam',
-    'impersonation',
-    'rbi',
-    'bank',
-    'government',
-    'police',
-    'courier',
-    'amazon',
-    'flipkart',
-    'platform',
-    'virus is spreading',
-  ]
-
-  if (scamSignals.some((signal) => includesSignal(normalized, signal))) {
-    return 'scam'
-  }
-
-  const breakingNewsSignals = [
-    'today',
-    'latest',
-    'breaking',
-    'just announced',
-    'announced today',
-    'update',
-    'died',
-    'death',
-    'earthquake',
-    'crash',
-    'launched',
-    'happened today',
-    'this morning',
-    'this evening',
-  ]
-
-  if (breakingNewsSignals.some((signal) => includesSignal(normalized, signal))) {
-    return 'breaking_news'
-  }
-
-  const healthSignals = [
-    'health',
-    'medical',
-    'medicine',
-    'doctor',
-    'hospital',
-    'vaccine',
-    'cancer',
-    'cure',
-    'treatment',
-    'symptom',
-    'disease',
-    'infection',
-    'who',
-    'cdc',
-    'nih',
-    'covid',
-    'viral',
-  ]
-
-  if (healthSignals.some((signal) => includesSignal(normalized, signal))) {
-    return 'health'
-  }
-
-  const financeSignals = [
-    'bank',
-    'rbi',
-    'central bank',
-    'finance',
-    'financial',
-    'inflation',
-    'interest rate',
-    'stock',
-    'market',
-    'economy',
-    'currency',
-    'loan',
-    'gdp',
-    'gross domestic product',
-    'imf',
-    'world bank',
-  ]
-
-  if (financeSignals.some((signal) => includesSignal(normalized, signal))) {
-    return 'finance'
-  }
-
-  const scienceSignals = [
-    'nasa',
-    'esa',
-    'space',
-    'moon',
-    'mars',
-    'rocket',
-    'scientific',
-    'science',
-    'physics',
-    'chemistry',
-    'biology',
-    'water boils',
-  ]
-
-  if (scienceSignals.some((signal) => includesSignal(normalized, signal))) {
-    return 'science'
-  }
-
-  const governmentSignals = [
-    'government',
-    'govt',
-    'ministry',
-    'parliament',
-    'official',
-    'pib',
-    'policy',
-    'prime minister',
-    'president',
-    'court',
-    'election',
-    'law',
-    'public notice',
-  ]
-
-  if (governmentSignals.some((signal) => includesSignal(normalized, signal))) {
-    return 'government'
-  }
-
-  return 'general'
-}
-
 export function getPreferredDomains(category: ClaimCategory): string[] {
   switch (category) {
     case 'health':
@@ -456,7 +294,7 @@ export async function retrieveEvidence(
 ): Promise<RetrievedEvidenceResult> {
   const client = getClient()
   const queries = uniqueQueries(Array.isArray(queryOrQueries) ? queryOrQueries : [queryOrQueries])
-  const category = options.category ?? detectClaimCategory(queries[0] || '')
+  const category = options.category ?? routeClaim(queries[0] || '').retrievalCategory
   const preferredDomains = normalizeDomains(
     options.preferredDomains ?? getPreferredDomains(category)
   )

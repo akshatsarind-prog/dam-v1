@@ -29,6 +29,7 @@ export type ConflictSignal = {
 }
 
 const HIGH_TRUST_DOMAINS = ['reuters.com', 'apnews.com', 'who.int'] as const
+const HIGH_TRUST_REFERENCE_DOMAINS = ['britannica.com'] as const
 const HIGH_TRUST_INSTITUTION_DOMAINS = [
   'nasa.gov',
   'esa.int',
@@ -218,6 +219,7 @@ export function scoreSourceCredibility(domain: string): {
 
   if (
     domainMatches(domain, HIGH_TRUST_DOMAINS) ||
+    domainMatches(domain, HIGH_TRUST_REFERENCE_DOMAINS) ||
     domainMatches(domain, HIGH_TRUST_INSTITUTION_DOMAINS) ||
     domain.endsWith('.gov') ||
     domain.endsWith('.gov.in') ||
@@ -255,6 +257,10 @@ function credibilityRationale(label: CredibilityLabel, domain: string, preferred
   }
 
   if (label === 'High') {
+    if (domainMatches(domain, HIGH_TRUST_REFERENCE_DOMAINS)) {
+      return 'Encyclopedia reference source with strong stable-fact utility.'
+    }
+
     return domain.endsWith('.gov') ||
       domain.endsWith('.gov.in') ||
       domain.endsWith('.nic.in') ||
@@ -466,8 +472,4 @@ export function detectConflictingSignals(evidence: RankedEvidence[]): ConflictSi
     } with it.${trustConflict}${contextualSummary}`,
     hasConflict: true,
   }
-}
-
-export function deriveConflictingSignals(evidence: RankedEvidence[]) {
-  return detectConflictingSignals(evidence).summary
 }

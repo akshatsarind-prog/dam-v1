@@ -5,10 +5,27 @@ import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react'
 type Verdict =
   | 'Corroborated'
   | 'Likely Reliable'
+  | 'Likely incorrect'
   | 'Mixed Evidence'
   | 'Insufficient Verification'
   | 'High Risk Claim'
   | 'Escalation Recommended'
+  | 'Dangerous unsupported claim'
+  | 'Unverified'
+  | 'Evidence insufficient'
+  | 'Missing context'
+  | 'Unsupported civic claim'
+  | 'Verification incomplete'
+  | 'Fake KYC urgency'
+  | 'Credential harvesting pattern'
+  | 'Likely phishing attempt'
+  | 'Impersonation risk'
+  | 'Suspicious payment extraction'
+  | 'Payment extraction pattern'
+  | 'Reward bait pattern'
+  | 'Chain-forward manipulation'
+  | 'Suspicious link behavior'
+  | 'Guaranteed-return scam pattern'
 type ConfidenceLabel = 'Weak' | 'Moderate' | 'Strong'
 type Risk = 'Low' | 'Medium' | 'High' | 'Severe'
 type IndicatorState = 'stable' | 'watch' | 'critical'
@@ -166,15 +183,6 @@ const fallbackAnalysis: Analysis = {
   retrievedAt: '',
 }
 
-const verdictStyles: Record<Verdict, string> = {
-  Corroborated: 'verdict-true',
-  'Likely Reliable': 'verdict-true',
-  'Mixed Evidence': 'verdict-uncertain',
-  'Insufficient Verification': 'verdict-uncertain',
-  'High Risk Claim': 'verdict-false',
-  'Escalation Recommended': 'verdict-false',
-}
-
 const riskStyles: Record<Risk, string> = {
   Low: 'risk-low',
   Medium: 'risk-medium',
@@ -182,28 +190,49 @@ const riskStyles: Record<Risk, string> = {
   Severe: 'risk-high',
 }
 
-const verdictCopy: Record<Verdict, string> = {
-  Corroborated: 'Retrieved evidence supports the claim.',
-  'Likely Reliable': 'Reliable evidence leans toward support.',
-  'Mixed Evidence': 'Retrieved sources diverge or only partially align.',
-  'Insufficient Verification': 'Evidence is not strong enough to verify.',
-  'High Risk Claim': 'Weak or conflicting evidence makes amplification risky.',
-  'Escalation Recommended': 'Evidence posture requires review before release.',
-}
-
 const verdictValues: Verdict[] = [
   'Corroborated',
   'Likely Reliable',
+  'Likely incorrect',
   'Mixed Evidence',
   'Insufficient Verification',
   'High Risk Claim',
   'Escalation Recommended',
+  'Dangerous unsupported claim',
+  'Unverified',
+  'Evidence insufficient',
+  'Missing context',
+  'Unsupported civic claim',
+  'Verification incomplete',
+  'Fake KYC urgency',
+  'Credential harvesting pattern',
+  'Likely phishing attempt',
+  'Impersonation risk',
+  'Suspicious payment extraction',
+  'Payment extraction pattern',
+  'Reward bait pattern',
+  'Chain-forward manipulation',
+  'Suspicious link behavior',
+  'Guaranteed-return scam pattern',
 ]
 const confidenceLabels: ConfidenceLabel[] = ['Weak', 'Moderate', 'Strong']
 const riskValues: Risk[] = ['Low', 'Medium', 'High', 'Severe']
 const credibilityLabels: CredibilityLabel[] = ['High', 'Moderate', 'Low', 'Unknown']
 const contradictionLevels: ContradictionLevel[] = ['None', 'Low', 'Moderate', 'High', 'Unknown']
 const stanceValues: EvidenceStance[] = ['Supports', 'Contradicts', 'Contextualizes', 'Unclear']
+const corroboratedHeadline = 'Evidence supports this claim.'
+const contradictionHeadline = 'Evidence directly contradicts this claim.'
+const credentialHarvestingHeadline = 'Credential harvesting risk detected.'
+const paymentExtractionHeadline = 'Suspicious payment extraction pattern detected.'
+const rewardBaitHeadline = 'Reward-bait scam pattern detected.'
+const guaranteedReturnHeadline = 'Guaranteed-return scam pattern detected.'
+const forwardingHeadline = 'Manipulative forwarding behavior detected.'
+const impersonationHeadline = 'Authority impersonation risk detected.'
+const verificationIncompleteHeadline = 'Verification remains incomplete.'
+const civicRumorHeadline = 'No authoritative support identified.'
+const mixedEvidenceHeadline = 'Retrieved sources diverge or only partially align.'
+const riskReviewHeadline = 'Evidence posture requires review before release.'
+const insufficientEvidenceHeadline = 'Evidence is not strong enough to verify.'
 
 const processingStages = [
   'Decomposing claim',
@@ -587,6 +616,155 @@ function getStanceClass(stance: EvidenceStance) {
   return 'stance-context'
 }
 
+function getVerdictBadgeClass(verdict: Verdict) {
+  if (verdict === 'Corroborated' || verdict === 'Likely Reliable') {
+    return 'verdict-true'
+  }
+
+  if (
+    verdict === 'Mixed Evidence' ||
+    verdict === 'Insufficient Verification' ||
+    verdict === 'Unverified' ||
+    verdict === 'Evidence insufficient' ||
+    verdict === 'Missing context' ||
+    verdict === 'Verification incomplete'
+  ) {
+    return 'verdict-uncertain'
+  }
+
+  return 'verdict-false'
+}
+
+function normalizeHeadlineText(value: string) {
+  return value.toLowerCase()
+}
+
+function hasHeadlinePhrase(value: string, phrases: string[]) {
+  return phrases.some((phrase) => value.includes(phrase))
+}
+
+function getOperationalHeadline(analysis: Analysis | null) {
+  if (!analysis) {
+    return insufficientEvidenceHeadline
+  }
+
+  const verdictText = normalizeHeadlineText(analysis.verdict)
+  const contradictionText = normalizeHeadlineText(analysis.contradictions.summary)
+  const actionText = normalizeHeadlineText(analysis.operationalGuidance.action)
+  const distributionText = normalizeHeadlineText(analysis.operationalGuidance.distribution)
+  const escalationText = normalizeHeadlineText(analysis.operationalGuidance.escalation)
+  const corroborationText = normalizeHeadlineText(analysis.corroborationLevel.agreement)
+  const evidenceText = [
+    verdictText,
+    contradictionText,
+    actionText,
+    distributionText,
+    escalationText,
+    corroborationText,
+    ...analysis.corroborationLevel.indicators.map(normalizeHeadlineText),
+    ...analysis.confidence.drivers.map(normalizeHeadlineText),
+  ].join(' ')
+
+  if (
+    analysis.verdict === 'Likely incorrect' ||
+    analysis.contradictions.level === 'High' ||
+    hasHeadlinePhrase(evidenceText, ['direct contradiction detected'])
+  ) {
+    return contradictionHeadline
+  }
+
+  if (
+    analysis.verdict === 'Fake KYC urgency' ||
+    analysis.verdict === 'Credential harvesting pattern' ||
+    hasHeadlinePhrase(evidenceText, ['credential harvesting pattern', 'fake kyc urgency'])
+  ) {
+    return credentialHarvestingHeadline
+  }
+
+  if (
+    analysis.verdict === 'Suspicious payment extraction' ||
+    analysis.verdict === 'Payment extraction pattern' ||
+    hasHeadlinePhrase(evidenceText, ['suspicious payment extraction', 'payment extraction pattern'])
+  ) {
+    return paymentExtractionHeadline
+  }
+
+  if (
+    analysis.verdict === 'Reward bait pattern' ||
+    hasHeadlinePhrase(evidenceText, ['reward bait pattern'])
+  ) {
+    return rewardBaitHeadline
+  }
+
+  if (
+    analysis.verdict === 'Guaranteed-return scam pattern' ||
+    hasHeadlinePhrase(evidenceText, ['guaranteed-return scam pattern'])
+  ) {
+    return guaranteedReturnHeadline
+  }
+
+  if (
+    analysis.verdict === 'Chain-forward manipulation' ||
+    hasHeadlinePhrase(evidenceText, ['chain-forward manipulation'])
+  ) {
+    return forwardingHeadline
+  }
+
+  if (
+    analysis.verdict === 'Impersonation risk' ||
+    analysis.verdict === 'Likely phishing attempt' ||
+    analysis.verdict === 'Suspicious link behavior' ||
+    hasHeadlinePhrase(evidenceText, ['impersonation risk', 'likely phishing attempt', 'suspicious link behavior'])
+  ) {
+    return impersonationHeadline
+  }
+
+  if (
+    analysis.verdict === 'Unverified' ||
+    analysis.verdict === 'Verification incomplete' ||
+    hasHeadlinePhrase(evidenceText, ['verification incomplete'])
+  ) {
+    return verificationIncompleteHeadline
+  }
+
+  if (
+    analysis.verdict === 'Unsupported civic claim' ||
+    hasHeadlinePhrase(evidenceText, ['authoritative support missing'])
+  ) {
+    return civicRumorHeadline
+  }
+
+  if (
+    analysis.verdict === 'High Risk Claim' ||
+    analysis.verdict === 'Escalation Recommended' ||
+    analysis.verdict === 'Dangerous unsupported claim'
+  ) {
+    return riskReviewHeadline
+  }
+
+  if (
+    analysis.verdict === 'Corroborated' ||
+    analysis.verdict === 'Likely Reliable' ||
+    (analysis.contradictions.level === 'None' && analysis.corroborationLevel.sourceCount > 0)
+  ) {
+    return corroboratedHeadline
+  }
+
+  if (analysis.verdict === 'Mixed Evidence') {
+    return mixedEvidenceHeadline
+  }
+
+  if (
+    analysis.verdict === 'Insufficient Verification' ||
+    analysis.verdict === 'Evidence insufficient' ||
+    analysis.verdict === 'Missing context'
+  ) {
+    return insufficientEvidenceHeadline
+  }
+
+  return insufficientEvidenceHeadline
+}
+
 export default function Page() {
   const [claim, setClaim] = useState('')
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
@@ -741,9 +919,7 @@ export default function Page() {
           <div className="preview-brief">
             <p className="preview-label">System readout</p>
             <p>
-              {analysis
-                ? verdictCopy[activeAnalysis.verdict]
-                : 'Claim intake has not entered retrieval.'}
+              {analysis ? getOperationalHeadline(activeAnalysis) : 'Claim intake has not entered retrieval.'}
             </p>
           </div>
           <div className="mini-metrics">
@@ -900,7 +1076,7 @@ export default function Page() {
               <section className="report-card report-ready">
                 <div className="panel-topline">
                   <p>Intelligence Briefing</p>
-                  <span className={`badge ${verdictStyles[activeAnalysis.verdict]}`}>
+                  <span className={`badge ${getVerdictBadgeClass(activeAnalysis.verdict)}`}>
                     {activeAnalysis.verdict}
                   </span>
                 </div>
@@ -927,7 +1103,7 @@ export default function Page() {
                 <div className="verdict-block">
                   <div>
                     <p>Operational Verdict</p>
-                    <h3>{verdictCopy[activeAnalysis.verdict]}</h3>
+                    <h3>{getOperationalHeadline(activeAnalysis)}</h3>
                   </div>
                   <span className={`risk-pill ${riskStyles[activeAnalysis.risk]}`}>
                     {activeAnalysis.risk} distribution risk
@@ -1050,7 +1226,7 @@ export default function Page() {
                     <h3>Claim Decomposition</h3>
                     <div className="trait-list">
                       {claimTraits.length ? (
-                        claimTraits.map((trait): import("react/jsx-runtime").JSX.Element => <span key={trait}>{trait}</span>)
+                        claimTraits.map((trait) => <span key={trait}>{trait}</span>)
                       ) : (
                         <span>No extracted entities</span>
                       )}
