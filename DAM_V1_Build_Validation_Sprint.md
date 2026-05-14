@@ -75,7 +75,7 @@ Current testing is focused on:
 Expand private beta, collect 100+ real user-submitted claims, improve decisiveness/reliability through benchmark-driven iteration, and measure repeat usage and trust failures before broader rollout.
 
 Product link:
-https://dam-v1-psi.vercel.app/
+https://app.usedam.com
 
 Landing page:
 https://akshatsarind-prog.github.io/DAM-landing/
