@@ -16,6 +16,14 @@ import {
   type RankedEvidence,
 } from '@/lib/sourceRanker'
 import { systemPrompt } from '@/lib/systemPrompt'
+import { createClient } from "@supabase/supabase-js";
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase =
+  supabaseUrl && supabaseServiceRoleKey
+    ? createClient(supabaseUrl, supabaseServiceRoleKey)
+    : null;
 
 export const runtime = 'nodejs'
 export const maxDuration = 14
@@ -8757,6 +8765,31 @@ async function analyzeRequest(
       evidenceCount: 0,
       fallback: false,
     })
+    try {
+      if (supabase) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let parsed: any = null;
+
+        try {
+          parsed = await response.clone().json();
+        } catch {}
+
+        await supabase.from("dam_claim_logs").insert({
+          claim_text: parsed?.claim ?? "",
+          verdict: parsed?.verdict ?? "unknown",
+          confidence: parsed?.confidence?.score ?? parsed?.confidence ?? 0,
+          risk_label: parsed?.risk?.label ?? parsed?.riskLabel ?? "unknown",
+          latency_ms: parsed?.latencyMs ?? parsed?.latency ?? 0,
+          evidence_quality:
+            parsed?.evidenceQuality?.label ?? parsed?.evidenceQuality ?? "unknown",
+          source_count: parsed?.sources?.length ?? parsed?.evidence?.length ?? 0,
+          session_id: crypto.randomUUID(),
+        });
+      }
+    } catch (logError) {
+      console.error("Supabase logging failed:", logError);
+    }
+
     return response
   }
 
