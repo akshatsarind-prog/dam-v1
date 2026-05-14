@@ -9271,6 +9271,7 @@ Sharper wording must not increase confidence.`,
           claim_length: rawClaim.length,
           response_success: true,
         }
+        console.log("CLAIM LOG PAYLOAD", baseInsertPayload)
         console.log("SUPABASE INSERT PAYLOAD", extendedInsertPayload)
         const firstInsertResult = await supabase.from("dam_claim_logs").insert(extendedInsertPayload)
         if (firstInsertResult.error) {
