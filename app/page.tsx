@@ -1,6 +1,7 @@
 'use client'
 
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react'
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { getOrCreateDamSessionId, sendDamSessionEndEvent, sendDamTrackEvent } from '@/lib/analytics'
 
 type Verdict =
   | 'Corroborated'
@@ -772,6 +773,9 @@ export default function Page() {
   const [loading, setLoading] = useState(false)
   const [loadingStage, setLoadingStage] = useState(0)
   const [reportMeta, setReportMeta] = useState<ReportMeta | null>(null)
+  const sessionIdRef = useRef('')
+  const sessionStartedAtRef = useRef(0)
+  const sessionEndSentRef = useRef(false)
 
   const trimmedClaim = claim.trim()
   const remainingCharacters = MAX_CLAIM_LENGTH - claim.length
@@ -795,6 +799,79 @@ export default function Page() {
     return () => window.clearInterval(stageTimer)
   }, [loading])
 
+  useEffect(() => {
+    const sessionId = getOrCreateDamSessionId()
+    sessionIdRef.current = sessionId
+    sessionStartedAtRef.current = Date.now()
+    sessionEndSentRef.current = false
+
+    sendDamTrackEvent({
+      event_name: 'app_open_click',
+      session_id: sessionId,
+      metadata: {
+        page: 'home',
+      },
+    })
+  }, [])
+
+  useEffect(() => {
+    function sendSessionEnd() {
+      if (sessionEndSentRef.current) {
+        return
+      }
+
+      sessionEndSentRef.current = true
+
+      const sessionId = sessionIdRef.current || getOrCreateDamSessionId()
+      const startedAt = sessionStartedAtRef.current || Date.now()
+
+      sendDamSessionEndEvent({
+        event_name: 'app_session_end',
+        session_id: sessionId,
+        metadata: {
+          duration_ms: Math.max(Date.now() - startedAt, 0),
+          page: 'home',
+        },
+      })
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        sendSessionEnd()
+      }
+    }
+
+    window.addEventListener('beforeunload', sendSessionEnd)
+    window.addEventListener('pagehide', sendSessionEnd)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('beforeunload', sendSessionEnd)
+      window.removeEventListener('pagehide', sendSessionEnd)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      sendSessionEnd()
+    }
+  }, [])
+
+  function getCurrentSessionId() {
+    if (!sessionIdRef.current) {
+      sessionIdRef.current = getOrCreateDamSessionId()
+    }
+
+    return sessionIdRef.current
+  }
+
+  function trackLandingCtaClick(buttonLabel: string) {
+    sendDamTrackEvent({
+      event_name: 'landing_cta_click',
+      session_id: getCurrentSessionId(),
+      metadata: {
+        button_label: buttonLabel,
+        page: 'home',
+      },
+    })
+  }
+
   async function checkClaim() {
     if (loading) {
       return
@@ -817,10 +894,11 @@ export default function Page() {
     })
 
     try {
+      const sessionId = getCurrentSessionId()
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claim: trimmedClaim }),
+        body: JSON.stringify({ claim: trimmedClaim, session_id: sessionId }),
       })
 
       const text = await response.text()
@@ -886,7 +964,7 @@ export default function Page() {
             corroboration, contradiction review, and calibrated distribution control.
           </p>
           <div className="hero-actions">
-            <a className="primary-link" href="#verify">
+            <a className="primary-link" href="#verify" onClick={() => trackLandingCtaClick('Open verification desk')}>
               Open verification desk
             </a>
             <p>Enter submits. Shift + Enter creates a new line.</p>
