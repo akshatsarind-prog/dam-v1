@@ -428,42 +428,6 @@ function isAbortLikeError(error: unknown) {
   return name.includes('abort') || message.includes('abort') || message.includes('timeout')
 }
 
-type RouteTimingStage = 'retrieval' | 'openai' | 'final_response' | 'route_timeout'
-
-function logRouteTiming(
-  stage: RouteTimingStage,
-  startedAt: number,
-  details: Record<string, unknown> = {}
-) {
-  if (process.env.NODE_ENV === 'development') {
-    console.log({
-      stage,
-      totalLatencyMs: Date.now() - startedAt,
-      ...details,
-    })
-  }
-}
-
-function logFinalResponse(
-  routeAbortController: AbortController,
-  startedAt: number,
-  details: {
-    status?: number
-    evidenceCount: number
-    fallback: boolean
-  }
-) {
-  if (routeAbortController.signal.aborted) {
-    return
-  }
-
-  logRouteTiming('final_response', startedAt, {
-    status: details.status ?? 200,
-    evidenceCount: details.evidenceCount,
-    fallback: details.fallback ? 1 : 0,
-  })
-}
-
 function logRouteFailure(kind: string, error?: unknown) {
   if (process.env.NODE_ENV !== 'development') {
     console.error(`[api/analyze] ${kind}`)
@@ -8767,11 +8731,6 @@ async function analyzeRequest(
 
   if (!rawClaim) {
     const response = Response.json({ error: 'Claim intake is empty.' }, { status: 400 })
-    logFinalResponse(routeAbortController, startedAt, {
-      status: 400,
-      evidenceCount: 0,
-      fallback: false,
-    })
     return response
   }
 
@@ -8787,7 +8746,6 @@ async function analyzeRequest(
   let evidence: RankedEvidence[] = []
 
   try {
-    const retrievalStartedAt = Date.now()
     const retrievedEvidenceResult = await retrieveEvidence(retrievalQueries, {
       category: detectedCategory,
       preferredDomains,
@@ -8811,11 +8769,6 @@ async function analyzeRequest(
     )
     const sourceCredibility = summarizeSourceCredibility(evidence)
     const evidenceContext = buildEvidenceContext(evidence)
-    logRouteTiming('retrieval', startedAt, {
-      retrievalLatencyMs: Date.now() - retrievalStartedAt,
-      evidenceCount: evidence.length,
-      retrievalFailed: retrievedEvidenceResult.retrievalFailed ? 1 : 0,
-    })
     const conflictingSignals = detectConflictingSignals(evidence)
     const directClaimSupport = hasDirectClaimSupport(rawClaim, evidence)
     const scamSignals = detectScamSignals(rawClaim)
@@ -8920,22 +8873,12 @@ async function analyzeRequest(
         },
         contradictionSummary: capitalSmokeProfile.contradictionSummary,
       })
-      logFinalResponse(routeAbortController, startedAt, {
-        evidenceCount: evidence.length,
-        fallback: true,
-      })
-      console.log("DAM API RETURN PATH:", "capital_smoke_profile")
       return response
     }
 
     if (!process.env.OPENAI_API_KEY) {
       logRouteFailure('missing_openai_api_key')
       const response = Response.json(buildTimedOutAnalysis(evidence, true, contradictionContext))
-      logFinalResponse(routeAbortController, startedAt, {
-        evidenceCount: evidence.length,
-        fallback: true,
-      })
-      console.log("DAM API RETURN PATH:", "missing_openai_api_key")
       return response
     }
 
@@ -8945,11 +8888,6 @@ async function analyzeRequest(
           !process.env.TAVILY_API_KEY ? 'missing_tavily_api_key' : 'retrieval_failed'
         )
         const response = Response.json(buildTimedOutAnalysis(evidence, true, contradictionContext))
-        logFinalResponse(routeAbortController, startedAt, {
-          evidenceCount: evidence.length,
-          fallback: true,
-        })
-        console.log("DAM API RETURN PATH:", "retrieval_failed_or_missing_tavily")
         return response
       }
 
@@ -8988,21 +8926,11 @@ async function analyzeRequest(
             contradictionContext
           )
         )
-        logFinalResponse(routeAbortController, startedAt, {
-          evidenceCount: evidence.length,
-          fallback: true,
-        })
-        console.log("DAM API RETURN PATH:", "breaking_news_placeholder_or_weird_science_fallback")
         return response
       }
       const response = Response.json(
         buildFallbackPayload(evidence, retrievedEvidenceResult.retrievalFailed, contradictionContext)
       )
-      logFinalResponse(routeAbortController, startedAt, {
-        evidenceCount: evidence.length,
-        fallback: true,
-      })
-      console.log("DAM API RETURN PATH:", "evidence_fallback")
       return response
     }
 
@@ -9015,7 +8943,6 @@ async function analyzeRequest(
     let completion: unknown = null
 
     try {
-      const openaiStartedAt = Date.now()
       completion = await withTimeout(
         openai.chat.completions
           .create(
@@ -9094,13 +9021,8 @@ Sharper wording must not increase confidence.`,
             throw error
           }),
         MODEL_TIMEOUT_MS,
-        null,
-        'modelTimedOut'
+        null
       )
-      logRouteTiming('openai', startedAt, {
-        openaiLatencyMs: Date.now() - openaiStartedAt,
-        completionReceived: completion ? 1 : 0,
-      })
     } finally {
       clearTimeout(modelAbortTimeoutId)
     }
@@ -9108,11 +9030,6 @@ Sharper wording must not increase confidence.`,
     if (!completion) {
       logRouteFailure('openai_timeout_or_abort')
       const response = Response.json(buildTimedOutAnalysis(evidence, true, contradictionContext))
-      logFinalResponse(routeAbortController, startedAt, {
-        evidenceCount: evidence.length,
-        fallback: true,
-      })
-      console.log("DAM API RETURN PATH:", "openai_timeout_or_abort")
       return response
     }
 
@@ -9240,10 +9157,6 @@ Sharper wording must not increase confidence.`,
         dangerousHealthTreatmentSignal,
       })
     )
-    logFinalResponse(routeAbortController, startedAt, {
-      evidenceCount: evidence.length,
-      fallback: false,
-    })
     try {
       if (supabase) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -9253,7 +9166,6 @@ Sharper wording must not increase confidence.`,
           parsed = await response.clone().json()
         } catch {}
 
-        console.log("SUPABASE BLOCK REACHED");
         const evidenceQualityLabel = 'unknown'
         const baseInsertPayload = {
           claim_text: redactSensitiveClaimText(rawClaim),
@@ -9271,24 +9183,17 @@ Sharper wording must not increase confidence.`,
           claim_length: rawClaim.length,
           response_success: true,
         }
-        console.log("CLAIM LOG PAYLOAD", baseInsertPayload)
-        console.log("SUPABASE INSERT PAYLOAD", extendedInsertPayload)
         const firstInsertResult = await supabase.from("dam_claim_logs").insert(extendedInsertPayload)
         if (firstInsertResult.error) {
           const fallbackResult = await supabase.from("dam_claim_logs").insert(baseInsertPayload)
           if (fallbackResult.error) {
-            console.log("SUPABASE INSERT RESULT", { data: fallbackResult.data, error: fallbackResult.error })
+            console.error("SUPABASE INSERT ERROR", fallbackResult.error);
           }
-        } else {
-          console.log("SUPABASE INSERT RESULT", { data: firstInsertResult.data, error: firstInsertResult.error })
         }
-        console.log("SUPABASE INSERT COMPLETED");
       }
     } catch (error) {
       console.error("SUPABASE INSERT ERROR", error);
     }
-    console.log("DAM API RETURN PATH:", "final_success")
-    console.log("DAM API FINAL RETURN REACHED")
     return response
   } catch (error) {
     logRouteFailure('unexpected_route_failure', error)
@@ -9319,17 +9224,11 @@ Sharper wording must not increase confidence.`,
         weirdScienceGuard: false,
       })
     )
-    logFinalResponse(routeAbortController, startedAt, {
-      evidenceCount: evidence.length,
-      fallback: true,
-    })
-    console.log("DAM API RETURN PATH:", "unexpected_route_failure")
     return response
   }
 }
 
 function buildRouteTimeoutResponse() {
-  console.log("DAM API RETURN PATH:", "route_timeout_response")
   return Response.json(
     buildTimedOutAnalysis([], true, {
       claim: '',
@@ -9360,7 +9259,6 @@ function buildRouteTimeoutResponse() {
 }
 
 export async function POST(request: Request) {
-  console.log("DAM API POST STARTED");
   const startedAt = Date.now()
   const routeAbortController = new AbortController()
   let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -9368,7 +9266,6 @@ export async function POST(request: Request) {
   const timeoutPromise = new Promise<Response>((resolve) => {
     timeoutId = setTimeout(() => {
       routeAbortController.abort()
-      logRouteTiming('route_timeout', startedAt, { fallback: 1, timeout: 1 })
 
       resolve(buildRouteTimeoutResponse())
     }, TOTAL_ROUTE_TIMEOUT_MS)
@@ -9380,7 +9277,6 @@ export async function POST(request: Request) {
       timeoutPromise,
     ])
 
-    console.log("DAM API RETURN PATH:", "post_return")
     return response
   } finally {
     if (timeoutId) {

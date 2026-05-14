@@ -369,7 +369,6 @@ export async function retrieveEvidence(
     {
       evidence: [],
       retrievalFailed: true,
-    },
-    'retrievalTimedOut'
+    }
   )
 }

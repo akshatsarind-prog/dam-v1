@@ -104,14 +104,6 @@ function sendDamTrackEventWithTransport(payload: TrackPayload, options: TrackTra
     )
 
     if (beaconResult) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.debug('[dam] track event sent via beacon', {
-          event_name: payload.event_name,
-          session_id: payload.session_id,
-          metadata: payload.metadata ?? {},
-        })
-      }
-
       return
     }
   }
@@ -124,12 +116,4 @@ function sendDamTrackEventWithTransport(payload: TrackPayload, options: TrackTra
     body,
     keepalive: options.keepalive,
   }).catch(() => {})
-
-  if (process.env.NODE_ENV !== 'production') {
-    console.debug('[dam] track event sent via fetch', {
-      event_name: payload.event_name,
-      session_id: payload.session_id,
-      metadata: payload.metadata ?? {},
-    })
-  }
 }
