@@ -8,6 +8,7 @@ import {
 } from '@/lib/retrieval'
 import { isValidRetrievalCategory, routeClaim } from '@/lib/claimRouter'
 import { withTimeout } from '@/lib/timeout'
+import { redactSensitiveClaimText } from '@/lib/analytics'
 import {
   detectConflictingSignals,
   rankEvidence,
@@ -8759,6 +8760,10 @@ async function analyzeRequest(
 ) {
   const body = await request.json().catch(() => null)
   const rawClaim = normalizeText(typeof body?.claim === 'string' ? body.claim : '')
+  const sessionId =
+    typeof body?.session_id === 'string' && body.session_id.trim()
+      ? body.session_id.trim()
+      : crypto.randomUUID()
 
   if (!rawClaim) {
     const response = Response.json({ error: 'Claim intake is empty.' }, { status: 400 })
@@ -9249,19 +9254,33 @@ Sharper wording must not increase confidence.`,
         } catch {}
 
         console.log("SUPABASE BLOCK REACHED");
-        const insertPayload = {
-          claim_text: parsed?.claim ?? '',
+        const evidenceQualityLabel = 'unknown'
+        const baseInsertPayload = {
+          claim_text: redactSensitiveClaimText(rawClaim),
           verdict: parsed?.verdict ?? 'unknown',
-          confidence: parsed?.confidence?.score ?? parsed?.confidence ?? 0,
-          risk_label: parsed?.risk?.label ?? parsed?.riskLabel ?? 'unknown',
-          latency_ms: parsed?.latencyMs ?? parsed?.latency ?? 0,
-          evidence_quality: parsed?.evidenceQuality?.label ?? parsed?.evidenceQuality ?? 'unknown',
-          source_count: parsed?.sources?.length ?? parsed?.evidence?.length ?? 0,
-          session_id: crypto.randomUUID(),
+          confidence: parsed?.confidence?.score ?? 0,
+          risk_label: typeof parsed?.risk === 'string' ? parsed.risk : 'unknown',
+          latency_ms: Date.now() - startedAt,
+          evidence_quality: evidenceQualityLabel,
+          source_count: Array.isArray(parsed?.evidence) ? parsed.evidence.length : evidence.length,
+          session_id: sessionId,
         }
-        console.log("SUPABASE INSERT PAYLOAD", insertPayload)
-        const { data, error } = await supabase.from("dam_claim_logs").insert(insertPayload)
-        console.log("SUPABASE INSERT RESULT", { data, error })
+        const extendedInsertPayload = {
+          ...baseInsertPayload,
+          claim_route: claimRoute.category,
+          claim_length: rawClaim.length,
+          response_success: true,
+        }
+        console.log("SUPABASE INSERT PAYLOAD", extendedInsertPayload)
+        const firstInsertResult = await supabase.from("dam_claim_logs").insert(extendedInsertPayload)
+        if (firstInsertResult.error) {
+          const fallbackResult = await supabase.from("dam_claim_logs").insert(baseInsertPayload)
+          if (fallbackResult.error) {
+            console.log("SUPABASE INSERT RESULT", { data: fallbackResult.data, error: fallbackResult.error })
+          }
+        } else {
+          console.log("SUPABASE INSERT RESULT", { data: firstInsertResult.data, error: firstInsertResult.error })
+        }
         console.log("SUPABASE INSERT COMPLETED");
       }
     } catch (error) {
