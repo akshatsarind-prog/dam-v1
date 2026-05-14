@@ -8767,9 +8767,6 @@ async function analyzeRequest(
     })
     try {
       if (supabase) {
-        console.log("SUPABASE LOGGING START")
-        console.log({ supabaseEnabled: !!supabase })
-        console.log({ claimText: body?.claim })
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let parsed: any = null;
 
@@ -8777,6 +8774,7 @@ async function analyzeRequest(
           parsed = await response.clone().json();
         } catch {}
 
+        console.log("SUPABASE BLOCK REACHED");
         const insertPayload = {
           claim_text: parsed?.claim ?? "",
           verdict: parsed?.verdict ?? "unknown",
@@ -8791,9 +8789,10 @@ async function analyzeRequest(
         console.log("SUPABASE INSERT PAYLOAD", insertPayload)
         const { data, error } = await supabase.from("dam_claim_logs").insert(insertPayload)
         console.log("SUPABASE INSERT RESULT", { data, error })
+        console.log("SUPABASE INSERT COMPLETED");
       }
-    } catch (logError) {
-      console.error("SUPABASE LOGGING FAILED", logError)
+    } catch (error) {
+      console.error("SUPABASE INSERT ERROR", error);
     }
 
     return response
