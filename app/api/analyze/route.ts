@@ -21,7 +21,9 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase =
-  supabaseUrl && supabaseServiceRoleKey
+  typeof supabaseUrl === 'string' &&
+  supabaseUrl.startsWith('http') &&
+  supabaseServiceRoleKey
     ? createClient(supabaseUrl, supabaseServiceRoleKey)
     : null;
 
@@ -8765,36 +8767,6 @@ async function analyzeRequest(
       evidenceCount: 0,
       fallback: false,
     })
-    try {
-      if (supabase) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let parsed: any = null;
-
-        try {
-          parsed = await response.clone().json();
-        } catch {}
-
-        console.log("SUPABASE BLOCK REACHED");
-        const insertPayload = {
-          claim_text: parsed?.claim ?? "",
-          verdict: parsed?.verdict ?? "unknown",
-          confidence: parsed?.confidence?.score ?? parsed?.confidence ?? 0,
-          risk_label: parsed?.risk?.label ?? parsed?.riskLabel ?? "unknown",
-          latency_ms: parsed?.latencyMs ?? parsed?.latency ?? 0,
-          evidence_quality:
-            parsed?.evidenceQuality?.label ?? parsed?.evidenceQuality ?? "unknown",
-          source_count: parsed?.sources?.length ?? parsed?.evidence?.length ?? 0,
-          session_id: crypto.randomUUID(),
-        }
-        console.log("SUPABASE INSERT PAYLOAD", insertPayload)
-        const { data, error } = await supabase.from("dam_claim_logs").insert(insertPayload)
-        console.log("SUPABASE INSERT RESULT", { data, error })
-        console.log("SUPABASE INSERT COMPLETED");
-      }
-    } catch (error) {
-      console.error("SUPABASE INSERT ERROR", error);
-    }
-
     return response
   }
 
@@ -8947,6 +8919,7 @@ async function analyzeRequest(
         evidenceCount: evidence.length,
         fallback: true,
       })
+      console.log("DAM API RETURN PATH:", "capital_smoke_profile")
       return response
     }
 
@@ -8957,6 +8930,7 @@ async function analyzeRequest(
         evidenceCount: evidence.length,
         fallback: true,
       })
+      console.log("DAM API RETURN PATH:", "missing_openai_api_key")
       return response
     }
 
@@ -8970,6 +8944,7 @@ async function analyzeRequest(
           evidenceCount: evidence.length,
           fallback: true,
         })
+        console.log("DAM API RETURN PATH:", "retrieval_failed_or_missing_tavily")
         return response
       }
 
@@ -9012,6 +8987,7 @@ async function analyzeRequest(
           evidenceCount: evidence.length,
           fallback: true,
         })
+        console.log("DAM API RETURN PATH:", "breaking_news_placeholder_or_weird_science_fallback")
         return response
       }
       const response = Response.json(
@@ -9021,6 +8997,7 @@ async function analyzeRequest(
         evidenceCount: evidence.length,
         fallback: true,
       })
+      console.log("DAM API RETURN PATH:", "evidence_fallback")
       return response
     }
 
@@ -9130,6 +9107,7 @@ Sharper wording must not increase confidence.`,
         evidenceCount: evidence.length,
         fallback: true,
       })
+      console.log("DAM API RETURN PATH:", "openai_timeout_or_abort")
       return response
     }
 
@@ -9261,6 +9239,36 @@ Sharper wording must not increase confidence.`,
       evidenceCount: evidence.length,
       fallback: false,
     })
+    try {
+      if (supabase) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let parsed: any = null
+
+        try {
+          parsed = await response.clone().json()
+        } catch {}
+
+        console.log("SUPABASE BLOCK REACHED");
+        const insertPayload = {
+          claim_text: parsed?.claim ?? '',
+          verdict: parsed?.verdict ?? 'unknown',
+          confidence: parsed?.confidence?.score ?? parsed?.confidence ?? 0,
+          risk_label: parsed?.risk?.label ?? parsed?.riskLabel ?? 'unknown',
+          latency_ms: parsed?.latencyMs ?? parsed?.latency ?? 0,
+          evidence_quality: parsed?.evidenceQuality?.label ?? parsed?.evidenceQuality ?? 'unknown',
+          source_count: parsed?.sources?.length ?? parsed?.evidence?.length ?? 0,
+          session_id: crypto.randomUUID(),
+        }
+        console.log("SUPABASE INSERT PAYLOAD", insertPayload)
+        const { data, error } = await supabase.from("dam_claim_logs").insert(insertPayload)
+        console.log("SUPABASE INSERT RESULT", { data, error })
+        console.log("SUPABASE INSERT COMPLETED");
+      }
+    } catch (error) {
+      console.error("SUPABASE INSERT ERROR", error);
+    }
+    console.log("DAM API RETURN PATH:", "final_success")
+    console.log("DAM API FINAL RETURN REACHED")
     return response
   } catch (error) {
     logRouteFailure('unexpected_route_failure', error)
@@ -9295,11 +9303,13 @@ Sharper wording must not increase confidence.`,
       evidenceCount: evidence.length,
       fallback: true,
     })
+    console.log("DAM API RETURN PATH:", "unexpected_route_failure")
     return response
   }
 }
 
 function buildRouteTimeoutResponse() {
+  console.log("DAM API RETURN PATH:", "route_timeout_response")
   return Response.json(
     buildTimedOutAnalysis([], true, {
       claim: '',
@@ -9330,6 +9340,7 @@ function buildRouteTimeoutResponse() {
 }
 
 export async function POST(request: Request) {
+  console.log("DAM API POST STARTED");
   const startedAt = Date.now()
   const routeAbortController = new AbortController()
   let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -9349,6 +9360,7 @@ export async function POST(request: Request) {
       timeoutPromise,
     ])
 
+    console.log("DAM API RETURN PATH:", "post_return")
     return response
   } finally {
     if (timeoutId) {
