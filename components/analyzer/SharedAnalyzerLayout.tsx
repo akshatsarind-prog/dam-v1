@@ -34,11 +34,16 @@ const mobileNavButtonStyle = {
   color: 'var(--text)',
   font: 'inherit',
   cursor: 'pointer',
+  borderRadius: 999,
+  transition: 'background 140ms ease, border-color 140ms ease, transform 140ms ease',
 } as const
 
 const mobileDrawerShellStyle = {
   width: 'min(100% - 32px, 1180px)',
-  margin: '10px auto 0',
+  margin: '0 auto',
+  overflow: 'hidden',
+  transformOrigin: 'top center',
+  transition: 'max-height 180ms ease, opacity 160ms ease, transform 160ms ease, margin-top 160ms ease',
 } as const
 
 const mobileDrawerPanelStyle = {
@@ -46,6 +51,8 @@ const mobileDrawerPanelStyle = {
   border: '1px solid var(--line)',
   background: 'rgba(17, 17, 20, 0.98)',
   boxShadow: 'var(--shadow)',
+  borderRadius: 24,
+  backdropFilter: 'blur(12px)',
 } as const
 
 const mobileNavMenuItemStyle = {
@@ -61,34 +68,24 @@ const mobileNavMenuItemStyle = {
   font: 'inherit',
   cursor: 'pointer',
   textAlign: 'left',
-} as const
-
-const examplePanelCloseButtonStyle = {
-  minHeight: 44,
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '10px 12px',
-  border: '1px solid var(--line)',
-  background: '#080809',
-  color: 'var(--text)',
-  font: 'inherit',
-  cursor: 'pointer',
+  borderRadius: 16,
+  transition: 'background 140ms ease, opacity 140ms ease',
 } as const
 
 const examplePanelStyle = {
   marginBottom: 12,
-  padding: 14,
+  padding: 12,
   border: '1px solid var(--line)',
   background: 'rgba(17, 17, 20, 0.94)',
   boxShadow: 'var(--shadow)',
+  borderRadius: 24,
 } as const
 
 const exampleDomainGridStyle = {
   display: 'grid',
   gridTemplateColumns: '1fr',
-  gap: 10,
-  marginTop: 14,
+  gap: 8,
+  marginTop: 10,
 } as const
 
 const exampleDomainButtonStyle = {
@@ -105,7 +102,33 @@ const exampleDomainButtonStyle = {
   font: 'inherit',
   cursor: 'pointer',
   textAlign: 'left',
+  borderRadius: 18,
+  transition: 'background 140ms ease, border-color 140ms ease, transform 140ms ease',
 } as const
+
+const examplePanelToggleStyle = {
+  minHeight: 44,
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 16,
+  padding: '12px 14px',
+  border: '1px solid var(--line)',
+  background: '#080809',
+  color: 'var(--text)',
+  font: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left',
+  borderRadius: 18,
+  transition: 'background 140ms ease, border-color 140ms ease',
+} as const
+
+const examplePanelBodyStyle = {
+  marginTop: 10,
+} as const
+
+const mobileHeaderScrollOffset = 88
 
 const mobileConsoleGridStyle = {
   display: 'grid',
@@ -121,6 +144,38 @@ const mobileResultWrapStyle = {
   minWidth: 0,
   marginTop: 2,
 } as const
+
+function scrollToElement(
+  target: HTMLElement | null,
+  isMobile: boolean,
+  block: ScrollLogicalPosition = 'start'
+) {
+  if (!target) {
+    return
+  }
+
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  if (!isMobile) {
+    target.scrollIntoView({
+      behavior: 'smooth',
+      block,
+    })
+    return
+  }
+
+  const top = Math.max(
+    window.scrollY + target.getBoundingClientRect().top - mobileHeaderScrollOffset,
+    0
+  )
+
+  window.scrollTo({
+    behavior: 'smooth',
+    top,
+  })
+}
 
 export default function SharedAnalyzerLayout({
   claim,
@@ -149,26 +204,20 @@ export default function SharedAnalyzerLayout({
   const mobileMenuId = useId()
   const mobileMenuRef = useRef<HTMLDivElement | null>(null)
   const verifySectionRef = useRef<HTMLElement | null>(null)
+  const examplePanelRef = useRef<HTMLElement | null>(null)
   const claimPanelRef = useRef<HTMLDivElement | null>(null)
   const resultPanelRef = useRef<HTMLDivElement | null>(null)
   const previousAnalysisRef = useRef<AnalyzeClaimViewModel['analysis']>(null)
 
-  function scrollToElement(target: HTMLElement | null, block: ScrollLogicalPosition = 'start') {
-    target?.scrollIntoView({
-      behavior: 'smooth',
-      block,
-    })
-  }
-
   function scrollToVerificationArea() {
-    scrollToElement(claimPanelRef.current ?? verifySectionRef.current, 'start')
+    scrollToElement(claimPanelRef.current ?? verifySectionRef.current, isMobile, 'start')
   }
 
   function openExamplePanel() {
     setIsMobileMenuOpen(false)
     setIsExamplePanelOpen(true)
     requestAnimationFrame(() => {
-      scrollToVerificationArea()
+      scrollToElement(examplePanelRef.current ?? verifySectionRef.current, isMobile, 'start')
     })
   }
 
@@ -176,7 +225,6 @@ export default function SharedAnalyzerLayout({
     setIsMobileMenuOpen(false)
 
     if (targetId === 'verify') {
-      setIsExamplePanelOpen(false)
       requestAnimationFrame(() => {
         scrollToVerificationArea()
       })
@@ -185,7 +233,7 @@ export default function SharedAnalyzerLayout({
 
     const target = document.getElementById(targetId)
     requestAnimationFrame(() => {
-      scrollToElement(target)
+      scrollToElement(target, isMobile)
     })
   }
 
@@ -234,7 +282,7 @@ export default function SharedAnalyzerLayout({
     }
 
     if (loading) {
-      scrollToElement(claimPanelRef.current ?? verifySectionRef.current, 'start')
+      scrollToElement(claimPanelRef.current ?? verifySectionRef.current, isMobile, 'start')
     }
   }, [isMobile, loading, analysis])
 
@@ -245,7 +293,7 @@ export default function SharedAnalyzerLayout({
     }
 
     if (!previousAnalysisRef.current && analysis) {
-      scrollToElement(resultPanelRef.current ?? claimPanelRef.current, 'start')
+      scrollToElement(resultPanelRef.current ?? claimPanelRef.current, isMobile, 'start')
     }
 
     previousAnalysisRef.current = analysis
@@ -291,9 +339,25 @@ export default function SharedAnalyzerLayout({
             </nav>
           )}
         </header>
-        {isMobile && isMobileMenuOpen ? (
+        {isMobile ? (
           <section style={mobileDrawerShellStyle}>
-            <nav id={mobileMenuId} style={mobileDrawerPanelStyle} aria-label="Product sections">
+            <nav
+              id={mobileMenuId}
+              aria-label="Product sections"
+              aria-hidden={!isMobileMenuOpen}
+              style={{
+                ...mobileDrawerPanelStyle,
+                overflow: 'hidden',
+                opacity: isMobileMenuOpen ? 1 : 0,
+                transform: isMobileMenuOpen ? 'translateY(0)' : 'translateY(-10px)',
+                pointerEvents: isMobileMenuOpen ? 'auto' : 'none',
+                maxHeight: isMobileMenuOpen ? 320 : 0,
+                marginTop: isMobileMenuOpen ? 10 : 0,
+                padding: isMobileMenuOpen ? 10 : 0,
+                borderWidth: isMobileMenuOpen ? 1 : 0,
+                boxShadow: isMobileMenuOpen ? 'var(--shadow)' : 'none',
+              }}
+            >
               {sectionNavItems.map((item) => (
                 <button
                   key={item.href}
@@ -339,7 +403,6 @@ export default function SharedAnalyzerLayout({
                 }
 
                 event.preventDefault()
-                setIsExamplePanelOpen(false)
                 scrollToVerificationArea()
               }}
             >
@@ -415,38 +478,41 @@ export default function SharedAnalyzerLayout({
         </div>
 
         <div className="console-grid" style={isMobile ? mobileConsoleGridStyle : undefined}>
-          {isMobile && isExamplePanelOpen ? (
-            <section style={examplePanelStyle} aria-label="Try example claims">
-              <div className="panel-topline">
-                <p>Try it yourself</p>
-                <button
-                  type="button"
-                  onClick={() => setIsExamplePanelOpen(false)}
-                  style={examplePanelCloseButtonStyle}
-                >
-                  Close
-                </button>
-              </div>
-              <p>
-                Choose a domain to auto-fill a believable claim and run a live analysis
-                through the existing evidence pipeline.
-              </p>
-              <div style={exampleDomainGridStyle}>
-                {exampleClaimDomains.map((domain) => (
-                  <button
-                    key={domain.id}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => {
-                      void handleExampleDomainSelect(domain.id)
-                    }}
-                    style={exampleDomainButtonStyle}
-                  >
-                    <span>{domain.label}</span>
-                    <span aria-hidden="true">10</span>
-                  </button>
-                ))}
-              </div>
+          {isMobile ? (
+            <section ref={examplePanelRef} style={examplePanelStyle} aria-label="Try example claims">
+              <button
+                type="button"
+                aria-expanded={isExamplePanelOpen}
+                aria-controls="mobile-example-claims"
+                onClick={() => setIsExamplePanelOpen((open) => !open)}
+                style={examplePanelToggleStyle}
+              >
+                <span>Try Example Claims</span>
+                <span aria-hidden="true">{isExamplePanelOpen ? '-' : '+'}</span>
+              </button>
+              {isExamplePanelOpen ? (
+                <div id="mobile-example-claims" style={examplePanelBodyStyle}>
+                  <p>
+                    Choose a domain to auto-fill a believable claim and run a live analysis
+                    through the existing evidence pipeline.
+                  </p>
+                  <div style={exampleDomainGridStyle}>
+                    {exampleClaimDomains.map((domain) => (
+                      <button
+                        key={domain.id}
+                        type="button"
+                        disabled={loading}
+                        onClick={() => {
+                          void handleExampleDomainSelect(domain.id)
+                        }}
+                        style={exampleDomainButtonStyle}
+                      >
+                        <span>{domain.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
           ) : null}
           <div ref={claimPanelRef} style={isMobile ? mobileInputWrapStyle : undefined}>
