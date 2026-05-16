@@ -126,8 +126,19 @@ const examplePanelToggleStyle = {
   transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
 } as const
 
+const examplePanelBodyShellStyle = {
+  overflow: 'hidden',
+  transformOrigin: 'top center',
+  willChange: 'max-height, opacity, margin-top',
+  transition:
+    'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out, margin-top 240ms cubic-bezier(0.22, 1, 0.36, 1)',
+} as const
+
 const examplePanelBodyStyle = {
-  marginTop: 10,
+  transformOrigin: 'top center',
+  willChange: 'transform, opacity, padding',
+  transition:
+    'opacity 180ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1), padding 240ms cubic-bezier(0.22, 1, 0.36, 1)',
 } as const
 
 const mobileHeaderScrollOffset = 88
@@ -503,8 +514,28 @@ export default function SharedAnalyzerLayout({
                 <span>Try Example Claims</span>
                 <span aria-hidden="true">{isExamplePanelOpen ? '-' : '+'}</span>
               </button>
-              {isExamplePanelOpen ? (
-                <div id="mobile-example-claims" style={examplePanelBodyStyle}>
+              <div
+                aria-hidden={!isExamplePanelOpen}
+                inert={!isExamplePanelOpen}
+                style={{
+                  ...examplePanelBodyShellStyle,
+                  maxHeight: isExamplePanelOpen ? 760 : 0,
+                  opacity: isExamplePanelOpen ? 1 : 0,
+                  marginTop: isExamplePanelOpen ? 10 : 0,
+                }}
+              >
+                <div
+                  id="mobile-example-claims"
+                  style={{
+                    ...examplePanelBodyStyle,
+                    opacity: isExamplePanelOpen ? 1 : 0,
+                    transform: isExamplePanelOpen
+                      ? 'translateY(0) scaleY(1)'
+                      : 'translateY(-14px) scaleY(0.94)',
+                    paddingTop: isExamplePanelOpen ? 2 : 0,
+                    pointerEvents: isExamplePanelOpen ? 'auto' : 'none',
+                  }}
+                >
                   <p>
                     Choose a domain to auto-fill a believable claim and run a live analysis
                     through the existing evidence pipeline.
@@ -525,7 +556,7 @@ export default function SharedAnalyzerLayout({
                     ))}
                   </div>
                 </div>
-              ) : null}
+              </div>
             </section>
           ) : null}
           <div ref={claimPanelRef} style={isMobile ? mobileInputWrapStyle : undefined}>
