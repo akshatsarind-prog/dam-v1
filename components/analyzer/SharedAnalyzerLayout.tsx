@@ -36,32 +36,24 @@ const mobileNavButtonStyle = {
   cursor: 'pointer',
 } as const
 
-const mobileNavMenuStyle = {
-  position: 'absolute',
-  top: 'calc(100% + 10px)',
-  right: 0,
-  width: 'min(220px, calc(100vw - 32px))',
-  padding: 8,
+const mobileDrawerShellStyle = {
+  width: 'min(100% - 32px, 1180px)',
+  margin: '10px auto 0',
+} as const
+
+const mobileDrawerPanelStyle = {
+  padding: 10,
   border: '1px solid var(--line)',
   background: 'rgba(17, 17, 20, 0.98)',
   boxShadow: 'var(--shadow)',
-  zIndex: 20,
 } as const
 
-const mobileNavMenuLinkStyle = {
+const mobileNavMenuItemStyle = {
   minHeight: 44,
   display: 'flex',
   alignItems: 'center',
-  padding: '12px 14px',
-  color: 'var(--text)',
-  textDecoration: 'none',
-} as const
-
-const mobileNavMenuActionStyle = {
-  minHeight: 44,
+  justifyContent: 'space-between',
   width: '100%',
-  display: 'flex',
-  alignItems: 'center',
   padding: '12px 14px',
   border: 0,
   background: 'transparent',
@@ -85,8 +77,8 @@ const examplePanelCloseButtonStyle = {
 } as const
 
 const examplePanelStyle = {
-  marginBottom: 16,
-  padding: 16,
+  marginBottom: 12,
+  padding: 14,
   border: '1px solid var(--line)',
   background: 'rgba(17, 17, 20, 0.94)',
   boxShadow: 'var(--shadow)',
@@ -113,6 +105,21 @@ const exampleDomainButtonStyle = {
   font: 'inherit',
   cursor: 'pointer',
   textAlign: 'left',
+} as const
+
+const mobileConsoleGridStyle = {
+  display: 'grid',
+  gap: 12,
+  alignItems: 'start',
+} as const
+
+const mobileInputWrapStyle = {
+  minWidth: 0,
+} as const
+
+const mobileResultWrapStyle = {
+  minWidth: 0,
+  marginTop: 2,
 } as const
 
 export default function SharedAnalyzerLayout({
@@ -142,6 +149,45 @@ export default function SharedAnalyzerLayout({
   const mobileMenuId = useId()
   const mobileMenuRef = useRef<HTMLDivElement | null>(null)
   const verifySectionRef = useRef<HTMLElement | null>(null)
+  const claimPanelRef = useRef<HTMLDivElement | null>(null)
+  const resultPanelRef = useRef<HTMLDivElement | null>(null)
+  const previousAnalysisRef = useRef<AnalyzeClaimViewModel['analysis']>(null)
+
+  function scrollToElement(target: HTMLElement | null, block: ScrollLogicalPosition = 'start') {
+    target?.scrollIntoView({
+      behavior: 'smooth',
+      block,
+    })
+  }
+
+  function scrollToVerificationArea() {
+    scrollToElement(claimPanelRef.current ?? verifySectionRef.current, 'start')
+  }
+
+  function openExamplePanel() {
+    setIsMobileMenuOpen(false)
+    setIsExamplePanelOpen(true)
+    requestAnimationFrame(() => {
+      scrollToVerificationArea()
+    })
+  }
+
+  function handleMobileSectionNavigation(targetId: string) {
+    setIsMobileMenuOpen(false)
+
+    if (targetId === 'verify') {
+      setIsExamplePanelOpen(false)
+      requestAnimationFrame(() => {
+        scrollToVerificationArea()
+      })
+      return
+    }
+
+    const target = document.getElementById(targetId)
+    requestAnimationFrame(() => {
+      scrollToElement(target)
+    })
+  }
 
   async function handleExampleDomainSelect(domainId: string) {
     const exampleClaim = getRandomExampleClaimForSession(domainId)
@@ -151,10 +197,7 @@ export default function SharedAnalyzerLayout({
     }
 
     setIsExamplePanelOpen(false)
-    verifySectionRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    })
+    scrollToVerificationArea()
     await runExampleClaim(exampleClaim)
   }
 
@@ -184,14 +227,38 @@ export default function SharedAnalyzerLayout({
     }
   }, [isMobileMenuOpen])
 
+  useEffect(() => {
+    if (!isMobile) {
+      previousAnalysisRef.current = analysis
+      return
+    }
+
+    if (loading) {
+      scrollToElement(claimPanelRef.current ?? verifySectionRef.current, 'start')
+    }
+  }, [isMobile, loading, analysis])
+
+  useEffect(() => {
+    if (!isMobile) {
+      previousAnalysisRef.current = analysis
+      return
+    }
+
+    if (!previousAnalysisRef.current && analysis) {
+      scrollToElement(resultPanelRef.current ?? claimPanelRef.current, 'start')
+    }
+
+    previousAnalysisRef.current = analysis
+  }, [isMobile, analysis])
+
   return (
     <main className="dam-shell">
-      <header className="dam-header">
-        <a className="dam-mark" href="#top" aria-label="DAM V1 home">
-          DAM
-        </a>
-        {isMobile ? (
-          <div ref={mobileMenuRef} style={{ position: 'relative' }}>
+      <div ref={mobileMenuRef}>
+        <header className="dam-header">
+          <a className="dam-mark" href="#top" aria-label="DAM V1 home">
+            DAM
+          </a>
+          {isMobile ? (
             <button
               type="button"
               aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
@@ -214,45 +281,40 @@ export default function SharedAnalyzerLayout({
                 <span style={{ display: 'block', height: 2, background: 'currentColor' }} />
               </span>
             </button>
-            {isMobileMenuOpen ? (
-              <nav id={mobileMenuId} style={mobileNavMenuStyle} aria-label="Product sections">
-                {sectionNavItems.map((item) => (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    style={mobileNavMenuLinkStyle}
-                  >
-                    {item.label}
-                  </a>
-                ))}
+          ) : (
+            <nav className="dam-nav" aria-label="Product sections">
+              {sectionNavItems.map((item) => (
+                <a key={item.href} href={item.href}>
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+          )}
+        </header>
+        {isMobile && isMobileMenuOpen ? (
+          <section style={mobileDrawerShellStyle}>
+            <nav id={mobileMenuId} style={mobileDrawerPanelStyle} aria-label="Product sections">
+              {sectionNavItems.map((item) => (
                 <button
+                  key={item.href}
                   type="button"
-                  onClick={() => {
-                    setIsMobileMenuOpen(false)
-                    setIsExamplePanelOpen(true)
-                    verifySectionRef.current?.scrollIntoView({
-                      behavior: 'smooth',
-                      block: 'start',
-                    })
-                  }}
-                  style={mobileNavMenuActionStyle}
+                  onClick={() => handleMobileSectionNavigation(item.href.slice(1))}
+                  style={mobileNavMenuItemStyle}
                 >
-                  Try Example Claims
+                  <span>{item.label}</span>
                 </button>
-              </nav>
-            ) : null}
-          </div>
-        ) : (
-          <nav className="dam-nav" aria-label="Product sections">
-            {sectionNavItems.map((item) => (
-              <a key={item.href} href={item.href}>
-                {item.label}
-              </a>
-            ))}
-          </nav>
-        )}
-      </header>
+              ))}
+              <button
+                type="button"
+                onClick={openExamplePanel}
+                style={mobileNavMenuItemStyle}
+              >
+                <span>Try Example Claims</span>
+              </button>
+            </nav>
+          </section>
+        ) : null}
+      </div>
 
       <section id="top" className="dam-hero section-frame" aria-labelledby="hero-title">
         <div className="hero-copy">
@@ -269,7 +331,17 @@ export default function SharedAnalyzerLayout({
             <a
               className="primary-link"
               href="#verify"
-              onClick={() => trackLandingCtaClick('Open verification desk')}
+              onClick={(event) => {
+                trackLandingCtaClick('Open verification desk')
+
+                if (!isMobile) {
+                  return
+                }
+
+                event.preventDefault()
+                setIsExamplePanelOpen(false)
+                scrollToVerificationArea()
+              }}
             >
               Open verification desk
             </a>
@@ -342,7 +414,7 @@ export default function SharedAnalyzerLayout({
           </p>
         </div>
 
-        <div className="console-grid">
+        <div className="console-grid" style={isMobile ? mobileConsoleGridStyle : undefined}>
           {isMobile && isExamplePanelOpen ? (
             <section style={examplePanelStyle} aria-label="Try example claims">
               <div className="panel-topline">
@@ -377,50 +449,54 @@ export default function SharedAnalyzerLayout({
               </div>
             </section>
           ) : null}
-          <SharedAnalyzeInput
-            claim={claim}
-            analysis={analysis}
-            activeAnalysis={activeAnalysis}
-            error={error}
-            loading={loading}
-            remainingCharacters={remainingCharacters}
-            displayScope={displayScope}
-            onChange={resetReportOnEdit}
-            onSubmit={handleSubmit}
-            onKeyDown={handleKeyDown}
-            belowTextareaContent={
-              isMobile && loading ? (
-                <SharedResultView
-                  loading={loading}
-                  loadingStage={loadingStage}
-                  reportMeta={reportMeta}
-                  analysis={analysis}
-                  activeAnalysis={activeAnalysis}
-                  displayScope={displayScope}
-                  confidence={confidence}
-                  confidenceLabel={confidenceLabel}
-                  indicators={indicators}
-                  claimTraits={claimTraits}
-                  mode="mobile"
-                  chrome="inline"
-                />
-              ) : null
-            }
-          />
-          <SharedResultView
-            loading={loading}
-            loadingStage={loadingStage}
-            reportMeta={reportMeta}
-            analysis={analysis}
-            activeAnalysis={activeAnalysis}
-            displayScope={displayScope}
-            confidence={confidence}
-            confidenceLabel={confidenceLabel}
-            indicators={indicators}
-            claimTraits={claimTraits}
-            mode={isMobile ? 'mobile' : 'desktop'}
-            suppressLoadingState={isMobile}
-          />
+          <div ref={claimPanelRef} style={isMobile ? mobileInputWrapStyle : undefined}>
+            <SharedAnalyzeInput
+              claim={claim}
+              analysis={analysis}
+              activeAnalysis={activeAnalysis}
+              error={error}
+              loading={loading}
+              remainingCharacters={remainingCharacters}
+              displayScope={displayScope}
+              onChange={resetReportOnEdit}
+              onSubmit={handleSubmit}
+              onKeyDown={handleKeyDown}
+              belowTextareaContent={
+                isMobile && loading ? (
+                  <SharedResultView
+                    loading={loading}
+                    loadingStage={loadingStage}
+                    reportMeta={reportMeta}
+                    analysis={analysis}
+                    activeAnalysis={activeAnalysis}
+                    displayScope={displayScope}
+                    confidence={confidence}
+                    confidenceLabel={confidenceLabel}
+                    indicators={indicators}
+                    claimTraits={claimTraits}
+                    mode="mobile"
+                    chrome="inline"
+                  />
+                ) : null
+              }
+            />
+          </div>
+          <div ref={resultPanelRef} style={isMobile ? mobileResultWrapStyle : undefined}>
+            <SharedResultView
+              loading={loading}
+              loadingStage={loadingStage}
+              reportMeta={reportMeta}
+              analysis={analysis}
+              activeAnalysis={activeAnalysis}
+              displayScope={displayScope}
+              confidence={confidence}
+              confidenceLabel={confidenceLabel}
+              indicators={indicators}
+              claimTraits={claimTraits}
+              mode={isMobile ? 'mobile' : 'desktop'}
+              suppressLoadingState={isMobile}
+            />
+          </div>
         </div>
       </section>
 
