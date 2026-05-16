@@ -542,6 +542,26 @@ export default function SharedAnalyzerLayout({
                     claimTraits={claimTraits}
                     mode="mobile"
                     chrome="inline"
+                    loadingLayout="pipeline"
+                  />
+                ) : null
+              }
+              afterFooterContent={
+                isMobile && loading ? (
+                  <SharedResultView
+                    loading={loading}
+                    loadingStage={loadingStage}
+                    reportMeta={reportMeta}
+                    analysis={analysis}
+                    activeAnalysis={activeAnalysis}
+                    displayScope={displayScope}
+                    confidence={confidence}
+                    confidenceLabel={confidenceLabel}
+                    indicators={indicators}
+                    claimTraits={claimTraits}
+                    mode="mobile"
+                    chrome="inline"
+                    loadingLayout="meta"
                   />
                 ) : null
               }

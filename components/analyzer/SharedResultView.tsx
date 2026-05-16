@@ -27,6 +27,7 @@ type SharedResultViewProps = {
   mode?: 'desktop' | 'mobile'
   chrome?: 'panel' | 'inline'
   suppressLoadingState?: boolean
+  loadingLayout?: 'full' | 'pipeline' | 'meta'
 }
 
 type MobileAccordionKey = 'sources' | 'evidence' | 'details' | 'signals'
@@ -65,6 +66,7 @@ export default function SharedResultView({
   mode = 'desktop',
   chrome = 'panel',
   suppressLoadingState = false,
+  loadingLayout = 'full',
 }: SharedResultViewProps) {
   const isMobile = mode === 'mobile'
   const [mobileAccordions, setMobileAccordions] = useState<Record<MobileAccordionKey, boolean>>({
@@ -114,6 +116,44 @@ export default function SharedResultView({
   let content: ReactNode = null
 
   if (loading && !suppressLoadingState) {
+    if (loadingLayout === 'pipeline') {
+      content = (
+        <div className="loading-stage-list" aria-label="Analysis pipeline">
+          {processingStages.map((stage, index) => (
+            <div
+              className={
+                index < loadingStage
+                  ? 'stage-row complete'
+                  : index === loadingStage
+                    ? 'stage-row active'
+                    : 'stage-row'
+              }
+              key={stage}
+            >
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <p>{stage}</p>
+            </div>
+          ))}
+        </div>
+      )
+    } else if (loadingLayout === 'meta') {
+      content = (
+        <div className="report-meta-strip" aria-label="Analysis trace metadata">
+          <div>
+            <span>Trace ID</span>
+            <strong>{reportMeta?.traceId ?? 'DAM-PENDING'}</strong>
+          </div>
+          <div>
+            <span>Opened</span>
+            <strong>{reportMeta?.timestamp ?? 'Pending'}</strong>
+          </div>
+          <div>
+            <span>Pipeline</span>
+            <strong>Retrieval first</strong>
+          </div>
+        </div>
+      )
+    } else {
     content = (
       <section className="report-card loading-card" aria-label="Analysis in progress">
         <div className="panel-topline">
@@ -156,6 +196,7 @@ export default function SharedResultView({
         </div>
       </section>
     )
+    }
   } else if (analysis) {
     const signalsSection = (
       <div className="report-section">

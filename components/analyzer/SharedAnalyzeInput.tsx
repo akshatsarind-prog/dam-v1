@@ -13,6 +13,7 @@ type SharedAnalyzeInputProps = {
   onSubmit: React.FormEventHandler<HTMLFormElement>
   onKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement>
   belowTextareaContent?: ReactNode
+  afterFooterContent?: ReactNode
 }
 
 export default function SharedAnalyzeInput({
@@ -27,6 +28,7 @@ export default function SharedAnalyzeInput({
   onSubmit,
   onKeyDown,
   belowTextareaContent,
+  afterFooterContent,
 }: SharedAnalyzeInputProps) {
   return (
     <form className="claim-panel" onSubmit={onSubmit}>
@@ -91,6 +93,7 @@ export default function SharedAnalyzeInput({
           )}
         </button>
       </div>
+      {afterFooterContent ? <div style={{ marginTop: 14 }}>{afterFooterContent}</div> : null}
 
       <div className="intake-metadata" aria-label="Input diagnostics">
         <div>
