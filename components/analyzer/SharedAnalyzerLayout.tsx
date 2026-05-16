@@ -34,8 +34,8 @@ const mobileNavButtonStyle = {
   color: 'var(--text)',
   font: 'inherit',
   cursor: 'pointer',
-  borderRadius: 999,
-  transition: 'background 140ms ease, border-color 140ms ease, transform 140ms ease',
+  borderRadius: 10,
+  transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
 } as const
 
 const mobileDrawerShellStyle = {
@@ -43,7 +43,9 @@ const mobileDrawerShellStyle = {
   margin: '0 auto',
   overflow: 'hidden',
   transformOrigin: 'top center',
-  transition: 'max-height 180ms ease, opacity 160ms ease, transform 160ms ease, margin-top 160ms ease',
+  willChange: 'max-height, opacity, margin-top',
+  transition:
+    'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out, margin-top 240ms cubic-bezier(0.22, 1, 0.36, 1)',
 } as const
 
 const mobileDrawerPanelStyle = {
@@ -51,8 +53,8 @@ const mobileDrawerPanelStyle = {
   border: '1px solid var(--line)',
   background: 'rgba(17, 17, 20, 0.98)',
   boxShadow: 'var(--shadow)',
-  borderRadius: 24,
-  backdropFilter: 'blur(12px)',
+  borderRadius: 14,
+  backdropFilter: 'blur(10px)',
 } as const
 
 const mobileNavMenuItemStyle = {
@@ -68,17 +70,17 @@ const mobileNavMenuItemStyle = {
   font: 'inherit',
   cursor: 'pointer',
   textAlign: 'left',
-  borderRadius: 16,
-  transition: 'background 140ms ease, opacity 140ms ease',
+  borderRadius: 10,
+  transition: 'background 180ms ease, opacity 180ms ease, transform 180ms ease',
 } as const
 
 const examplePanelStyle = {
   marginBottom: 12,
   padding: 12,
   border: '1px solid var(--line)',
-  background: 'rgba(17, 17, 20, 0.94)',
+  background: 'rgba(17, 17, 20, 0.96)',
   boxShadow: 'var(--shadow)',
-  borderRadius: 24,
+  borderRadius: 14,
 } as const
 
 const exampleDomainGridStyle = {
@@ -102,8 +104,8 @@ const exampleDomainButtonStyle = {
   font: 'inherit',
   cursor: 'pointer',
   textAlign: 'left',
-  borderRadius: 18,
-  transition: 'background 140ms ease, border-color 140ms ease, transform 140ms ease',
+  borderRadius: 10,
+  transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
 } as const
 
 const examplePanelToggleStyle = {
@@ -120,8 +122,8 @@ const examplePanelToggleStyle = {
   font: 'inherit',
   cursor: 'pointer',
   textAlign: 'left',
-  borderRadius: 18,
-  transition: 'background 140ms ease, border-color 140ms ease',
+  borderRadius: 10,
+  transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
 } as const
 
 const examplePanelBodyStyle = {
@@ -340,7 +342,14 @@ export default function SharedAnalyzerLayout({
           )}
         </header>
         {isMobile ? (
-          <section style={mobileDrawerShellStyle}>
+          <section
+            style={{
+              ...mobileDrawerShellStyle,
+              maxHeight: isMobileMenuOpen ? 260 : 0,
+              opacity: isMobileMenuOpen ? 1 : 0,
+              marginTop: isMobileMenuOpen ? 8 : 0,
+            }}
+          >
             <nav
               id={mobileMenuId}
               aria-label="Product sections"
@@ -349,13 +358,17 @@ export default function SharedAnalyzerLayout({
                 ...mobileDrawerPanelStyle,
                 overflow: 'hidden',
                 opacity: isMobileMenuOpen ? 1 : 0,
-                transform: isMobileMenuOpen ? 'translateY(0)' : 'translateY(-10px)',
+                transform: isMobileMenuOpen
+                  ? 'translateY(0) scaleY(1)'
+                  : 'translateY(-14px) scaleY(0.94)',
+                transformOrigin: 'top center',
                 pointerEvents: isMobileMenuOpen ? 'auto' : 'none',
-                maxHeight: isMobileMenuOpen ? 320 : 0,
-                marginTop: isMobileMenuOpen ? 10 : 0,
                 padding: isMobileMenuOpen ? 10 : 0,
                 borderWidth: isMobileMenuOpen ? 1 : 0,
                 boxShadow: isMobileMenuOpen ? 'var(--shadow)' : 'none',
+                willChange: 'transform, opacity, padding',
+                transition:
+                  'opacity 180ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1), padding 240ms cubic-bezier(0.22, 1, 0.36, 1), border-width 180ms ease, box-shadow 180ms ease',
               }}
             >
               {sectionNavItems.map((item) => (
