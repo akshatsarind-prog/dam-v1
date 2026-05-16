@@ -46,10 +46,23 @@ const mobileAccordionButtonStyle = {
   textAlign: 'left',
   font: 'inherit',
   cursor: 'pointer',
+  borderRadius: 10,
+  transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
+} as const
+
+const mobileAccordionShellStyle = {
+  overflow: 'hidden',
+  transformOrigin: 'top center',
+  willChange: 'max-height, opacity, margin-top',
+  transition:
+    'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out, margin-top 240ms cubic-bezier(0.22, 1, 0.36, 1)',
 } as const
 
 const mobileAccordionPanelStyle = {
-  marginTop: 10,
+  transformOrigin: 'top center',
+  willChange: 'transform, opacity, padding',
+  transition:
+    'opacity 180ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1), padding 240ms cubic-bezier(0.22, 1, 0.36, 1)',
 } as const
 
 export default function SharedResultView({
@@ -104,11 +117,31 @@ export default function SharedResultView({
           <span>{heading}</span>
           <span aria-hidden="true">{isOpen ? '-' : '+'}</span>
         </button>
-        {isOpen ? (
-          <div id={`mobile-accordion-${key}`} style={mobileAccordionPanelStyle}>
+        <div
+          aria-hidden={!isOpen}
+          inert={!isOpen}
+          style={{
+            ...mobileAccordionShellStyle,
+            maxHeight: isOpen ? 2400 : 0,
+            opacity: isOpen ? 1 : 0,
+            marginTop: isOpen ? 10 : 0,
+          }}
+        >
+          <div
+            id={`mobile-accordion-${key}`}
+            style={{
+              ...mobileAccordionPanelStyle,
+              opacity: isOpen ? 1 : 0,
+              transform: isOpen
+                ? 'translateY(0) scaleY(1)'
+                : 'translateY(-14px) scaleY(0.94)',
+              paddingTop: isOpen ? 2 : 0,
+              pointerEvents: isOpen ? 'auto' : 'none',
+            }}
+          >
             {content}
           </div>
-        ) : null}
+        </div>
       </div>
     )
   }
