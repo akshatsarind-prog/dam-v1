@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import BetaSignupCard from './BetaSignupCard'
 import {
   type Analysis,
   type Indicator,
@@ -149,86 +150,61 @@ export default function SharedResultView({
   let content: ReactNode = null
 
   if (loading && !suppressLoadingState) {
-    if (loadingLayout === 'pipeline') {
-      content = (
-        <div className="loading-stage-list" aria-label="Analysis pipeline">
-          {processingStages.map((stage, index) => (
-            <div
-              className={
-                index < loadingStage
-                  ? 'stage-row complete'
-                  : index === loadingStage
-                    ? 'stage-row active'
-                    : 'stage-row'
-              }
-              key={stage}
-            >
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <p>{stage}</p>
-            </div>
-          ))}
+    const loadingMetaContent = (
+      <div className="report-meta-strip" aria-label="Analysis trace metadata">
+        <div>
+          <span>Trace ID</span>
+          <strong>{reportMeta?.traceId ?? 'DAM-PENDING'}</strong>
         </div>
-      )
-    } else if (loadingLayout === 'meta') {
-      content = (
-        <div className="report-meta-strip" aria-label="Analysis trace metadata">
-          <div>
-            <span>Trace ID</span>
-            <strong>{reportMeta?.traceId ?? 'DAM-PENDING'}</strong>
-          </div>
-          <div>
-            <span>Opened</span>
-            <strong>{reportMeta?.timestamp ?? 'Pending'}</strong>
-          </div>
-          <div>
-            <span>Pipeline</span>
-            <strong>Retrieval first</strong>
-          </div>
+        <div>
+          <span>Opened</span>
+          <strong>{reportMeta?.timestamp ?? 'Pending'}</strong>
         </div>
-      )
-    } else {
-    content = (
-      <section className="report-card loading-card" aria-label="Analysis in progress">
-        <div className="panel-topline">
-          <p>Intelligence Briefing</p>
-          <span className="status-badge">
-            <span className="badge-spinner" aria-hidden="true" />
-            Processing
-          </span>
+        <div>
+          <span>Pipeline</span>
+          <strong>Retrieval first</strong>
         </div>
-        <div className="report-meta-strip">
-          <div>
-            <span>Trace ID</span>
-            <strong>{reportMeta?.traceId ?? 'DAM-PENDING'}</strong>
-          </div>
-          <div>
-            <span>Opened</span>
-            <strong>{reportMeta?.timestamp ?? 'Pending'}</strong>
-          </div>
-          <div>
-            <span>Pipeline</span>
-            <strong>Retrieval first</strong>
-          </div>
-        </div>
-        <div className="loading-stage-list">
-          {processingStages.map((stage, index) => (
-            <div
-              className={
-                index < loadingStage
-                  ? 'stage-row complete'
-                  : index === loadingStage
-                    ? 'stage-row active'
-                    : 'stage-row'
-              }
-              key={stage}
-            >
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <p>{stage}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      </div>
     )
+
+    const loadingStageContent = (
+      <div className="loading-stage-list" aria-label="Analysis pipeline">
+        {processingStages.map((stage, index) => (
+          <div
+            className={
+              index < loadingStage
+                ? 'stage-row complete'
+                : index === loadingStage
+                  ? 'stage-row active'
+                  : 'stage-row'
+            }
+            key={stage}
+          >
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <p>{stage}</p>
+          </div>
+        ))}
+      </div>
+    )
+
+    if (loadingLayout === 'pipeline') {
+      content = loadingStageContent
+    } else if (loadingLayout === 'meta') {
+      content = loadingMetaContent
+    } else {
+      content = (
+        <section className="report-card loading-card" aria-label="Analysis in progress">
+          <div className="panel-topline">
+            <p>Intelligence Briefing</p>
+            <span className="status-badge">
+              <span className="badge-spinner" aria-hidden="true" />
+              Processing
+            </span>
+          </div>
+          {loadingMetaContent}
+          {loadingStageContent}
+        </section>
+      )
     }
   } else if (analysis) {
     const signalsSection = (
@@ -570,6 +546,7 @@ export default function SharedResultView({
   return (
     <aside className="report-panel" aria-live="polite" aria-busy={loading}>
       {content}
+      {analysis ? <BetaSignupCard /> : null}
     </aside>
   )
 }
