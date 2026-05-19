@@ -117,6 +117,8 @@ type EventRow = Record<string, unknown>
 type SessionAggregate = {
   firstSeenAt: number | null
   lastSeenAt: number | null
+  firstEventAt: number | null
+  lastEventAt: number | null
   totalClaims: number
   totalEvents: number
   meaningfulEventCount: number
@@ -181,6 +183,7 @@ const emptyMetrics: AdminMetricsResponse = {
     latestReturningSessions: [],
     multiDayUsers: 0,
     averageClaimsPerUser: 0,
+    averageTimePerSessionMs: null,
     averageTimeBetweenSessionsMs: null,
     exampleToRealConversionRate: null,
     topReferrers: [],
@@ -464,12 +467,14 @@ function buildRetentionMetrics(
     let aggregate = sessionAggregates.get(sessionId)
 
     if (!aggregate) {
-      aggregate = {
-        firstSeenAt: null,
-        lastSeenAt: null,
-        totalClaims: 0,
-        totalEvents: 0,
-        meaningfulEventCount: 0,
+        aggregate = {
+          firstSeenAt: null,
+          lastSeenAt: null,
+          firstEventAt: null,
+          lastEventAt: null,
+          totalClaims: 0,
+          totalEvents: 0,
+          meaningfulEventCount: 0,
         exampleClaimCount: 0,
         realClaimCount: 0,
         appOpenTimestamps: [],
@@ -534,6 +539,13 @@ function buildRetentionMetrics(
     applyActivityTimestamp(aggregate, timestamp)
     aggregate.totalEvents += 1
 
+    if (timestamp !== null) {
+      aggregate.firstEventAt =
+        aggregate.firstEventAt === null ? timestamp : Math.min(aggregate.firstEventAt, timestamp)
+      aggregate.lastEventAt =
+        aggregate.lastEventAt === null ? timestamp : Math.max(aggregate.lastEventAt, timestamp)
+    }
+
     if (eventName !== 'app_session_end') {
       aggregate.meaningfulEventCount += 1
     }
@@ -576,6 +588,8 @@ function buildRetentionMetrics(
   let returningSessions = 0
   let repeatClaimSessions = 0
   let multiDayUsers = 0
+  let totalSessionDurationMs = 0
+  let sessionDurationSamples = 0
   let returnIntervalsTotalMs = 0
   let returnIntervalsCount = 0
   let exampleSessions = 0
@@ -615,6 +629,16 @@ function buildRetentionMetrics(
 
     if (aggregate.totalClaims > 1) {
       repeatClaimSessions += 1
+    }
+
+    if (
+      aggregate.firstEventAt !== null &&
+      aggregate.lastEventAt !== null &&
+      aggregate.lastEventAt > aggregate.firstEventAt &&
+      aggregate.totalEvents > 1
+    ) {
+      totalSessionDurationMs += aggregate.lastEventAt - aggregate.firstEventAt
+      sessionDurationSamples += 1
     }
 
     if (aggregate.activityDaysUtc.size > 1) {
@@ -667,6 +691,8 @@ function buildRetentionMetrics(
     latestReturningSessions: latestReturningSessions.slice(0, 10),
     multiDayUsers,
     averageClaimsPerUser: uniqueSessions > 0 ? totalClaims / uniqueSessions : 0,
+    averageTimePerSessionMs:
+      sessionDurationSamples > 0 ? Math.round(totalSessionDurationMs / sessionDurationSamples) : null,
     averageTimeBetweenSessionsMs:
       returnIntervalsCount > 0 ? Math.round(returnIntervalsTotalMs / returnIntervalsCount) : null,
     exampleToRealConversionRate:

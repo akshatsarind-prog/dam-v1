@@ -94,6 +94,7 @@ export type AdminRetentionMetrics = {
   latestReturningSessions: AdminReturningSessionRecord[]
   multiDayUsers: number
   averageClaimsPerUser: number
+  averageTimePerSessionMs: number | null
   averageTimeBetweenSessionsMs: number | null
   exampleToRealConversionRate: number | null
   topReferrers: AdminReferrerRecord[]

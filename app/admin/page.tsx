@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import type {
   AdminApiError,
   AdminCategoryIntelligence,
@@ -71,6 +71,7 @@ const emptyRetention: AdminRetentionMetrics = {
   latestReturningSessions: [],
   multiDayUsers: 0,
   averageClaimsPerUser: 0,
+  averageTimePerSessionMs: null,
   averageTimeBetweenSessionsMs: null,
   exampleToRealConversionRate: null,
   topReferrers: [],
@@ -221,6 +222,28 @@ function formatDurationCompact(value: number | null) {
   return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`
 }
 
+function formatSessionDuration(value: number | null) {
+  if (value === null) {
+    return 'Not tracked yet'
+  }
+
+  const totalSeconds = Math.max(Math.round(value / 1000), 0)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  const hours = Math.floor(minutes / 60)
+
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60
+    return `${hours}h ${String(remainingMinutes).padStart(2, '0')}m`
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+  }
+
+  return `${seconds}s`
+}
+
 function formatRate(value: number | null) {
   if (value === null) {
     return 'Not tracked yet'
@@ -367,6 +390,119 @@ function buildCategoryAnalysis(categoryIntelligence: AdminCategoryIntelligence) 
   return lines.length ? lines : ['No categorized claims are available yet.']
 }
 
+function CollapsibleSection({
+  eyebrow,
+  title,
+  description,
+  rowCount,
+  defaultExpanded = false,
+  containerStyle,
+  children,
+}: {
+  eyebrow?: string
+  title: string
+  description: string
+  rowCount?: number
+  defaultExpanded?: boolean
+  containerStyle?: CSSProperties
+  children: ReactNode
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+
+  return (
+    <section
+      style={{
+        ...sectionStyle,
+        ...(containerStyle ?? {}),
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        aria-expanded={expanded}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'start',
+          justifyContent: 'space-between',
+          gap: 14,
+          padding: 0,
+          border: 0,
+          background: 'transparent',
+          color: 'inherit',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          {eyebrow ? (
+            <p className="system-label" style={{ marginBottom: 10 }}>
+              <span aria-hidden="true" />
+              {eyebrow}
+            </p>
+          ) : null}
+          <h3
+            style={{
+              margin: 0,
+              color: 'var(--text)',
+              fontSize: 'clamp(20px, 2.2vw, 28px)',
+              lineHeight: 1.08,
+            }}
+          >
+            {title}
+          </h3>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            {description}
+          </p>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexShrink: 0,
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+          }}
+        >
+          {typeof rowCount === 'number' ? (
+            <span style={{ ...badgeStyle, color: 'var(--muted)' }}>{formatCount(rowCount)} rows</span>
+          ) : null}
+          <span
+            aria-hidden="true"
+            style={{
+              width: 36,
+              minHeight: 36,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '1px solid var(--line)',
+              background: '#0c0c0e',
+              color: 'var(--text)',
+              fontSize: 18,
+              fontWeight: 700,
+              lineHeight: 1,
+            }}
+          >
+            {expanded ? '−' : '+'}
+          </span>
+        </div>
+      </button>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: expanded ? '1fr' : '0fr',
+          transition: 'grid-template-rows 180ms ease',
+          marginTop: expanded ? 14 : 0,
+        }}
+      >
+        <div style={{ overflow: 'hidden' }}>{children}</div>
+      </div>
+    </section>
+  )
+}
+
 function BreakdownList({
   title,
   items,
@@ -434,171 +570,161 @@ function BreakdownList({
   )
 }
 
+function ClaimRowsTable({ claims }: { claims: AdminClaimRecord[] }) {
+  return (
+    <div
+      style={{
+        overflowX: 'auto',
+        border: '1px solid var(--line)',
+        background: '#0c0c0e',
+      }}
+    >
+      <table
+        style={{
+          width: '100%',
+          minWidth: 920,
+          borderCollapse: 'collapse',
+        }}
+      >
+        <thead>
+          <tr>
+            {['Created', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim'].map((label) => (
+              <th
+                key={label}
+                style={{
+                  padding: '12px 14px',
+                  borderBottom: '1px solid var(--line)',
+                  color: 'var(--quiet)',
+                  fontSize: 10,
+                  fontWeight: 850,
+                  textAlign: 'left',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0,
+                }}
+              >
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {claims.length ? (
+            claims.map((claim, index) => {
+              const confidenceTone = getConfidenceTone(claim.confidence)
+              const riskTone = getRiskTone(claim.riskLabel)
+
+              return (
+                <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`}>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      color: 'var(--muted)',
+                      fontSize: 12,
+                      verticalAlign: 'top',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatDateTime(claim.createdAt)}
+                  </td>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      verticalAlign: 'top',
+                    }}
+                  >
+                    <span style={badgeStyle}>{claim.verdict}</span>
+                  </td>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      verticalAlign: 'top',
+                    }}
+                  >
+                    <span style={{ ...badgeStyle, ...confidenceTone }}>{claim.confidence}</span>
+                  </td>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      verticalAlign: 'top',
+                    }}
+                  >
+                    <span style={{ ...badgeStyle, ...riskTone }}>{claim.riskLabel}</span>
+                  </td>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      color: 'var(--text)',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      verticalAlign: 'top',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatLatency(claim.latencyMs)}
+                  </td>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      color: 'var(--muted)',
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      minWidth: 280,
+                      maxWidth: 420,
+                    }}
+                  >
+                    {claim.claimText || 'No claim text logged.'}
+                  </td>
+                </tr>
+              )
+            })
+          ) : (
+            <tr>
+              <td
+                colSpan={6}
+                style={{
+                  padding: 16,
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                No claims available.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function ClaimsTable({
   title,
   subtitle,
   claims,
+  defaultExpanded,
 }: {
   title: string
   subtitle: string
   claims: AdminClaimRecord[]
+  defaultExpanded: boolean
 }) {
   return (
-    <section style={sectionStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'end',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 14,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Claim logs
-          </p>
-          <h2 style={{ margin: 0, fontSize: 'clamp(22px, 2.4vw, 30px)', lineHeight: 1.04 }}>
-            {title}
-          </h2>
-          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-            {subtitle}
-          </p>
-        </div>
-        <span style={{ ...badgeStyle, color: 'var(--muted)' }}>{formatCount(claims.length)} rows</span>
-      </div>
-      <div
-        style={{
-          overflowX: 'auto',
-          border: '1px solid var(--line)',
-          background: '#0c0c0e',
-        }}
-      >
-        <table
-          style={{
-            width: '100%',
-            minWidth: 920,
-            borderCollapse: 'collapse',
-          }}
-        >
-          <thead>
-            <tr>
-              {['Created', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim'].map((label) => (
-                <th
-                  key={label}
-                  style={{
-                    padding: '12px 14px',
-                    borderBottom: '1px solid var(--line)',
-                    color: 'var(--quiet)',
-                    fontSize: 10,
-                    fontWeight: 850,
-                    textAlign: 'left',
-                    textTransform: 'uppercase',
-                    letterSpacing: 0,
-                  }}
-                >
-                  {label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {claims.length ? (
-              claims.map((claim, index) => {
-                const confidenceTone = getConfidenceTone(claim.confidence)
-                const riskTone = getRiskTone(claim.riskLabel)
-
-                return (
-                  <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`}>
-                    <td
-                      style={{
-                        padding: '13px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        color: 'var(--muted)',
-                        fontSize: 12,
-                        verticalAlign: 'top',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {formatDateTime(claim.createdAt)}
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        verticalAlign: 'top',
-                      }}
-                    >
-                      <span style={badgeStyle}>{claim.verdict}</span>
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        verticalAlign: 'top',
-                      }}
-                    >
-                      <span style={{ ...badgeStyle, ...confidenceTone }}>{claim.confidence}</span>
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        verticalAlign: 'top',
-                      }}
-                    >
-                      <span style={{ ...badgeStyle, ...riskTone }}>{claim.riskLabel}</span>
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        color: 'var(--text)',
-                        fontSize: 12,
-                        fontWeight: 800,
-                        verticalAlign: 'top',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {formatLatency(claim.latencyMs)}
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        color: 'var(--muted)',
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                        minWidth: 280,
-                        maxWidth: 420,
-                      }}
-                    >
-                      {claim.claimText || 'No claim text logged.'}
-                    </td>
-                  </tr>
-                )
-              })
-            ) : (
-              <tr>
-                <td
-                  colSpan={6}
-                  style={{
-                    padding: 16,
-                    color: 'var(--muted)',
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  No claims available.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <CollapsibleSection
+      eyebrow="Claim logs"
+      title={title}
+      description={subtitle}
+      rowCount={claims.length}
+      defaultExpanded={defaultExpanded}
+    >
+      <ClaimRowsTable claims={claims} />
+    </CollapsibleSection>
   )
 }
 
@@ -1091,16 +1217,21 @@ function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics
             value: formatCount(retention.multiDayUsers),
             note: 'Active on different UTC dates',
           },
-          {
-            label: 'Avg claims per user',
-            value: retention.averageClaimsPerUser.toFixed(retention.averageClaimsPerUser >= 10 ? 1 : 2),
-            note: 'Total claims / unique sessions',
-          },
-          {
-            label: 'Avg time between sessions',
-            value: formatDurationCompact(retention.averageTimeBetweenSessionsMs),
-            note: 'Average gap for returning visits',
-          },
+            {
+              label: 'Avg claims per user',
+              value: retention.averageClaimsPerUser.toFixed(retention.averageClaimsPerUser >= 10 ? 1 : 2),
+              note: 'Total claims / unique sessions',
+            },
+            {
+              label: 'Avg time per session',
+              value: formatSessionDuration(retention.averageTimePerSessionMs),
+              note: 'Average active duration per anonymous session',
+            },
+            {
+              label: 'Avg time between sessions',
+              value: formatDurationCompact(retention.averageTimeBetweenSessionsMs),
+              note: 'Average gap for returning visits',
+            },
           {
             label: 'Example -> real conversion',
             value: formatRate(retention.exampleToRealConversionRate),
@@ -1185,17 +1316,18 @@ function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics
           </div>
         </article>
 
-        <article
-          style={{
+        <CollapsibleSection
+          title="Top referrers"
+          description="Referrer telemetry ranked by anonymous session count."
+          rowCount={retention.topReferrers.length}
+          defaultExpanded={false}
+          containerStyle={{
             border: '1px solid var(--line)',
             background: '#0c0c0e',
             padding: 16,
+            boxShadow: 'none',
           }}
         >
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Top referrers
-          </p>
           <div
             style={{
               display: 'grid',
@@ -1245,7 +1377,7 @@ function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics
               </div>
             )}
           </div>
-        </article>
+        </CollapsibleSection>
       </div>
     </section>
   )
@@ -1366,18 +1498,18 @@ function ReturningUserSignal({ retention }: { retention: AdminRetentionMetrics }
           </article>
         ))}
       </div>
-
-      <article
-        style={{
+      <CollapsibleSection
+        title="Latest returning sessions"
+        description="Most recently active anonymous sessions that already show repeat behavior."
+        rowCount={retention.latestReturningSessions.length}
+        defaultExpanded={false}
+        containerStyle={{
           border: '1px solid var(--line)',
           background: '#0c0c0e',
           padding: 16,
+          boxShadow: 'none',
         }}
       >
-        <p className="system-label" style={{ marginBottom: 10 }}>
-          <span aria-hidden="true" />
-          Latest returning sessions
-        </p>
         <div
           style={{
             display: 'grid',
@@ -1412,8 +1544,8 @@ function ReturningUserSignal({ retention }: { retention: AdminRetentionMetrics }
                     {session.sessionId}
                   </strong>
                   <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-                    Last seen {formatDateTime(session.lastSeenAt)} • Claims {formatCount(session.totalClaims)} • Events{' '}
-                    {formatCount(session.totalEvents)} • Visits {formatCount(session.totalVisits)}
+                    Last seen {formatDateTime(session.lastSeenAt)} | Claims {formatCount(session.totalClaims)} | Events{' '}
+                    {formatCount(session.totalEvents)} | Visits {formatCount(session.totalVisits)}
                   </span>
                 </div>
                 <span style={{ ...badgeStyle, color: '#f1b1b1', borderColor: 'rgba(214, 38, 38, 0.32)' }}>
@@ -1427,7 +1559,7 @@ function ReturningUserSignal({ retention }: { retention: AdminRetentionMetrics }
             </div>
           )}
         </div>
-      </article>
+      </CollapsibleSection>
     </section>
   )
 }
@@ -1673,14 +1805,21 @@ function CategoryIntelligenceSection({
           </div>
         </article>
       </div>
-
-      <div>
-        <p className="system-label" style={{ marginBottom: 10 }}>
-          <span aria-hidden="true" />
-          Recent categorized claims
-        </p>
+      <CollapsibleSection
+        eyebrow="Recent categorized claims"
+        title="Recent categorized claims"
+        description="Latest claims tagged by the analytics-only category layer."
+        rowCount={topCategoryClaims.length}
+        defaultExpanded={false}
+        containerStyle={{
+          border: '1px solid var(--line)',
+          background: '#0c0c0e',
+          padding: 16,
+          boxShadow: 'none',
+        }}
+      >
         <CategorizedClaimsTable claims={topCategoryClaims} />
-      </div>
+      </CollapsibleSection>
     </section>
   )
 }
@@ -2112,16 +2251,19 @@ export default function AdminPage() {
               title="Recent claims"
               subtitle="Latest 20 claim log rows from the admin metrics API."
               claims={metrics?.recentClaims ?? []}
+              defaultExpanded
             />
             <ClaimsTable
               title="Low-confidence claims"
               subtitle="Latest 20 claims where logged confidence is below 60."
               claims={metrics?.lowConfidenceClaims ?? []}
+              defaultExpanded={false}
             />
             <ClaimsTable
               title="Slowest claims"
               subtitle="Top 10 rows ordered by highest logged latency."
               claims={metrics?.slowestClaims ?? []}
+              defaultExpanded={false}
             />
           </>
         ) : null}
