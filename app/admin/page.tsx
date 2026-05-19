@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import type {
   AdminApiError,
-  AdminCategorizedClaimRecord,
   AdminCategoryIntelligence,
   AdminClaimCategory,
   AdminClaimRecord,
@@ -15,6 +14,8 @@ import type {
 } from '@/lib/admin/adminMetricsTypes'
 
 const SESSION_STORAGE_KEY = 'dam_admin_password'
+
+type AdminCategorizedClaimRecord = AdminCategoryIntelligence['topCategoryClaims'][number]
 
 type DashboardStatus = 'locked' | 'loading' | 'ready' | 'error'
 

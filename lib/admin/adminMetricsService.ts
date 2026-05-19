@@ -2,6 +2,10 @@ import 'server-only'
 
 import type {
   AdminClaimRecord,
+  AdminCategorizedClaimRecord,
+  AdminCategoryBreakdownRecord,
+  AdminCategoryIntelligence,
+  AdminClaimCategory,
   AdminFunnelMetrics,
   AdminFunnelStage,
   AdminMetricsResponse,
@@ -21,6 +25,91 @@ const MANUAL_DISTRIBUTED_BASELINE = 850
 const MANUAL_LANDING_VISITORS_BASELINE = 133
 const MANUAL_APP_VISITORS_BASELINE = 39
 const RETURNING_SESSION_GAP_MS = 30 * 60 * 1000
+const CRYPTO_KEYWORDS = [
+  'crypto',
+  'bitcoin',
+  'trading',
+  'investment',
+  'guaranteed return',
+  'double money',
+  'wallet',
+] as const
+const SCAM_KEYWORDS = [
+  'kyc',
+  'otp',
+  'bank',
+  'account blocked',
+  'reward',
+  'lottery',
+  'urgent payment',
+  'verification',
+  'phishing',
+  'click link',
+  'credential harvesting',
+  'impersonation',
+] as const
+const HEALTH_KEYWORDS = [
+  'medicine',
+  'cure',
+  'diabetes',
+  'vaccine',
+  'hospital',
+  'doctor',
+  'disease',
+  'heart',
+  'cancer',
+  'health',
+] as const
+const POLITICAL_KEYWORDS = [
+  'election',
+  'party',
+  'minister',
+  ' mp ',
+  ' mla ',
+  ' cm ',
+  ' pm ',
+  'vote',
+  'lok sabha',
+  'rajya sabha',
+] as const
+const GOVERNMENT_KEYWORDS = [
+  'aadhaar',
+  'pan',
+  'rbi',
+  'government',
+  'subsidy',
+  'scheme',
+  'tax',
+  'police',
+  'court',
+  'official notice',
+  'official circular',
+  'notice',
+] as const
+const STATISTICS_KEYWORDS = [
+  'percent',
+  '%',
+  'study',
+  'survey',
+  'report',
+  'data',
+  'research',
+  'rate',
+  'number',
+  'deaths',
+  'people',
+] as const
+const SOCIAL_RUMOR_KEYWORDS = [
+  'viral',
+  'whatsapp',
+  'forwarded',
+  'rumor',
+  'community',
+  'school',
+  'city',
+  'local',
+  'everyone says',
+] as const
 
 type ClaimLogRow = Record<string, unknown>
 type EventRow = Record<string, unknown>
@@ -89,6 +178,17 @@ const emptyMetrics: AdminMetricsResponse = {
     exampleToRealConversionRate: null,
     topReferrers: [],
   },
+  categoryIntelligence: {
+    categoryBreakdown: [],
+    mostTestedCategory: null,
+    highestLatencyCategory: null,
+    lowestConfidenceCategory: null,
+    emailConversionByCategory: {
+      available: false,
+      message: 'Not linkable yet',
+    },
+    topCategoryClaims: [],
+  },
   recentClaims: [],
   lowConfidenceClaims: [],
   slowestClaims: [],
@@ -156,6 +256,57 @@ function normalizeClaimRecord(row: ClaimLogRow): AdminClaimRecord {
   }
 }
 
+function normalizeText(value: string) {
+  return ` ${value.trim().toLowerCase().replace(/\s+/g, ' ')} `
+}
+
+function hasAnyKeyword(text: string, keywords: readonly string[]) {
+  return keywords.some((keyword) => text.includes(keyword))
+}
+
+function deriveClaimCategory(row: ClaimLogRow): AdminClaimCategory {
+  const claimText = readString(row.claim_text)
+  const riskLabel = readString(row.risk_label, 'unknown')
+  const verdict = readString(row.verdict, 'unknown')
+  const combinedText = normalizeText(`${claimText} ${riskLabel} ${verdict}`)
+
+  if (hasAnyKeyword(combinedText, CRYPTO_KEYWORDS)) {
+    return 'crypto'
+  }
+
+  if (
+    hasAnyKeyword(combinedText, SCAM_KEYWORDS) ||
+    combinedText.includes('phishing') ||
+    combinedText.includes('harvesting') ||
+    combinedText.includes('reward bait') ||
+    combinedText.includes('payment extraction')
+  ) {
+    return 'scam'
+  }
+
+  if (hasAnyKeyword(combinedText, HEALTH_KEYWORDS)) {
+    return 'health'
+  }
+
+  if (hasAnyKeyword(combinedText, POLITICAL_KEYWORDS)) {
+    return 'political'
+  }
+
+  if (hasAnyKeyword(combinedText, GOVERNMENT_KEYWORDS)) {
+    return 'government'
+  }
+
+  if (hasAnyKeyword(combinedText, STATISTICS_KEYWORDS)) {
+    return 'statistics'
+  }
+
+  if (hasAnyKeyword(combinedText, SOCIAL_RUMOR_KEYWORDS)) {
+    return 'social_rumor'
+  }
+
+  return 'other'
+}
+
 function getLocalStartOfToday() {
   const start = new Date()
   start.setHours(0, 0, 0, 0)
@@ -189,6 +340,82 @@ function buildTrackedFunnelStage(label: string, count: number): AdminFunnelStage
     count,
     status: 'tracked',
     manualBaseline: false,
+  }
+}
+
+function buildCategoryIntelligence(
+  claimRows: ClaimLogRow[],
+  totalClaims: number
+): AdminCategoryIntelligence {
+  const categoryStats = new Map<
+    AdminClaimCategory,
+    {
+      count: number
+      totalLatencyMs: number
+      totalConfidence: number
+    }
+  >()
+
+  const categorizedClaims = claimRows.map<AdminCategorizedClaimRecord>((row) => ({
+    ...normalizeClaimRecord(row),
+    category: deriveClaimCategory(row),
+  }))
+
+  for (const claim of categorizedClaims) {
+    const current = categoryStats.get(claim.category) ?? {
+      count: 0,
+      totalLatencyMs: 0,
+      totalConfidence: 0,
+    }
+
+    current.count += 1
+    current.totalLatencyMs += claim.latencyMs
+    current.totalConfidence += claim.confidence
+    categoryStats.set(claim.category, current)
+  }
+
+  const categoryBreakdown = Array.from(categoryStats.entries())
+    .map<AdminCategoryBreakdownRecord>(([category, stats]) => ({
+      category,
+      count: stats.count,
+      percentage: totalClaims > 0 ? stats.count / totalClaims : 0,
+      averageLatencyMs: stats.count > 0 ? Math.round(stats.totalLatencyMs / stats.count) : 0,
+      averageConfidence: stats.count > 0 ? Number((stats.totalConfidence / stats.count).toFixed(1)) : 0,
+    }))
+    .sort((left, right) => right.count - left.count || left.category.localeCompare(right.category))
+
+  const mostTestedCategory = categoryBreakdown.length ? categoryBreakdown[0] : null
+  const highestLatencyCategory = categoryBreakdown.length
+    ? [...categoryBreakdown].sort(
+        (left, right) =>
+          right.averageLatencyMs - left.averageLatencyMs || right.count - left.count
+      )[0]
+    : null
+  const lowestConfidenceCategory = categoryBreakdown.length
+    ? [...categoryBreakdown].sort(
+        (left, right) =>
+          left.averageConfidence - right.averageConfidence || right.count - left.count
+      )[0]
+    : null
+
+  const topCategoryClaims = [...categorizedClaims]
+    .sort((left, right) => {
+      const leftTime = left.createdAt ? Date.parse(left.createdAt) : 0
+      const rightTime = right.createdAt ? Date.parse(right.createdAt) : 0
+      return rightTime - leftTime
+    })
+    .slice(0, 20)
+
+  return {
+    categoryBreakdown,
+    mostTestedCategory,
+    highestLatencyCategory,
+    lowestConfidenceCategory,
+    emailConversionByCategory: {
+      available: false,
+      message: 'Not linkable yet',
+    },
+    topCategoryClaims,
   }
 }
 
@@ -657,6 +884,10 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     eventRows,
     aggregateResult.totalClaims
   )
+  const categoryIntelligence = buildCategoryIntelligence(
+    aggregateResult.rows,
+    aggregateResult.totalClaims
+  )
 
   return buildMetricsResponse({
     totalClaims: aggregateResult.totalClaims,
@@ -673,6 +904,7 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     })),
     funnel,
     retention,
+    categoryIntelligence,
     recentClaims,
     lowConfidenceClaims,
     slowestClaims,

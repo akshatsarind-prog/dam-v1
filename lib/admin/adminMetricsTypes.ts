@@ -17,6 +17,42 @@ export type AdminClaimRecord = {
   latencyMs: number
 }
 
+export type AdminClaimCategory =
+  | 'scam'
+  | 'health'
+  | 'political'
+  | 'government'
+  | 'statistics'
+  | 'social_rumor'
+  | 'crypto'
+  | 'other'
+
+export type AdminCategorizedClaimRecord = AdminClaimRecord & {
+  category: AdminClaimCategory
+}
+
+export type AdminCategoryBreakdownRecord = {
+  category: AdminClaimCategory
+  count: number
+  percentage: number
+  averageLatencyMs: number
+  averageConfidence: number
+}
+
+export type AdminCategoryEmailConversion = {
+  available: boolean
+  message: string
+}
+
+export type AdminCategoryIntelligence = {
+  categoryBreakdown: AdminCategoryBreakdownRecord[]
+  mostTestedCategory: AdminCategoryBreakdownRecord | null
+  highestLatencyCategory: AdminCategoryBreakdownRecord | null
+  lowestConfidenceCategory: AdminCategoryBreakdownRecord | null
+  emailConversionByCategory: AdminCategoryEmailConversion
+  topCategoryClaims: AdminCategorizedClaimRecord[]
+}
+
 export type AdminFunnelStageStatus = 'tracked' | 'manual' | 'not_tracked'
 
 export type AdminFunnelStage = {
@@ -65,6 +101,7 @@ export type AdminMetricsResponse = {
   riskLabelBreakdown: RiskLabelBreakdown[]
   funnel: AdminFunnelMetrics
   retention: AdminRetentionMetrics
+  categoryIntelligence: AdminCategoryIntelligence
   recentClaims: AdminClaimRecord[]
   lowConfidenceClaims: AdminClaimRecord[]
   slowestClaims: AdminClaimRecord[]
