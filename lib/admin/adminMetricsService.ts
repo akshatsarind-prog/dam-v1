@@ -2,6 +2,8 @@ import 'server-only'
 
 import type {
   AdminClaimRecord,
+  AdminFunnelMetrics,
+  AdminFunnelStage,
   AdminMetricsResponse,
   RiskLabelBreakdown,
   VerdictBreakdown,
@@ -9,10 +11,47 @@ import type {
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 const CLAIM_LOGS_TABLE = 'dam_claim_logs'
+const BETA_USERS_TABLE = 'dam_beta_users'
 const CLAIM_TEXT_MAX_LENGTH = 280
 const AGGREGATION_BATCH_SIZE = 1000
+const MANUAL_DISTRIBUTED_BASELINE = 850
+const MANUAL_LANDING_VISITORS_BASELINE = 133
+const MANUAL_APP_VISITORS_BASELINE = 39
 
 type ClaimLogRow = Record<string, unknown>
+
+const emptyFunnel: AdminFunnelMetrics = {
+  distributed: {
+    label: 'Reached / Distributed',
+    count: MANUAL_DISTRIBUTED_BASELINE,
+    status: 'manual',
+    manualBaseline: true,
+  },
+  landingVisitors: {
+    label: 'Landing visitors',
+    count: MANUAL_LANDING_VISITORS_BASELINE,
+    status: 'manual',
+    manualBaseline: true,
+  },
+  appVisitors: {
+    label: 'App visitors / sessions',
+    count: MANUAL_APP_VISITORS_BASELINE,
+    status: 'manual',
+    manualBaseline: true,
+  },
+  claimSubmissions: {
+    label: 'Claim submissions',
+    count: 0,
+    status: 'tracked',
+    manualBaseline: false,
+  },
+  emailCaptures: {
+    label: 'Email captures / signups',
+    count: null,
+    status: 'not_tracked',
+    manualBaseline: false,
+  },
+}
 
 const emptyMetrics: AdminMetricsResponse = {
   generatedAt: '',
@@ -22,6 +61,7 @@ const emptyMetrics: AdminMetricsResponse = {
   averageLatencyMs: 0,
   verdictBreakdown: [],
   riskLabelBreakdown: [],
+  funnel: emptyFunnel,
   recentClaims: [],
   lowConfidenceClaims: [],
   slowestClaims: [],
@@ -31,10 +71,16 @@ const emptyMetrics: AdminMetricsResponse = {
 function buildMetricsResponse(
   overrides: Partial<AdminMetricsResponse> = {}
 ): AdminMetricsResponse {
+  const { funnel, ...restOverrides } = overrides
+
   return {
     ...emptyMetrics,
     generatedAt: new Date().toISOString(),
-    ...overrides,
+    funnel: {
+      ...emptyFunnel,
+      ...(funnel ?? {}),
+    },
+    ...restOverrides,
   }
 }
 
@@ -99,6 +145,33 @@ function buildBreakdown<T>(
   return Array.from(counts.entries())
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .map(([key, count]) => mapKey(key, count))
+}
+
+function buildTrackedFunnelStage(label: string, count: number): AdminFunnelStage {
+  return {
+    label,
+    count,
+    status: 'tracked',
+    manualBaseline: false,
+  }
+}
+
+async function readTableCountSafe(table: string) {
+  const supabaseAdmin = getSupabaseAdminClient()
+
+  if (!supabaseAdmin) {
+    return null
+  }
+
+  const { count, error } = await supabaseAdmin
+    .from(table)
+    .select('*', { count: 'exact', head: true })
+
+  if (error || typeof count !== 'number') {
+    return null
+  }
+
+  return count
 }
 
 async function readAggregateRows() {
@@ -261,6 +334,19 @@ async function readSlowestClaims() {
   ).slice(0, 10)
 }
 
+async function readFunnelMetrics(totalClaims: number): Promise<AdminFunnelMetrics> {
+  const emailCaptureCount = await readTableCountSafe(BETA_USERS_TABLE)
+
+  return {
+    ...emptyFunnel,
+    claimSubmissions: buildTrackedFunnelStage('Claim submissions', totalClaims),
+    emailCaptures:
+      emailCaptureCount === null
+        ? emptyFunnel.emailCaptures
+        : buildTrackedFunnelStage('Email captures / signups', emailCaptureCount),
+  }
+}
+
 export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
   const aggregateResult = await readAggregateRows()
 
@@ -295,10 +381,11 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     }
   }
 
-  const [recentClaims, lowConfidenceClaims, slowestClaims] = await Promise.all([
+  const [recentClaims, lowConfidenceClaims, slowestClaims, funnel] = await Promise.all([
     readRecentClaims(),
     readLowConfidenceClaims(),
     readSlowestClaims(),
+    readFunnelMetrics(aggregateResult.totalClaims),
   ])
 
   return buildMetricsResponse({
@@ -314,6 +401,7 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
       riskLabel,
       count,
     })),
+    funnel,
     recentClaims,
     lowConfidenceClaims,
     slowestClaims,

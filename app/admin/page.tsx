@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type {
   AdminApiError,
   AdminClaimRecord,
+  AdminFunnelMetrics,
+  AdminFunnelStage,
   AdminMetricsResponse,
   RiskLabelBreakdown,
   VerdictBreakdown,
@@ -123,8 +125,55 @@ function formatCount(value: number) {
   return new Intl.NumberFormat('en-US').format(value)
 }
 
+function formatNullableCount(value: number | null) {
+  return value === null ? 'Not tracked yet' : formatCount(value)
+}
+
 function formatLatency(value: number) {
   return `${Math.round(value)} ms`
+}
+
+function formatRate(value: number | null) {
+  if (value === null) {
+    return 'Not tracked yet'
+  }
+
+  return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
+}
+
+function calculateRate(numerator: number | null, denominator: number | null) {
+  if (numerator === null || denominator === null || denominator <= 0) {
+    return null
+  }
+
+  return numerator / denominator
+}
+
+function getFunnelStageTone(stage: AdminFunnelStage) {
+  if (stage.status === 'tracked') {
+    return {
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+      background: 'rgba(255, 255, 255, 0.07)',
+      color: '#ffffff',
+      label: 'Tracked',
+    }
+  }
+
+  if (stage.status === 'manual') {
+    return {
+      borderColor: 'rgba(214, 38, 38, 0.32)',
+      background: 'rgba(214, 38, 38, 0.07)',
+      color: '#f1b1b1',
+      label: 'Manual baseline',
+    }
+  }
+
+  return {
+    borderColor: 'rgba(214, 38, 38, 0.58)',
+    background: 'rgba(214, 38, 38, 0.15)',
+    color: '#ffb1b1',
+    label: 'Not tracked yet',
+  }
 }
 
 function getConfidenceTone(confidence: number) {
@@ -406,6 +455,354 @@ function ClaimsTable({
             )}
           </tbody>
         </table>
+      </div>
+    </section>
+  )
+}
+
+function FunnelIntelligence({ funnel }: { funnel: AdminFunnelMetrics }) {
+  const stages = [
+    { key: 'distributed', stage: funnel.distributed },
+    { key: 'landingVisitors', stage: funnel.landingVisitors },
+    { key: 'appVisitors', stage: funnel.appVisitors },
+    { key: 'claimSubmissions', stage: funnel.claimSubmissions },
+    { key: 'emailCaptures', stage: funnel.emailCaptures },
+  ] as const
+
+  const conversionCards = [
+    {
+      key: 'reach_to_landing',
+      label: 'Reach -> Landing',
+      from: funnel.distributed,
+      to: funnel.landingVisitors,
+    },
+    {
+      key: 'landing_to_app',
+      label: 'Landing -> App',
+      from: funnel.landingVisitors,
+      to: funnel.appVisitors,
+    },
+    {
+      key: 'app_to_claim',
+      label: 'App -> Claim',
+      from: funnel.appVisitors,
+      to: funnel.claimSubmissions,
+    },
+    {
+      key: 'claim_to_email',
+      label: 'Claim -> Email',
+      from: funnel.claimSubmissions,
+      to: funnel.emailCaptures,
+    },
+    {
+      key: 'reach_to_claim',
+      label: 'Reach -> Claim',
+      from: funnel.distributed,
+      to: funnel.claimSubmissions,
+    },
+    {
+      key: 'reach_to_app',
+      label: 'Reach -> App',
+      from: funnel.distributed,
+      to: funnel.appVisitors,
+    },
+  ].map((item) => ({
+    ...item,
+    rate: calculateRate(item.to.count, item.from.count),
+    usesManual: item.from.manualBaseline || item.to.manualBaseline,
+    isTracked:
+      item.from.status !== 'not_tracked' &&
+      item.to.status !== 'not_tracked' &&
+      item.from.count !== null &&
+      item.to.count !== null,
+  }))
+
+  const adjacentConversions = conversionCards.filter((item) =>
+    ['reach_to_landing', 'landing_to_app', 'app_to_claim', 'claim_to_email'].includes(item.key)
+  )
+  const adjacentAvailable = adjacentConversions.filter((item) => item.rate !== null)
+  const biggestDropOff = adjacentAvailable.length
+    ? [...adjacentAvailable].sort((left, right) => (left.rate ?? 0) - (right.rate ?? 0))[0]
+    : null
+  const strongestStage = adjacentAvailable.length
+    ? [...adjacentAvailable].sort((left, right) => (right.rate ?? 0) - (left.rate ?? 0))[0]
+    : null
+  const appToClaim = conversionCards.find((item) => item.key === 'app_to_claim') ?? null
+  const reachToLanding = conversionCards.find((item) => item.key === 'reach_to_landing') ?? null
+  const claimToEmail = conversionCards.find((item) => item.key === 'claim_to_email') ?? null
+  const appToClaimRate = appToClaim?.rate ?? null
+  const reachToLandingRate = reachToLanding?.rate ?? null
+  const claimToEmailRate = claimToEmail?.rate ?? null
+
+  const analysisLines: string[] = []
+
+  if (biggestDropOff) {
+    analysisLines.push(
+      `Biggest drop-off is ${biggestDropOff.label} at ${formatRate(biggestDropOff.rate)}.`
+    )
+  }
+
+  if (strongestStage) {
+    analysisLines.push(
+      `Strongest retained stage is ${strongestStage.label} at ${formatRate(strongestStage.rate)}.`
+    )
+  }
+
+  if (appToClaimRate !== null && appToClaimRate < 0.4) {
+    analysisLines.push('Activation friction likely exists between app visit and claim submission.')
+  }
+
+  if (reachToLandingRate !== null && reachToLandingRate >= 0.1) {
+    analysisLines.push('Distribution hook is working; reach is converting into landing traffic.')
+  }
+
+  if (claimToEmailRate === null) {
+    analysisLines.push('Identity conversion is not fully tracked yet.')
+  }
+
+  if (!analysisLines.length) {
+    analysisLines.push('Funnel coverage is partial; more tracked stages will sharpen conversion analysis.')
+  }
+
+  return (
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Funnel Intelligence
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
+            Funnel Intelligence
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            Raw stage counts on the left, conversion behavior and diagnostic reads on the right.
+          </p>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gap: 8,
+          }}
+        >
+          {stages.map((item, index) => {
+            const tone = getFunnelStageTone(item.stage)
+
+            return (
+              <div key={item.key} style={{ display: 'grid', gap: 8 }}>
+                <article
+                  style={{
+                    border: '1px solid var(--line)',
+                    background: '#0c0c0e',
+                    padding: 16,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'start',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <span
+                        style={{
+                          display: 'block',
+                          color: 'var(--quiet)',
+                          fontSize: 10,
+                          fontWeight: 850,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Stage {index + 1}
+                      </span>
+                      <h3
+                        style={{
+                          margin: '10px 0 0',
+                          fontSize: 'clamp(18px, 2vw, 24px)',
+                          lineHeight: 1.12,
+                        }}
+                      >
+                        {item.stage.label}
+                      </h3>
+                    </div>
+                    <span style={{ ...badgeStyle, ...tone }}>{tone.label}</span>
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 14,
+                      display: 'flex',
+                      alignItems: 'end',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <strong
+                      style={{
+                        fontSize: 'clamp(26px, 4vw, 38px)',
+                        lineHeight: 1,
+                        color: item.stage.count === null ? 'var(--muted)' : 'var(--text)',
+                      }}
+                    >
+                      {formatNullableCount(item.stage.count)}
+                    </strong>
+                    <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+                      {item.stage.manualBaseline
+                        ? 'manualBaseline: true'
+                        : item.stage.status === 'tracked'
+                          ? 'Read-only metric'
+                          : 'Not tracked yet'}
+                    </span>
+                  </div>
+                </article>
+                {index < stages.length - 1 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      color: 'var(--quiet)',
+                      fontSize: 18,
+                      lineHeight: 1,
+                    }}
+                    aria-hidden="true"
+                  >
+                    ↓
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gap: 16,
+            alignContent: 'start',
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {conversionCards.map((item) => (
+              <article
+                key={item.key}
+                style={{
+                  border: '1px solid var(--line)',
+                  background: '#0c0c0e',
+                  padding: 14,
+                  display: 'grid',
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    color: 'var(--quiet)',
+                    fontSize: 10,
+                    fontWeight: 850,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {item.label}
+                </span>
+                <strong
+                  style={{
+                    fontSize: 'clamp(22px, 3vw, 32px)',
+                    lineHeight: 1,
+                    color: item.rate === null ? 'var(--muted)' : 'var(--text)',
+                  }}
+                >
+                  {formatRate(item.rate)}
+                </strong>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <span
+                    style={{
+                      ...badgeStyle,
+                      ...(item.isTracked
+                        ? {
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                            background: 'rgba(255, 255, 255, 0.07)',
+                            color: '#ffffff',
+                          }
+                        : item.rate === null
+                          ? {
+                              borderColor: 'rgba(214, 38, 38, 0.58)',
+                              background: 'rgba(214, 38, 38, 0.15)',
+                              color: '#ffb1b1',
+                            }
+                          : {
+                              borderColor: 'rgba(214, 38, 38, 0.32)',
+                              background: 'rgba(214, 38, 38, 0.07)',
+                              color: '#f1b1b1',
+                            }),
+                    }}
+                  >
+                    {item.rate === null
+                      ? 'Not tracked yet'
+                      : item.usesManual
+                        ? 'Uses manual baseline'
+                        : 'Tracked'}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <article
+            style={{
+              border: '1px solid var(--line)',
+              background: '#0c0c0e',
+              padding: 16,
+            }}
+          >
+            <p className="system-label" style={{ marginBottom: 10 }}>
+              <span aria-hidden="true" />
+              Funnel analysis
+            </p>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {analysisLines.map((line) => (
+                <div
+                  key={line}
+                  style={{
+                    padding: '12px 13px',
+                    border: '1px solid var(--line)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    color: 'var(--muted)',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          </article>
+        </div>
       </div>
     </section>
   )
@@ -804,6 +1201,43 @@ export default function AdminPage() {
                 </article>
               ))}
             </section>
+
+            <FunnelIntelligence
+              funnel={
+                state.metrics?.funnel ?? {
+                  distributed: {
+                    label: 'Reached / Distributed',
+                    count: null,
+                    status: 'not_tracked',
+                    manualBaseline: false,
+                  },
+                  landingVisitors: {
+                    label: 'Landing visitors',
+                    count: null,
+                    status: 'not_tracked',
+                    manualBaseline: false,
+                  },
+                  appVisitors: {
+                    label: 'App visitors / sessions',
+                    count: null,
+                    status: 'not_tracked',
+                    manualBaseline: false,
+                  },
+                  claimSubmissions: {
+                    label: 'Claim submissions',
+                    count: null,
+                    status: 'not_tracked',
+                    manualBaseline: false,
+                  },
+                  emailCaptures: {
+                    label: 'Email captures / signups',
+                    count: null,
+                    status: 'not_tracked',
+                    manualBaseline: false,
+                  },
+                }
+              }
+            />
 
             <section
               style={{

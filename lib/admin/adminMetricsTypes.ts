@@ -17,6 +17,23 @@ export type AdminClaimRecord = {
   latencyMs: number
 }
 
+export type AdminFunnelStageStatus = 'tracked' | 'manual' | 'not_tracked'
+
+export type AdminFunnelStage = {
+  label: string
+  count: number | null
+  status: AdminFunnelStageStatus
+  manualBaseline: boolean
+}
+
+export type AdminFunnelMetrics = {
+  distributed: AdminFunnelStage
+  landingVisitors: AdminFunnelStage
+  appVisitors: AdminFunnelStage
+  claimSubmissions: AdminFunnelStage
+  emailCaptures: AdminFunnelStage
+}
+
 export type AdminApiError = {
   code: 'unauthorized' | 'misconfigured' | 'unavailable' | 'unknown'
   message: string
@@ -30,6 +47,7 @@ export type AdminMetricsResponse = {
   averageLatencyMs: number
   verdictBreakdown: VerdictBreakdown[]
   riskLabelBreakdown: RiskLabelBreakdown[]
+  funnel: AdminFunnelMetrics
   recentClaims: AdminClaimRecord[]
   lowConfidenceClaims: AdminClaimRecord[]
   slowestClaims: AdminClaimRecord[]
