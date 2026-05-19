@@ -38,12 +38,6 @@ export default function ThisCouldBeYouPage() {
       </section>
 
       <ThisCouldBeYouCarousel stories={thisCouldBeYouStories} returnHref={returnToAnalyzerHref} />
-
-      <section className="section-frame this-could-be-you-note-section">
-        <p className="this-could-be-you-note">
-          These are fictional scenarios based on common misinformation and scam patterns.
-        </p>
-      </section>
     </main>
   )
 }

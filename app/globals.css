@@ -1448,21 +1448,6 @@ a {
   margin-top: auto;
 }
 
-.this-could-be-you-note-section {
-  padding-top: 26px;
-}
-
-.this-could-be-you-note {
-  max-width: 720px;
-  margin: 0;
-  padding: 16px 18px;
-  border: 1px solid var(--line);
-  background: rgba(17, 17, 20, 0.9);
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
 @keyframes spin {
   to {
     transform: rotate(360deg);

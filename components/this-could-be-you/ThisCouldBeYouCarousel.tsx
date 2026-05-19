@@ -16,16 +16,38 @@ export default function ThisCouldBeYouCarousel({
   const [activeIndex, setActiveIndex] = useState(0)
   const trackRef = useRef<HTMLUListElement | null>(null)
   const cardRefs = useRef<Array<HTMLLIElement | null>>([])
+  const activeIndexRef = useRef(0)
   const viewedStoryIdsRef = useRef<Set<string>>(new Set())
   const itemCount = stories.length + 1
 
   function scrollToCard(index: number) {
     const boundedIndex = Math.min(Math.max(index, 0), itemCount - 1)
-    cardRefs.current[boundedIndex]?.scrollIntoView({
+    const track = trackRef.current
+    const card = cardRefs.current[boundedIndex]
+
+    if (!track || !card) {
+      return
+    }
+
+    const centeredLeft =
+      card.offsetLeft - (track.clientWidth - card.getBoundingClientRect().width) / 2
+    const maxScrollLeft = Math.max(track.scrollWidth - track.clientWidth, 0)
+    const nextScrollLeft = Math.min(Math.max(centeredLeft, 0), maxScrollLeft)
+
+    activeIndexRef.current = boundedIndex
+    setActiveIndex(boundedIndex)
+    track.scrollTo({
       behavior: 'smooth',
-      block: 'nearest',
-      inline: 'center',
+      left: nextScrollLeft,
     })
+  }
+
+  function handlePreviousClick() {
+    scrollToCard(activeIndexRef.current - 1)
+  }
+
+  function handleNextClick() {
+    scrollToCard(activeIndexRef.current + 1)
   }
 
   function handleTrackKeyDown(event: React.KeyboardEvent<HTMLElement>) {
@@ -67,6 +89,7 @@ export default function ThisCouldBeYouCarousel({
 
         const nextIndex = Number(mostVisibleEntry.target.getAttribute('data-index'))
         if (Number.isFinite(nextIndex)) {
+          activeIndexRef.current = nextIndex
           setActiveIndex(nextIndex)
         }
 
@@ -116,7 +139,7 @@ export default function ThisCouldBeYouCarousel({
           <button
             type="button"
             className="story-carousel-control"
-            onClick={() => scrollToCard(activeIndex - 1)}
+            onClick={handlePreviousClick}
             disabled={activeIndex === 0}
           >
             Previous
@@ -127,7 +150,7 @@ export default function ThisCouldBeYouCarousel({
           <button
             type="button"
             className="story-carousel-control"
-            onClick={() => scrollToCard(activeIndex + 1)}
+            onClick={handleNextClick}
             disabled={activeIndex === itemCount - 1}
           >
             Next
