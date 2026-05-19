@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type {
   AdminApiError,
   AdminCategoryIntelligence,
@@ -11,6 +11,8 @@ import type {
   AdminFunnelStage,
   AdminMetricsResponse,
   AdminRetentionMetrics,
+  RiskLabelBreakdown,
+  VerdictBreakdown,
 } from '@/lib/admin/adminMetricsTypes'
 
 const SESSION_STORAGE_KEY = 'dam_admin_password'
@@ -26,52 +28,145 @@ type DashboardState = {
   errorMessage: string
 }
 
-type ClaimPanelKey = 'recent' | 'lowConfidence' | 'slowest'
-
-type ClaimPanelState = Record<ClaimPanelKey, boolean>
-
-type NavItem = {
-  href: string
-  label: string
-  isNew?: boolean
+const emptyFunnel: AdminFunnelMetrics = {
+  distributed: {
+    label: 'Reached / Distributed',
+    count: null,
+    status: 'not_tracked',
+    manualBaseline: false,
+  },
+  landingVisitors: {
+    label: 'Landing visitors',
+    count: null,
+    status: 'not_tracked',
+    manualBaseline: false,
+  },
+  appVisitors: {
+    label: 'App visitors / sessions',
+    count: null,
+    status: 'not_tracked',
+    manualBaseline: false,
+  },
+  claimSubmissions: {
+    label: 'Claim submissions',
+    count: null,
+    status: 'not_tracked',
+    manualBaseline: false,
+  },
+  emailCaptures: {
+    label: 'Email captures / signups',
+    count: null,
+    status: 'not_tracked',
+    manualBaseline: false,
+  },
 }
 
-const navItems: NavItem[] = [
-  { href: '#overview', label: 'Overview' },
-  { href: '#funnel', label: 'Funnel' },
-  { href: '#retention', label: 'Retention' },
-  { href: '#categories', label: 'Categories', isNew: true },
-  { href: '#claims', label: 'Claims' },
-  { href: '#users-emails', label: 'Users / Emails' },
-  { href: '#events', label: 'Events' },
-  { href: '#settings', label: 'Settings' },
-]
-
-const defaultClaimPanelState: ClaimPanelState = {
-  recent: true,
-  lowConfidence: false,
-  slowest: false,
+const emptyRetention: AdminRetentionMetrics = {
+  uniqueSessions: 0,
+  returningSessions: 0,
+  returnRate: null,
+  multiDayUsers: 0,
+  averageClaimsPerUser: 0,
+  averageTimeBetweenSessionsMs: null,
+  exampleToRealConversionRate: null,
+  topReferrers: [],
 }
 
-function formatCount(value: number) {
-  return new Intl.NumberFormat('en-US').format(value)
+const emptyCategoryIntelligence: AdminCategoryIntelligence = {
+  categoryBreakdown: [],
+  mostTestedCategory: null,
+  highestLatencyCategory: null,
+  lowestConfidenceCategory: null,
+  emailConversionByCategory: {
+    available: false,
+    message: 'Not linkable yet.',
+  },
+  topCategoryClaims: [],
 }
 
-function formatNullableCount(value: number | null) {
-  return value === null ? 'Not tracked yet' : formatCount(value)
-}
+const shellStyle = {
+  paddingBottom: 48,
+} as const
 
-function formatLatency(value: number) {
-  return `${Math.round(value)} ms`
-}
+const headerWrapStyle = {
+  width: 'min(1180px, calc(100% - 48px))',
+  position: 'relative',
+  zIndex: 1,
+  margin: '0 auto',
+  paddingTop: 26,
+} as const
 
-function formatRate(value: number | null) {
-  if (value === null) {
-    return 'Not tracked yet'
-  }
+const contentWrapStyle = {
+  width: 'min(1180px, calc(100% - 48px))',
+  position: 'relative',
+  zIndex: 1,
+  margin: '0 auto',
+  display: 'grid',
+  gap: 16,
+  paddingTop: 28,
+} as const
 
-  return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
-}
+const cardStyle = {
+  border: '1px solid var(--line)',
+  background: 'rgba(17, 17, 20, 0.94)',
+  boxShadow: 'var(--shadow)',
+} as const
+
+const sectionStyle = {
+  ...cardStyle,
+  padding: 18,
+} as const
+
+const buttonBaseStyle = {
+  minHeight: 42,
+  padding: '0 14px',
+  border: '1px solid var(--line)',
+  background: '#0c0c0e',
+  color: 'var(--text)',
+  font: 'inherit',
+  fontSize: 12,
+  fontWeight: 800,
+  cursor: 'pointer',
+  transition: 'background-color 180ms ease, border-color 180ms ease, opacity 180ms ease',
+} as const
+
+const primaryButtonStyle = {
+  ...buttonBaseStyle,
+  border: '1px solid var(--red-line)',
+  background: 'var(--red)',
+  color: '#ffffff',
+  boxShadow: '0 0 22px rgba(214, 38, 38, 0.18)',
+} as const
+
+const secondaryButtonStyle = {
+  ...buttonBaseStyle,
+} as const
+
+const inputStyle = {
+  width: '100%',
+  minHeight: 48,
+  border: '1px solid var(--line)',
+  background: '#080809',
+  color: 'var(--text)',
+  padding: '0 14px',
+  outline: 'none',
+  font: 'inherit',
+  fontSize: 14,
+} as const
+
+const badgeStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  minHeight: 24,
+  padding: '6px 8px',
+  border: '1px solid var(--line)',
+  background: 'rgba(255, 255, 255, 0.045)',
+  color: 'var(--text)',
+  fontSize: 10,
+  fontWeight: 850,
+  lineHeight: 1,
+  textTransform: 'uppercase' as const,
+} as const
 
 function formatDateTime(value: string | null) {
   if (!value) {
@@ -85,6 +180,18 @@ function formatDateTime(value: string | null) {
   }
 
   return parsed.toLocaleString()
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat('en-US').format(value)
+}
+
+function formatNullableCount(value: number | null) {
+  return value === null ? 'Not tracked yet' : formatCount(value)
+}
+
+function formatLatency(value: number) {
+  return `${Math.round(value)} ms`
 }
 
 function formatDurationCompact(value: number | null) {
@@ -110,6 +217,14 @@ function formatDurationCompact(value: number | null) {
   return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`
 }
 
+function formatRate(value: number | null) {
+  if (value === null) {
+    return 'Not tracked yet'
+  }
+
+  return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
+}
+
 function formatCategoryLabel(category: AdminClaimCategory) {
   switch (category) {
     case 'social_rumor':
@@ -127,72 +242,112 @@ function calculateRate(numerator: number | null, denominator: number | null) {
   return numerator / denominator
 }
 
+function getFunnelStageTone(stage: AdminFunnelStage) {
+  if (stage.status === 'tracked') {
+    return {
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+      background: 'rgba(255, 255, 255, 0.07)',
+      color: '#ffffff',
+      label: 'Tracked',
+    }
+  }
+
+  if (stage.status === 'manual') {
+    return {
+      borderColor: 'rgba(214, 38, 38, 0.32)',
+      background: 'rgba(214, 38, 38, 0.07)',
+      color: '#f1b1b1',
+      label: 'Manual baseline',
+    }
+  }
+
+  return {
+    borderColor: 'rgba(214, 38, 38, 0.58)',
+    background: 'rgba(214, 38, 38, 0.15)',
+    color: '#ffb1b1',
+    label: 'Not tracked yet',
+  }
+}
+
 function getConfidenceTone(confidence: number) {
   if (confidence < 60) {
-    return 'danger'
+    return {
+      borderColor: 'rgba(214, 38, 38, 0.58)',
+      background: 'rgba(214, 38, 38, 0.15)',
+      color: '#ffb1b1',
+    }
   }
 
   if (confidence < 80) {
-    return 'warning'
+    return {
+      borderColor: 'rgba(214, 38, 38, 0.32)',
+      background: 'rgba(214, 38, 38, 0.07)',
+      color: '#e7bcbc',
+    }
   }
 
-  return 'neutral'
+  return {
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    background: 'rgba(255, 255, 255, 0.07)',
+    color: '#ffffff',
+  }
 }
 
 function getRiskTone(riskLabel: string) {
   const normalized = riskLabel.toLowerCase()
 
   if (normalized.includes('high') || normalized.includes('severe')) {
-    return 'danger'
+    return {
+      borderColor: 'rgba(214, 38, 38, 0.58)',
+      background: 'rgba(214, 38, 38, 0.15)',
+      color: '#ffb1b1',
+    }
   }
 
   if (normalized.includes('medium')) {
-    return 'warning'
+    return {
+      borderColor: 'rgba(214, 38, 38, 0.32)',
+      background: 'rgba(214, 38, 38, 0.07)',
+      color: '#e7bcbc',
+    }
   }
 
-  return 'neutral'
+  return {
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    background: 'rgba(255, 255, 255, 0.07)',
+    color: '#ffffff',
+  }
 }
 
-function getStageBadgeLabel(stage: AdminFunnelStage) {
-  if (stage.status === 'manual') {
-    return 'Manual baseline'
-  }
-
-  if (stage.status === 'tracked') {
-    return 'Tracked'
-  }
-
-  return 'Not tracked yet'
-}
-
-function buildAutomaticAnalysis(metrics: AdminMetricsResponse) {
+function buildCategoryAnalysis(categoryIntelligence: AdminCategoryIntelligence) {
   const lines: string[] = []
-  const topCategory = metrics.categoryIntelligence.mostTestedCategory
-  const slowCategory = metrics.categoryIntelligence.highestLatencyCategory
-  const lowConfidenceCategory = metrics.categoryIntelligence.lowestConfidenceCategory
-  const dominantCategory = topCategory?.category ?? null
+  const mostTested = categoryIntelligence.mostTestedCategory
+  const highestLatency = categoryIntelligence.highestLatencyCategory
+  const lowestConfidence = categoryIntelligence.lowestConfidenceCategory
 
-  if (topCategory) {
+  if (mostTested) {
     lines.push(
-      `Users are mostly testing ${formatCategoryLabel(topCategory.category)} claims (${formatRate(topCategory.percentage)} of logged tests).`
+      `Users are mostly testing ${formatCategoryLabel(mostTested.category)} claims (${formatRate(mostTested.percentage)} of categorized usage).`
     )
   }
 
-  if (slowCategory) {
+  if (highestLatency) {
     lines.push(
-      `${formatCategoryLabel(slowCategory.category)} has the highest average latency at ${formatLatency(slowCategory.averageLatencyMs)}.`
+      `${formatCategoryLabel(highestLatency.category)} is operationally slowest at ${formatLatency(highestLatency.averageLatencyMs)} average latency.`
     )
   }
 
-  if (lowConfidenceCategory) {
+  if (lowestConfidence) {
     lines.push(
-      `${formatCategoryLabel(lowConfidenceCategory.category)} shows the weakest average confidence at ${lowConfidenceCategory.averageConfidence.toFixed(1)}.`
+      `${formatCategoryLabel(lowestConfidence.category)} has the weakest average confidence at ${lowestConfidence.averageConfidence.toFixed(1)}.`
     )
   }
 
-  if (!metrics.categoryIntelligence.emailConversionByCategory.available) {
-    lines.push('Email capture from claims is currently not linkable to categories.')
+  if (!categoryIntelligence.emailConversionByCategory.available) {
+    lines.push('Email conversion by category is not linkable yet.')
   }
+
+  const dominantCategory = mostTested?.category ?? null
 
   if (dominantCategory === 'scam' || dominantCategory === 'crypto') {
     lines.push('Current usage pattern looks scam-heavy rather than general exploration.')
@@ -200,290 +355,356 @@ function buildAutomaticAnalysis(metrics: AdminMetricsResponse) {
     dominantCategory &&
     ['health', 'political', 'government', 'statistics', 'social_rumor'].includes(dominantCategory)
   ) {
-    lines.push('Current usage pattern looks misinformation-heavy across high-risk public narratives.')
-  } else {
+    lines.push('Current usage pattern looks misinformation-heavy across public narrative claims.')
+  } else if (dominantCategory) {
     lines.push('Current usage pattern still looks general-curiosity-heavy.')
   }
 
-  if (metrics.retention.returningSessions > 0) {
-    lines.push(
-      `Repeat usage exists: ${formatCount(metrics.retention.returningSessions)} returning sessions are already visible.`
-    )
-  } else {
-    lines.push('Repeat usage has not clearly emerged yet.')
-  }
-
-  return lines
+  return lines.length ? lines : ['No categorized claims are available yet.']
 }
 
-function Sidebar() {
-  return (
-    <>
-      <aside className="dam-admin-sidebar">
-        <div className="dam-admin-sidebar__brand">
-          <Link href="/" className="dam-admin-sidebar__logo" aria-label="Return to DAM home">
-            <span className="dam-admin-sidebar__logo-mark" />
-            <span>DAM V1</span>
-          </Link>
-          <p className="dam-admin-sidebar__tagline">Private ops dashboard</p>
-        </div>
-        <nav className="dam-admin-sidebar__nav" aria-label="Admin sections">
-          {navItems.map((item) => (
-            <a key={item.href} href={item.href} className="dam-admin-sidebar__link">
-              <span>{item.label}</span>
-              {item.isNew ? <span className="dam-admin-badge dam-admin-badge--new">NEW</span> : null}
-            </a>
-          ))}
-        </nav>
-      </aside>
-      <nav className="dam-admin-mobile-nav" aria-label="Admin sections">
-        {navItems.map((item) => (
-          <a key={item.href} href={item.href} className="dam-admin-mobile-nav__link">
-            <span>{item.label}</span>
-            {item.isNew ? <span className="dam-admin-badge dam-admin-badge--new">NEW</span> : null}
-          </a>
-        ))}
-      </nav>
-    </>
-  )
-}
-
-function SummaryMetricCard({
-  label,
-  value,
-  note,
-  accent = 'default',
-}: {
-  label: string
-  value: string
-  note: string
-  accent?: 'default' | 'red'
-}) {
-  return (
-    <article className={`dam-admin-metric-card dam-admin-metric-card--${accent}`}>
-      <span className="dam-admin-metric-card__label">{label}</span>
-      <strong className="dam-admin-metric-card__value">{value}</strong>
-      <p className="dam-admin-metric-card__note">{note}</p>
-    </article>
-  )
-}
-
-function InlineBadge({
-  children,
-  tone = 'neutral',
-}: {
-  children: React.ReactNode
-  tone?: 'neutral' | 'warning' | 'danger'
-}) {
-  return <span className={`dam-admin-badge dam-admin-badge--${tone}`}>{children}</span>
-}
-
-function SectionHeading({
-  eyebrow,
+function BreakdownList({
   title,
-  description,
-  isNew = false,
+  items,
+  itemLabel,
 }: {
-  eyebrow: string
   title: string
-  description: string
-  isNew?: boolean
+  items: VerdictBreakdown[] | RiskLabelBreakdown[]
+  itemLabel: (item: VerdictBreakdown | RiskLabelBreakdown) => string
 }) {
   return (
-    <div className="dam-admin-section-heading">
-      <p className="system-label">
-        <span aria-hidden="true" />
-        {eyebrow}
-      </p>
-      <div className="dam-admin-section-heading__title-row">
-        <h2>{title}</h2>
-        {isNew ? <span className="dam-admin-badge dam-admin-badge--new">NEW</span> : null}
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 14,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Breakdown
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(22px, 2.4vw, 30px)', lineHeight: 1.04 }}>
+            {title}
+          </h2>
+        </div>
       </div>
-      <p>{description}</p>
-    </div>
-  )
-}
-
-function DesktopRightRail({ metrics }: { metrics: AdminMetricsResponse }) {
-  const automaticAnalysisLines = buildAutomaticAnalysis(metrics)
-  const topCategories = metrics.categoryIntelligence.categoryBreakdown.slice(0, 6)
-  const recentCategorizedClaims = metrics.categoryIntelligence.topCategoryClaims.slice(0, 5)
-
-  return (
-    <aside className="dam-admin-rail">
-      <section className="dam-admin-card dam-admin-rail-card">
-        <SectionHeading
-          eyebrow="Intelligence"
-          title="Automatic Analysis"
-          description="System-generated operational readouts from current dashboard telemetry."
-        />
-        <div className="dam-admin-analysis-list">
-          {automaticAnalysisLines.map((line) => (
-            <div key={line} className="dam-admin-analysis-item">
-              {line}
+      <div
+        style={{
+          display: 'grid',
+          gap: 1,
+          border: '1px solid var(--line)',
+          background: 'var(--line)',
+        }}
+      >
+        {items.length ? (
+          items.map((item) => (
+            <div
+              key={`${itemLabel(item)}-${item.count}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                gap: 12,
+                alignItems: 'center',
+                padding: '12px 13px',
+                background: '#0c0c0e',
+              }}
+            >
+              <strong style={{ fontSize: 13, lineHeight: 1.35 }}>{itemLabel(item)}</strong>
+              <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
+                {formatCount(item.count)}
+              </span>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="dam-admin-card dam-admin-rail-card">
-        <SectionHeading
-          eyebrow="Categories"
-          title="Top Categories by Claims"
-          description="Fast scan of what claim types dominate current testing."
-        />
-        <div className="dam-admin-progress-list">
-          {topCategories.length ? (
-            topCategories.map((item) => (
-              <div key={item.category} className="dam-admin-progress-item">
-                <div className="dam-admin-progress-item__topline">
-                  <strong>{formatCategoryLabel(item.category)}</strong>
-                  <span>
-                    {formatCount(item.count)} ({formatRate(item.percentage)})
-                  </span>
-                </div>
-                <div className="dam-admin-progress-item__track">
-                  <span
-                    style={{
-                      width: `${Math.max(item.percentage * 100, 4)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="dam-admin-empty-copy">No category data yet.</p>
-          )}
-        </div>
-      </section>
-
-      <section className="dam-admin-card dam-admin-rail-card">
-        <SectionHeading
-          eyebrow="Claims"
-          title="Recent Categorized Claims"
-          description="Latest tagged claims from the analytics-only category layer."
-        />
-        <div className="dam-admin-mini-claims">
-          {recentCategorizedClaims.length ? (
-            recentCategorizedClaims.map((claim, index) => (
-              <div
-                key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${claim.category}-${index}`}
-                className="dam-admin-mini-claims__row"
-              >
-                <div className="dam-admin-mini-claims__meta">
-                  <InlineBadge tone="warning">{formatCategoryLabel(claim.category)}</InlineBadge>
-                  <span>{claim.verdict}</span>
-                </div>
-                <strong className="dam-admin-text-clamp">{claim.claimText || 'No claim text logged.'}</strong>
-                <div className="dam-admin-mini-claims__footer">
-                  <span>{formatDateTime(claim.createdAt)}</span>
-                  <span>{formatLatency(claim.latencyMs)}</span>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="dam-admin-empty-copy">No categorized claims yet.</p>
-          )}
-        </div>
-      </section>
-    </aside>
-  )
-}
-
-function CollapsibleClaimsPanel({
-  title,
-  description,
-  rowCount,
-  expanded,
-  onToggle,
-  children,
-}: {
-  title: string
-  description: string
-  rowCount: number
-  expanded: boolean
-  onToggle: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <section className="dam-admin-card dam-admin-collapsible">
-      <div className="dam-admin-collapsible__header">
-        <div className="dam-admin-collapsible__copy">
-          <div className="dam-admin-collapsible__title-row">
-            <span className="dam-admin-dot" aria-hidden="true" />
-            <h3>{title}</h3>
-            <span className="dam-admin-row-badge">{formatCount(rowCount)} rows</span>
+          ))
+        ) : (
+          <div style={{ padding: 14, background: '#0c0c0e', color: 'var(--muted)', fontSize: 13 }}>
+            No records yet.
           </div>
-          <p>{description}</p>
-        </div>
-        <button
-          type="button"
-          className="dam-admin-icon-button"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
-        >
-          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-        </button>
+        )}
       </div>
-      {expanded ? <div className="dam-admin-collapsible__body">{children}</div> : null}
     </section>
   )
 }
 
 function ClaimsTable({
+  title,
+  subtitle,
   claims,
-  includeCategory = false,
 }: {
-  claims: AdminClaimRecord[] | AdminCategorizedClaimRecord[]
-  includeCategory?: boolean
+  title: string
+  subtitle: string
+  claims: AdminClaimRecord[]
 }) {
-  const headers = includeCategory
-    ? ['Created', 'Category', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim']
-    : ['Created', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim']
-
   return (
-    <div className="dam-admin-table-shell">
-      <table className="dam-admin-table">
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 14,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Claim logs
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(22px, 2.4vw, 30px)', lineHeight: 1.04 }}>
+            {title}
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            {subtitle}
+          </p>
+        </div>
+        <span style={{ ...badgeStyle, color: 'var(--muted)' }}>{formatCount(claims.length)} rows</span>
+      </div>
+      <div
+        style={{
+          overflowX: 'auto',
+          border: '1px solid var(--line)',
+          background: '#0c0c0e',
+        }}
+      >
+        <table
+          style={{
+            width: '100%',
+            minWidth: 920,
+            borderCollapse: 'collapse',
+          }}
+        >
+          <thead>
+            <tr>
+              {['Created', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim'].map((label) => (
+                <th
+                  key={label}
+                  style={{
+                    padding: '12px 14px',
+                    borderBottom: '1px solid var(--line)',
+                    color: 'var(--quiet)',
+                    fontSize: 10,
+                    fontWeight: 850,
+                    textAlign: 'left',
+                    textTransform: 'uppercase',
+                    letterSpacing: 0,
+                  }}
+                >
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {claims.length ? (
+              claims.map((claim, index) => {
+                const confidenceTone = getConfidenceTone(claim.confidence)
+                const riskTone = getRiskTone(claim.riskLabel)
+
+                return (
+                  <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`}>
+                    <td
+                      style={{
+                        padding: '13px 14px',
+                        borderBottom: '1px solid var(--line)',
+                        color: 'var(--muted)',
+                        fontSize: 12,
+                        verticalAlign: 'top',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {formatDateTime(claim.createdAt)}
+                    </td>
+                    <td
+                      style={{
+                        padding: '13px 14px',
+                        borderBottom: '1px solid var(--line)',
+                        verticalAlign: 'top',
+                      }}
+                    >
+                      <span style={badgeStyle}>{claim.verdict}</span>
+                    </td>
+                    <td
+                      style={{
+                        padding: '13px 14px',
+                        borderBottom: '1px solid var(--line)',
+                        verticalAlign: 'top',
+                      }}
+                    >
+                      <span style={{ ...badgeStyle, ...confidenceTone }}>{claim.confidence}</span>
+                    </td>
+                    <td
+                      style={{
+                        padding: '13px 14px',
+                        borderBottom: '1px solid var(--line)',
+                        verticalAlign: 'top',
+                      }}
+                    >
+                      <span style={{ ...badgeStyle, ...riskTone }}>{claim.riskLabel}</span>
+                    </td>
+                    <td
+                      style={{
+                        padding: '13px 14px',
+                        borderBottom: '1px solid var(--line)',
+                        color: 'var(--text)',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        verticalAlign: 'top',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {formatLatency(claim.latencyMs)}
+                    </td>
+                    <td
+                      style={{
+                        padding: '13px 14px',
+                        borderBottom: '1px solid var(--line)',
+                        color: 'var(--muted)',
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        minWidth: 280,
+                        maxWidth: 420,
+                      }}
+                    >
+                      {claim.claimText || 'No claim text logged.'}
+                    </td>
+                  </tr>
+                )
+              })
+            ) : (
+              <tr>
+                <td
+                  colSpan={6}
+                  style={{
+                    padding: 16,
+                    color: 'var(--muted)',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  No claims available.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function CategorizedClaimsTable({ claims }: { claims: AdminCategorizedClaimRecord[] }) {
+  return (
+    <div
+      style={{
+        overflowX: 'auto',
+        border: '1px solid var(--line)',
+        background: '#0c0c0e',
+      }}
+    >
+      <table
+        style={{
+          width: '100%',
+          minWidth: 980,
+          borderCollapse: 'collapse',
+        }}
+      >
         <thead>
           <tr>
-            {headers.map((header) => (
-              <th key={header}>{header}</th>
+            {['Created', 'Category', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim'].map((label) => (
+              <th
+                key={label}
+                style={{
+                  padding: '12px 14px',
+                  borderBottom: '1px solid var(--line)',
+                  color: 'var(--quiet)',
+                  fontSize: 10,
+                  fontWeight: 850,
+                  textAlign: 'left',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {label}
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {claims.length ? (
             claims.map((claim, index) => {
-              const categorizedClaim = claim as AdminCategorizedClaimRecord
+              const confidenceTone = getConfidenceTone(claim.confidence)
+              const riskTone = getRiskTone(claim.riskLabel)
+
               return (
-                <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`}>
-                  <td>{formatDateTime(claim.createdAt)}</td>
-                  {includeCategory ? (
-                    <td>
-                      <InlineBadge tone="warning">{formatCategoryLabel(categorizedClaim.category)}</InlineBadge>
-                    </td>
-                  ) : null}
-                  <td>
-                    <InlineBadge>{claim.verdict}</InlineBadge>
+                <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${claim.category}-${index}`}>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      color: 'var(--muted)',
+                      fontSize: 12,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatDateTime(claim.createdAt)}
                   </td>
-                  <td>
-                    <InlineBadge tone={getConfidenceTone(claim.confidence)}>{claim.confidence}</InlineBadge>
+                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
+                    <span style={badgeStyle}>{formatCategoryLabel(claim.category)}</span>
                   </td>
-                  <td>
-                    <InlineBadge tone={getRiskTone(claim.riskLabel)}>{claim.riskLabel}</InlineBadge>
+                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
+                    <span style={badgeStyle}>{claim.verdict}</span>
                   </td>
-                  <td>{formatLatency(claim.latencyMs)}</td>
-                  <td>
-                    <div className="dam-admin-claim-text">{claim.claimText || 'No claim text logged.'}</div>
+                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
+                    <span style={{ ...badgeStyle, ...confidenceTone }}>{claim.confidence}</span>
+                  </td>
+                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
+                    <span style={{ ...badgeStyle, ...riskTone }}>{claim.riskLabel}</span>
+                  </td>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      color: 'var(--text)',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatLatency(claim.latencyMs)}
+                  </td>
+                  <td
+                    style={{
+                      padding: '13px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      color: 'var(--muted)',
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      minWidth: 280,
+                      maxWidth: 420,
+                    }}
+                  >
+                    {claim.claimText || 'No claim text logged.'}
                   </td>
                 </tr>
               )
             })
           ) : (
             <tr>
-              <td colSpan={includeCategory ? 7 : 6} className="dam-admin-table__empty">
-                No claims available.
+              <td
+                colSpan={7}
+                style={{
+                  padding: 16,
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                No categorized claims yet.
               </td>
             </tr>
           )}
@@ -493,240 +714,741 @@ function ClaimsTable({
   )
 }
 
-function FunnelSection({ funnel }: { funnel: AdminFunnelMetrics }) {
-  const stageList = [
-    funnel.distributed,
-    funnel.landingVisitors,
-    funnel.appVisitors,
-    funnel.claimSubmissions,
-    funnel.emailCaptures,
-  ]
+function FunnelIntelligence({ funnel }: { funnel: AdminFunnelMetrics }) {
+  const stages = [
+    { key: 'distributed', stage: funnel.distributed },
+    { key: 'landingVisitors', stage: funnel.landingVisitors },
+    { key: 'appVisitors', stage: funnel.appVisitors },
+    { key: 'claimSubmissions', stage: funnel.claimSubmissions },
+    { key: 'emailCaptures', stage: funnel.emailCaptures },
+  ] as const
 
   const conversionCards = [
     {
+      key: 'reach_to_landing',
       label: 'Reach -> Landing',
-      rate: calculateRate(funnel.landingVisitors.count, funnel.distributed.count),
+      from: funnel.distributed,
+      to: funnel.landingVisitors,
     },
     {
+      key: 'landing_to_app',
       label: 'Landing -> App',
-      rate: calculateRate(funnel.appVisitors.count, funnel.landingVisitors.count),
+      from: funnel.landingVisitors,
+      to: funnel.appVisitors,
     },
     {
+      key: 'app_to_claim',
       label: 'App -> Claim',
-      rate: calculateRate(funnel.claimSubmissions.count, funnel.appVisitors.count),
+      from: funnel.appVisitors,
+      to: funnel.claimSubmissions,
     },
     {
+      key: 'claim_to_email',
       label: 'Claim -> Email',
-      rate: calculateRate(funnel.emailCaptures.count, funnel.claimSubmissions.count),
+      from: funnel.claimSubmissions,
+      to: funnel.emailCaptures,
     },
     {
+      key: 'reach_to_claim',
       label: 'Reach -> Claim',
-      rate: calculateRate(funnel.claimSubmissions.count, funnel.distributed.count),
+      from: funnel.distributed,
+      to: funnel.claimSubmissions,
     },
     {
+      key: 'reach_to_app',
       label: 'Reach -> App',
-      rate: calculateRate(funnel.appVisitors.count, funnel.distributed.count),
+      from: funnel.distributed,
+      to: funnel.appVisitors,
     },
-  ]
+  ].map((item) => ({
+    ...item,
+    rate: calculateRate(item.to.count, item.from.count),
+    isTracked:
+      item.from.status !== 'not_tracked' &&
+      item.to.status !== 'not_tracked' &&
+      item.from.count !== null &&
+      item.to.count !== null,
+  }))
+
+  const adjacentConversions = conversionCards.filter((item) =>
+    ['reach_to_landing', 'landing_to_app', 'app_to_claim', 'claim_to_email'].includes(item.key)
+  )
+  const adjacentAvailable = adjacentConversions.filter((item) => item.rate !== null)
+  const biggestDropOff = adjacentAvailable.length
+    ? [...adjacentAvailable].sort((left, right) => (left.rate ?? 0) - (right.rate ?? 0))[0]
+    : null
+  const strongestStage = adjacentAvailable.length
+    ? [...adjacentAvailable].sort((left, right) => (right.rate ?? 0) - (left.rate ?? 0))[0]
+    : null
+  const appToClaimRate = conversionCards.find((item) => item.key === 'app_to_claim')?.rate ?? null
+  const reachToLandingRate =
+    conversionCards.find((item) => item.key === 'reach_to_landing')?.rate ?? null
+  const claimToEmailRate =
+    conversionCards.find((item) => item.key === 'claim_to_email')?.rate ?? null
+
+  const analysisLines: string[] = []
+
+  if (biggestDropOff) {
+    analysisLines.push(`Biggest drop-off is ${biggestDropOff.label} at ${formatRate(biggestDropOff.rate)}.`)
+  }
+
+  if (strongestStage) {
+    analysisLines.push(`Strongest retained stage is ${strongestStage.label} at ${formatRate(strongestStage.rate)}.`)
+  }
+
+  if (appToClaimRate !== null && appToClaimRate < 0.4) {
+    analysisLines.push('Activation friction likely exists between app visit and claim submission.')
+  }
+
+  if (reachToLandingRate !== null && reachToLandingRate >= 0.1) {
+    analysisLines.push('Distribution hook is working; reach is converting into landing traffic.')
+  }
+
+  if (claimToEmailRate === null) {
+    analysisLines.push('Identity conversion is not fully tracked yet.')
+  }
+
+  if (!analysisLines.length) {
+    analysisLines.push('Funnel coverage is partial; more tracked stages will sharpen conversion analysis.')
+  }
 
   return (
-    <section id="funnel" className="dam-admin-card dam-admin-section">
-      <SectionHeading
-        eyebrow="Funnel"
-        title="Funnel Intelligence"
-        description="Manual baselines plus tracked stage counts for an operational conversion read."
-      />
-      <div className="dam-admin-two-column">
-        <div className="dam-admin-funnel-stack">
-          {stageList.map((stage, index) => (
-            <div key={`${stage.label}-${index}`} className="dam-admin-funnel-stage">
-              <div className="dam-admin-funnel-stage__header">
-                <div>
-                  <span className="dam-admin-overline">Stage {index + 1}</span>
-                  <h3>{stage.label}</h3>
-                </div>
-                <InlineBadge tone={stage.status === 'manual' ? 'warning' : stage.status === 'tracked' ? 'neutral' : 'danger'}>
-                  {getStageBadgeLabel(stage)}
-                </InlineBadge>
-              </div>
-              <div className="dam-admin-funnel-stage__footer">
-                <strong>{formatNullableCount(stage.count)}</strong>
-                <span>{stage.manualBaseline ? 'manualBaseline: true' : 'Read-only metric'}</span>
-              </div>
-              {index < stageList.length - 1 ? <div className="dam-admin-funnel-arrow">↓</div> : null}
-            </div>
-          ))}
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Funnel Intelligence
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
+            Funnel Intelligence
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            Read-only stage counts and conversion signals from the existing admin metrics API.
+          </p>
         </div>
-        <div className="dam-admin-conversion-grid">
-          {conversionCards.map((item) => (
-            <article key={item.label} className="dam-admin-mini-card">
-              <span className="dam-admin-overline">{item.label}</span>
-              <strong>{formatRate(item.rate)}</strong>
-            </article>
-          ))}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: 16,
+        }}
+      >
+        <div style={{ display: 'grid', gap: 8 }}>
+          {stages.map((item, index) => {
+            const tone = getFunnelStageTone(item.stage)
+
+            return (
+              <div key={item.key} style={{ display: 'grid', gap: 8 }}>
+                <article
+                  style={{
+                    border: '1px solid var(--line)',
+                    background: '#0c0c0e',
+                    padding: 16,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'start',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <span
+                        style={{
+                          display: 'block',
+                          color: 'var(--quiet)',
+                          fontSize: 10,
+                          fontWeight: 850,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        Stage {index + 1}
+                      </span>
+                      <h3
+                        style={{
+                          margin: '10px 0 0',
+                          fontSize: 'clamp(18px, 2vw, 24px)',
+                          lineHeight: 1.12,
+                        }}
+                      >
+                        {item.stage.label}
+                      </h3>
+                    </div>
+                    <span style={{ ...badgeStyle, ...tone }}>{tone.label}</span>
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 14,
+                      display: 'flex',
+                      alignItems: 'end',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <strong
+                      style={{
+                        fontSize: 'clamp(26px, 4vw, 38px)',
+                        lineHeight: 1,
+                        color: item.stage.count === null ? 'var(--muted)' : 'var(--text)',
+                      }}
+                    >
+                      {formatNullableCount(item.stage.count)}
+                    </strong>
+                    <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+                      {item.stage.manualBaseline
+                        ? 'manualBaseline: true'
+                        : item.stage.status === 'tracked'
+                          ? 'Read-only metric'
+                          : 'Not tracked yet'}
+                    </span>
+                  </div>
+                </article>
+                {index < stages.length - 1 ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--quiet)', fontSize: 18 }}>
+                    ↓
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {conversionCards.map((item) => (
+              <article
+                key={item.key}
+                style={{
+                  ...cardStyle,
+                  minHeight: 122,
+                  padding: 14,
+                  display: 'grid',
+                  alignContent: 'space-between',
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    color: 'var(--quiet)',
+                    fontSize: 10,
+                    fontWeight: 850,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {item.label}
+                </span>
+                <strong
+                  style={{
+                    fontSize: 'clamp(22px, 3vw, 30px)',
+                    lineHeight: 1.02,
+                    color: item.isTracked ? 'var(--text)' : 'var(--muted)',
+                  }}
+                >
+                  {formatRate(item.rate)}
+                </strong>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+                  {item.isTracked ? 'Derived from tracked or manual stage counts.' : 'Not tracked yet.'}
+                </p>
+              </article>
+            ))}
+          </div>
+
+          <article
+            style={{
+              border: '1px solid var(--line)',
+              background: '#0c0c0e',
+              padding: 16,
+            }}
+          >
+            <p className="system-label" style={{ marginBottom: 10 }}>
+              <span aria-hidden="true" />
+              Automatic analysis
+            </p>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {analysisLines.map((line) => (
+                <div
+                  key={line}
+                  style={{
+                    padding: '12px 13px',
+                    border: '1px solid var(--line)',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    color: 'var(--muted)',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          </article>
         </div>
       </div>
     </section>
   )
 }
 
-function RetentionSection({ retention }: { retention: AdminRetentionMetrics }) {
+function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics }) {
+  const exampleToRealRate = retention.exampleToRealConversionRate
   const repeatUsageExists = retention.returningSessions > 0
-  const onboardingConversion = retention.exampleToRealConversionRate
-  const habitFormationMessage =
+  const onboardingConverts = exampleToRealRate !== null && exampleToRealRate >= 0.2
+  const habitFormationLabel =
     retention.returnRate !== null && retention.returnRate >= 0.25 && retention.multiDayUsers > 0
-      ? 'Early habit formation is visible.'
-      : repeatUsageExists
+      ? 'Early habit formation is emerging.'
+      : retention.returningSessions > 0 || retention.multiDayUsers > 0
         ? 'Some repeat usage exists, but habit formation is still early.'
         : 'Usage still looks curiosity-driven.'
 
+  const analysisLines = [
+    repeatUsageExists
+      ? `Repeat usage exists: ${formatCount(retention.returningSessions)} returning sessions have already come back.`
+      : 'Repeat usage has not clearly emerged yet.',
+    exampleToRealRate === null
+      ? 'Onboarding to real usage is not measurable yet because example-to-real conversion data is still sparse.'
+      : onboardingConverts
+        ? 'Onboarding is converting into real behavior; example users are moving into live claim checks.'
+        : 'Onboarding is not yet converting strongly into real behavior.',
+    habitFormationLabel,
+  ]
+
   return (
-    <section id="retention" className="dam-admin-card dam-admin-section">
-      <SectionHeading
-        eyebrow="Retention"
-        title="Retention Intelligence"
-        description="Anonymous repeat usage, onboarding quality, and early habit signals from current telemetry."
-      />
-      <div className="dam-admin-mini-grid">
-        <SummaryMetricCard
-          label="Unique sessions"
-          value={formatCount(retention.uniqueSessions)}
-          note="Anonymous session ids observed"
-        />
-        <SummaryMetricCard
-          label="Returning sessions"
-          value={formatCount(retention.returningSessions)}
-          note="Same session id back after 30+ minutes"
-        />
-        <SummaryMetricCard
-          label="Return rate"
-          value={formatRate(retention.returnRate)}
-          note="Returning sessions / unique sessions"
-        />
-        <SummaryMetricCard
-          label="Multi-day users"
-          value={formatCount(retention.multiDayUsers)}
-          note="Active on different UTC dates"
-        />
-        <SummaryMetricCard
-          label="Avg claims per user"
-          value={retention.averageClaimsPerUser.toFixed(retention.averageClaimsPerUser >= 10 ? 1 : 2)}
-          note="Total claims / unique sessions"
-        />
-        <SummaryMetricCard
-          label="Avg time between sessions"
-          value={formatDurationCompact(retention.averageTimeBetweenSessionsMs)}
-          note="Average returning visit gap"
-        />
-      </div>
-      <div className="dam-admin-detail-grid">
-        <article className="dam-admin-mini-card">
-          <span className="dam-admin-overline">Onboarding quality</span>
-          <strong>{formatRate(onboardingConversion)}</strong>
-          <p>
-            {onboardingConversion === null
-              ? 'Not enough example-to-real usage yet.'
-              : 'Sessions that used examples and later submitted real claims.'}
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Retention Intelligence
           </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
+            Retention Intelligence
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            Anonymous repeat-usage, trust depth, onboarding quality, and early habit signals.
+          </p>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {[
+          {
+            label: 'Unique sessions',
+            value: formatCount(retention.uniqueSessions),
+            note: 'Anonymous session ids observed',
+          },
+          {
+            label: 'Returning sessions',
+            value: formatCount(retention.returningSessions),
+            note: 'Same session id seen again after 30+ minutes',
+          },
+          {
+            label: 'Return rate',
+            value: formatRate(retention.returnRate),
+            note: 'Returning sessions / unique sessions',
+          },
+          {
+            label: 'Multi-day users',
+            value: formatCount(retention.multiDayUsers),
+            note: 'Active on different UTC dates',
+          },
+          {
+            label: 'Avg claims per user',
+            value: retention.averageClaimsPerUser.toFixed(retention.averageClaimsPerUser >= 10 ? 1 : 2),
+            note: 'Total claims / unique sessions',
+          },
+          {
+            label: 'Avg time between sessions',
+            value: formatDurationCompact(retention.averageTimeBetweenSessionsMs),
+            note: 'Average gap for returning visits',
+          },
+          {
+            label: 'Example -> real conversion',
+            value: formatRate(retention.exampleToRealConversionRate),
+            note: 'Sessions with example usage that later submit real claims',
+          },
+        ].map((card) => (
+          <article
+            key={card.label}
+            style={{
+              ...cardStyle,
+              minHeight: 138,
+              padding: 16,
+              display: 'grid',
+              alignContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <span
+              style={{
+                color: 'var(--quiet)',
+                fontSize: 10,
+                fontWeight: 850,
+                textTransform: 'uppercase',
+              }}
+            >
+              {card.label}
+            </span>
+            <strong
+              style={{
+                fontSize: 'clamp(24px, 3.2vw, 34px)',
+                lineHeight: 1.02,
+                color:
+                  card.value === 'Not tracked yet' || card.value === 'Not enough repeat data'
+                    ? 'var(--muted)'
+                    : 'var(--text)',
+              }}
+            >
+              {card.value}
+            </strong>
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+              {card.note}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <article
+          style={{
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+            padding: 16,
+          }}
+        >
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Automatic analysis
+          </p>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {analysisLines.map((line) => (
+              <div
+                key={line}
+                style={{
+                  padding: '12px 13px',
+                  border: '1px solid var(--line)',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
         </article>
-        <article className="dam-admin-mini-card">
-          <span className="dam-admin-overline">Habit formation</span>
-          <strong>{repeatUsageExists ? 'Emerging' : 'Early'}</strong>
-          <p>{habitFormationMessage}</p>
-        </article>
-        <article className="dam-admin-mini-card">
-          <span className="dam-admin-overline">Top referrers</span>
-          {retention.topReferrers.length ? (
-            <div className="dam-admin-inline-list">
-              {retention.topReferrers.slice(0, 4).map((item) => (
-                <span key={item.referrer}>
-                  {item.referrer} ({formatCount(item.sessionCount)})
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p>Referrer telemetry has not accumulated yet.</p>
-          )}
+
+        <article
+          style={{
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+            padding: 16,
+          }}
+        >
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Top referrers
+          </p>
+          <div
+            style={{
+              display: 'grid',
+              gap: 1,
+              border: '1px solid var(--line)',
+              background: 'var(--line)',
+            }}
+          >
+            {retention.topReferrers.length ? (
+              retention.topReferrers.map((item) => (
+                <div
+                  key={item.referrer}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1fr) auto',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '12px 13px',
+                    background: '#0c0c0e',
+                  }}
+                >
+                  <strong
+                    style={{
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      lineHeight: 1.35,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {item.referrer}
+                  </strong>
+                  <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
+                    {formatCount(item.sessionCount)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div
+                style={{
+                  padding: 14,
+                  background: '#0c0c0e',
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                }}
+              >
+                Referrer telemetry has not accumulated yet.
+              </div>
+            )}
+          </div>
         </article>
       </div>
     </section>
   )
 }
 
-function CategorySection({ categoryIntelligence }: { categoryIntelligence: AdminCategoryIntelligence }) {
-  const categoryBreakdown = categoryIntelligence.categoryBreakdown
-  const topCategoryClaims = categoryIntelligence.topCategoryClaims
-  const mostTested = categoryIntelligence.mostTestedCategory
-  const highestLatency = categoryIntelligence.highestLatencyCategory
-  const lowestConfidence = categoryIntelligence.lowestConfidenceCategory
+function CategoryIntelligenceSection({
+  categoryIntelligence,
+}: {
+  categoryIntelligence: AdminCategoryIntelligence
+}) {
+  const analysisLines = buildCategoryAnalysis(categoryIntelligence)
+  const topCategoryClaims = categoryIntelligence.topCategoryClaims.slice(0, 10)
 
   return (
-    <section id="categories" className="dam-admin-card dam-admin-section">
-      <SectionHeading
-        eyebrow="Categories"
-        title="Category Intelligence"
-        description="Derived claim categories to show what users test most, where latency is highest, and where confidence trends weakest."
-        isNew
-      />
-      <div className="dam-admin-detail-grid">
-        <article className="dam-admin-card dam-admin-subcard">
-          <h3 className="dam-admin-subcard__title">Most Tested Category</h3>
-          <strong className="dam-admin-subcard__value">
-            {mostTested ? formatCategoryLabel(mostTested.category) : 'No data'}
-          </strong>
-          <p>{mostTested ? `${formatCount(mostTested.count)} claims (${formatRate(mostTested.percentage)})` : 'No categorized claims yet.'}</p>
-        </article>
-        <article className="dam-admin-card dam-admin-subcard">
-          <h3 className="dam-admin-subcard__title">Highest Latency Category</h3>
-          <strong className="dam-admin-subcard__value">
-            {highestLatency ? formatCategoryLabel(highestLatency.category) : 'No data'}
-          </strong>
-          <p>{highestLatency ? `${formatLatency(highestLatency.averageLatencyMs)} average latency` : 'No categorized claims yet.'}</p>
-        </article>
-        <article className="dam-admin-card dam-admin-subcard">
-          <h3 className="dam-admin-subcard__title">Lowest Confidence Category</h3>
-          <strong className="dam-admin-subcard__value">
-            {lowestConfidence ? formatCategoryLabel(lowestConfidence.category) : 'No data'}
-          </strong>
-          <p>{lowestConfidence ? `${lowestConfidence.averageConfidence.toFixed(1)} average confidence` : 'No categorized claims yet.'}</p>
-        </article>
-        <article className="dam-admin-card dam-admin-subcard">
-          <h3 className="dam-admin-subcard__title">Email Conversion by Category</h3>
-          <strong className="dam-admin-subcard__value">
-            {categoryIntelligence.emailConversionByCategory.available ? 'Available' : 'Not linkable yet'}
-          </strong>
-          <p>{categoryIntelligence.emailConversionByCategory.message}</p>
-        </article>
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Category Intelligence
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
+            Category Intelligence
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            Derived category patterns from existing claim logs only. This does not affect DAM analysis.
+          </p>
+        </div>
+        <span
+          style={{
+            ...badgeStyle,
+            borderColor: 'rgba(214, 38, 38, 0.58)',
+            background: 'rgba(214, 38, 38, 0.16)',
+            color: '#ffb1b1',
+          }}
+        >
+          New
+        </span>
       </div>
 
-      <div className="dam-admin-two-column">
-        <article className="dam-admin-card dam-admin-subcard">
-          <h3 className="dam-admin-subcard__title">Category Breakdown</h3>
-          <div className="dam-admin-table-shell">
-            <table className="dam-admin-table dam-admin-table--compact">
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
+        {[
+          {
+            label: 'Most tested category',
+            value: categoryIntelligence.mostTestedCategory
+              ? formatCategoryLabel(categoryIntelligence.mostTestedCategory.category)
+              : 'No data',
+            note: categoryIntelligence.mostTestedCategory
+              ? `${formatCount(categoryIntelligence.mostTestedCategory.count)} claims (${formatRate(categoryIntelligence.mostTestedCategory.percentage)})`
+              : 'No categorized claims yet.',
+          },
+          {
+            label: 'Highest latency category',
+            value: categoryIntelligence.highestLatencyCategory
+              ? formatCategoryLabel(categoryIntelligence.highestLatencyCategory.category)
+              : 'No data',
+            note: categoryIntelligence.highestLatencyCategory
+              ? `${formatLatency(categoryIntelligence.highestLatencyCategory.averageLatencyMs)} average latency`
+              : 'No categorized claims yet.',
+          },
+          {
+            label: 'Lowest confidence category',
+            value: categoryIntelligence.lowestConfidenceCategory
+              ? formatCategoryLabel(categoryIntelligence.lowestConfidenceCategory.category)
+              : 'No data',
+            note: categoryIntelligence.lowestConfidenceCategory
+              ? `${categoryIntelligence.lowestConfidenceCategory.averageConfidence.toFixed(1)} average confidence`
+              : 'No categorized claims yet.',
+          },
+          {
+            label: 'Email conversion by category',
+            value: categoryIntelligence.emailConversionByCategory.available ? 'Available' : 'Not linkable yet',
+            note: categoryIntelligence.emailConversionByCategory.message,
+          },
+        ].map((card) => (
+          <article
+            key={card.label}
+            style={{
+              ...cardStyle,
+              minHeight: 138,
+              padding: 16,
+              display: 'grid',
+              alignContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <span
+              style={{
+                color: 'var(--quiet)',
+                fontSize: 10,
+                fontWeight: 850,
+                textTransform: 'uppercase',
+              }}
+            >
+              {card.label}
+            </span>
+            <strong
+              style={{
+                fontSize: 'clamp(24px, 3.2vw, 34px)',
+                lineHeight: 1.02,
+                color: card.value === 'No data' || card.value === 'Not linkable yet' ? 'var(--muted)' : 'var(--text)',
+              }}
+            >
+              {card.value}
+            </strong>
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+              {card.note}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: 16,
+          marginBottom: 16,
+        }}
+      >
+        <article
+          style={{
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+            padding: 16,
+          }}
+        >
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Category breakdown
+          </p>
+          <div style={{ overflowX: 'auto', border: '1px solid var(--line)', background: '#0a0a0c' }}>
+            <table
+              style={{
+                width: '100%',
+                minWidth: 620,
+                borderCollapse: 'collapse',
+              }}
+            >
               <thead>
                 <tr>
-                  {['Category', 'Claims', '%', 'Avg latency', 'Avg confidence'].map((header) => (
-                    <th key={header}>{header}</th>
+                  {['Category', 'Claims', '%', 'Avg latency', 'Avg confidence'].map((label) => (
+                    <th
+                      key={label}
+                      style={{
+                        padding: '12px 14px',
+                        borderBottom: '1px solid var(--line)',
+                        color: 'var(--quiet)',
+                        fontSize: 10,
+                        fontWeight: 850,
+                        textAlign: 'left',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {label}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {categoryBreakdown.length ? (
-                  categoryBreakdown.map((row) => (
+                {categoryIntelligence.categoryBreakdown.length ? (
+                  categoryIntelligence.categoryBreakdown.map((row) => (
                     <tr key={row.category}>
-                      <td>
-                        <InlineBadge tone="warning">{formatCategoryLabel(row.category)}</InlineBadge>
+                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
+                        <span style={badgeStyle}>{formatCategoryLabel(row.category)}</span>
                       </td>
-                      <td>{formatCount(row.count)}</td>
-                      <td>{formatRate(row.percentage)}</td>
-                      <td>{formatLatency(row.averageLatencyMs)}</td>
-                      <td>{row.averageConfidence.toFixed(1)}</td>
+                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                        {formatCount(row.count)}
+                      </td>
+                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                        {formatRate(row.percentage)}
+                      </td>
+                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                        {formatLatency(row.averageLatencyMs)}
+                      </td>
+                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                        {row.averageConfidence.toFixed(1)}
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="dam-admin-table__empty">
+                    <td
+                      colSpan={5}
+                      style={{
+                        padding: 16,
+                        color: 'var(--muted)',
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                      }}
+                    >
                       No categorized claims yet.
                     </td>
                   </tr>
@@ -736,236 +1458,45 @@ function CategorySection({ categoryIntelligence }: { categoryIntelligence: Admin
           </div>
         </article>
 
-        <article className="dam-admin-card dam-admin-subcard">
-          <h3 className="dam-admin-subcard__title">Recent Categorized Claims</h3>
-          <ClaimsTable claims={topCategoryClaims.slice(0, 10)} includeCategory />
+        <article
+          style={{
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+            padding: 16,
+          }}
+        >
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Operational read
+          </p>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {analysisLines.map((line) => (
+              <div
+                key={line}
+                style={{
+                  padding: '12px 13px',
+                  border: '1px solid var(--line)',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
         </article>
       </div>
-    </section>
-  )
-}
 
-function UtilitySections({
-  metrics,
-}: {
-  metrics: AdminMetricsResponse
-}) {
-  return (
-    <div className="dam-admin-utility-grid">
-      <section id="users-emails" className="dam-admin-card dam-admin-section">
-        <SectionHeading
-          eyebrow="Users / Emails"
-          title="Users / Emails"
-          description="Read-only snapshot of anonymous usage depth and email capture coverage."
-        />
-        <div className="dam-admin-detail-grid">
-          <article className="dam-admin-mini-card">
-            <span className="dam-admin-overline">Emails captured</span>
-            <strong>{formatNullableCount(metrics.funnel.emailCaptures.count)}</strong>
-            <p>{metrics.funnel.emailCaptures.status === 'tracked' ? 'Tracked from beta signups.' : 'Not tracked yet.'}</p>
-          </article>
-          <article className="dam-admin-mini-card">
-            <span className="dam-admin-overline">Claims per user</span>
-            <strong>{metrics.retention.averageClaimsPerUser.toFixed(metrics.retention.averageClaimsPerUser >= 10 ? 1 : 2)}</strong>
-            <p>Trust depth proxy from total claims over unique sessions.</p>
-          </article>
-          <article className="dam-admin-mini-card">
-            <span className="dam-admin-overline">Email conversion by category</span>
-            <strong>{metrics.categoryIntelligence.emailConversionByCategory.available ? 'Available' : 'Not linkable yet'}</strong>
-            <p>{metrics.categoryIntelligence.emailConversionByCategory.message}</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="events" className="dam-admin-card dam-admin-section">
-        <SectionHeading
-          eyebrow="Events"
-          title="Events"
-          description="Operational telemetry health from the existing anonymous event stream."
-        />
-        <div className="dam-admin-detail-grid">
-          <article className="dam-admin-mini-card">
-            <span className="dam-admin-overline">Unique sessions</span>
-            <strong>{formatCount(metrics.retention.uniqueSessions)}</strong>
-            <p>Backed by current anonymous telemetry.</p>
-          </article>
-          <article className="dam-admin-mini-card">
-            <span className="dam-admin-overline">Top referrers tracked</span>
-            <strong>{formatCount(metrics.retention.topReferrers.length)}</strong>
-            <p>Distinct referrer rows currently visible in the admin API.</p>
-          </article>
-          <article className="dam-admin-mini-card">
-            <span className="dam-admin-overline">Last telemetry refresh</span>
-            <strong>{formatDateTime(metrics.generatedAt)}</strong>
-            <p>Admin data is read-only and fetched from the existing metrics route.</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="settings" className="dam-admin-card dam-admin-section">
-        <SectionHeading
-          eyebrow="Settings"
-          title="Settings"
-          description="Read-only placeholder. No writable admin controls are exposed in this private dashboard."
-        />
-        <div className="dam-admin-placeholder">
-          Analyzer behavior, prompts, ranking logic, and logging are intentionally not editable here.
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function DashboardView({
-  metrics,
-  loading,
-  errorMessage,
-  password,
-  onRefresh,
-  onLogout,
-  claimPanels,
-  onToggleClaimPanel,
-}: {
-  metrics: AdminMetricsResponse
-  loading: boolean
-  errorMessage: string
-  password: string
-  onRefresh: (password: string) => void
-  onLogout: () => void
-  claimPanels: ClaimPanelState
-  onToggleClaimPanel: (panel: ClaimPanelKey) => void
-}) {
-  const overviewCards = [
-    {
-      label: 'Total Reach',
-      value: formatNullableCount(metrics.funnel.distributed.count),
-      note: metrics.funnel.distributed.manualBaseline ? 'Manual distributed baseline' : 'Tracked reach',
-      accent: 'red' as const,
-    },
-    {
-      label: 'Landing Visitors',
-      value: formatNullableCount(metrics.funnel.landingVisitors.count),
-      note: metrics.funnel.landingVisitors.manualBaseline ? 'Manual landing baseline' : 'Tracked landing visitors',
-    },
-    {
-      label: 'App Visitors',
-      value: formatNullableCount(metrics.funnel.appVisitors.count),
-      note: metrics.funnel.appVisitors.manualBaseline ? 'Manual app-visitor baseline' : 'Tracked app sessions',
-    },
-    {
-      label: 'Claims Tested',
-      value: formatNullableCount(metrics.funnel.claimSubmissions.count),
-      note: 'Claim submissions from dam_claim_logs',
-    },
-    {
-      label: 'Emails Captured',
-      value: formatNullableCount(metrics.funnel.emailCaptures.count),
-      note: metrics.funnel.emailCaptures.status === 'tracked' ? 'Tracked email captures' : 'Not tracked yet',
-      accent: 'red' as const,
-    },
-    {
-      label: 'Avg. Retention',
-      value: formatDurationCompact(metrics.retention.averageTimeBetweenSessionsMs),
-      note: 'Average time between returning visits',
-    },
-  ]
-
-  return (
-    <div className="dam-admin-shell">
-      <Sidebar />
-      <div className="dam-admin-content">
-        <div className="dam-admin-main">
-          <header id="overview" className="dam-admin-header-card dam-admin-card">
-            <div className="dam-admin-header-card__copy">
-              <p className="system-label">
-                <span aria-hidden="true" />
-                Admin Overview
-              </p>
-              <h1>Admin Overview</h1>
-              <p>Real-time overview of DAM V1 performance and analytics.</p>
-            </div>
-            <div className="dam-admin-header-card__actions">
-              <div className="dam-admin-inline-meta">
-                <span className="dam-admin-header-pill">{formatDateTime(metrics.generatedAt)}</span>
-              </div>
-              <div className="dam-admin-inline-actions">
-                <button
-                  type="button"
-                  className="dam-admin-action-button dam-admin-action-button--primary"
-                  onClick={() => onRefresh(password)}
-                  disabled={loading}
-                >
-                  {loading ? 'Refreshing...' : 'Refresh'}
-                </button>
-                <button type="button" className="dam-admin-action-button" onClick={onLogout}>
-                  Logout
-                </button>
-              </div>
-            </div>
-          </header>
-
-          {metrics.error?.code === 'misconfigured' ? (
-            <div className="dam-admin-alert dam-admin-alert--warning">
-              Admin metrics are not configured. Check Supabase env vars.
-            </div>
-          ) : null}
-
-          {errorMessage ? <div className="dam-admin-alert dam-admin-alert--error">{errorMessage}</div> : null}
-
-          <section className="dam-admin-summary-grid">
-            {overviewCards.map((card) => (
-              <SummaryMetricCard
-                key={card.label}
-                label={card.label}
-                value={card.value}
-                note={card.note}
-                accent={card.accent}
-              />
-            ))}
-          </section>
-
-          <FunnelSection funnel={metrics.funnel} />
-          <RetentionSection retention={metrics.retention} />
-
-          <section id="claims" className="dam-admin-section-stack">
-            <CollapsibleClaimsPanel
-              title="Recent claims"
-              description="Latest 20 claim log rows from the admin metrics API."
-              rowCount={metrics.recentClaims.length}
-              expanded={claimPanels.recent}
-              onToggle={() => onToggleClaimPanel('recent')}
-            >
-              <ClaimsTable claims={metrics.recentClaims} />
-            </CollapsibleClaimsPanel>
-
-            <CollapsibleClaimsPanel
-              title="Low-confidence claims"
-              description="Latest 20 claims where logged confidence is below 60."
-              rowCount={metrics.lowConfidenceClaims.length}
-              expanded={claimPanels.lowConfidence}
-              onToggle={() => onToggleClaimPanel('lowConfidence')}
-            >
-              <ClaimsTable claims={metrics.lowConfidenceClaims} />
-            </CollapsibleClaimsPanel>
-
-            <CollapsibleClaimsPanel
-              title="Slowest claims"
-              description="Top 10 rows ordered by highest logged latency."
-              rowCount={metrics.slowestClaims.length}
-              expanded={claimPanels.slowest}
-              onToggle={() => onToggleClaimPanel('slowest')}
-            >
-              <ClaimsTable claims={metrics.slowestClaims} />
-            </CollapsibleClaimsPanel>
-          </section>
-
-          <CategorySection categoryIntelligence={metrics.categoryIntelligence} />
-          <UtilitySections metrics={metrics} />
-        </div>
-
-        <DesktopRightRail metrics={metrics} />
+      <div>
+        <p className="system-label" style={{ marginBottom: 10 }}>
+          <span aria-hidden="true" />
+          Recent categorized claims
+        </p>
+        <CategorizedClaimsTable claims={topCategoryClaims} />
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -991,7 +1522,9 @@ export default function AdminPage() {
       errorMessage: '',
     }
   })
-  const [claimPanels, setClaimPanels] = useState<ClaimPanelState>(defaultClaimPanelState)
+
+  const lowConfidenceCount = state.metrics?.lowConfidenceClaims.length ?? 0
+  const slowestClaimLatency = state.metrics?.slowestClaims[0]?.latencyMs ?? 0
 
   const handleUnauthorized = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -1009,10 +1542,7 @@ export default function AdminPage() {
   const loadMetrics = useCallback(
     async (
       password: string,
-      options?: {
-        persist?: boolean
-        showLoadingState?: boolean
-      }
+      options?: { persist?: boolean; showLoadingState?: boolean }
     ) => {
       if (options?.showLoadingState !== false) {
         setState((current) => ({
@@ -1087,7 +1617,11 @@ export default function AdminPage() {
     }
   }, [loadMetrics, state.metrics, state.password, state.status])
 
-  function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const lastUpdatedLabel = state.metrics?.generatedAt
+    ? formatDateTime(state.metrics.generatedAt)
+    : 'Not loaded'
+
+  function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
     if (!state.password.trim()) {
@@ -1114,74 +1648,298 @@ export default function AdminPage() {
     })
   }
 
-  function toggleClaimPanel(panel: ClaimPanelKey) {
-    setClaimPanels((current) => ({
-      ...current,
-      [panel]: !current[panel],
-    }))
-  }
+  const showDashboard =
+    state.status === 'ready' || (state.status === 'loading' && Boolean(state.metrics))
 
-  if (!state.metrics) {
-    return (
-      <main className="dam-shell">
-        <div className="dam-admin-auth-shell">
-          <section className="dam-admin-auth-card">
-            <p className="system-label">
+  const metrics = state.metrics
+  const funnel = metrics?.funnel ?? emptyFunnel
+  const retention = metrics?.retention ?? emptyRetention
+  const categoryIntelligence = metrics?.categoryIntelligence ?? emptyCategoryIntelligence
+
+  return (
+    <main className="dam-shell" style={shellStyle}>
+      <div style={headerWrapStyle}>
+        <header
+          className="dam-header"
+          style={{
+            height: 'auto',
+            minHeight: 72,
+            padding: '14px 0',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <Link className="dam-mark" href="/" aria-label="Return to DAM home">
+              DAM
+            </Link>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              justifyContent: 'flex-end',
+            }}
+          >
+            <span style={{ ...badgeStyle, color: 'var(--muted)' }}>Private admin</span>
+            {showDashboard ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void loadMetrics(state.password, {
+                      persist: false,
+                    })
+                  }
+                  style={secondaryButtonStyle}
+                  disabled={state.status === 'loading'}
+                >
+                  {state.status === 'loading' ? 'Refreshing...' : 'Refresh'}
+                </button>
+                <button type="button" onClick={handleLogout} style={secondaryButtonStyle}>
+                  Logout
+                </button>
+              </>
+            ) : null}
+          </div>
+        </header>
+      </div>
+
+      <div style={contentWrapStyle}>
+        {!showDashboard ? (
+          <section
+            style={{
+              ...sectionStyle,
+              width: 'min(100%, 520px)',
+              margin: '0 auto',
+              padding: 22,
+            }}
+          >
+            <p className="system-label" style={{ marginBottom: 12 }}>
               <span aria-hidden="true" />
               Founder dashboard
             </p>
-            <h1>Private DAM analytics</h1>
-            <p>
-              Enter the admin password to open the read-only dashboard. No metrics are rendered
-              before authentication succeeds.
+            <h1 style={{ margin: 0, fontSize: 'clamp(28px, 5vw, 48px)', lineHeight: 0.98 }}>
+              Private DAM analytics
+            </h1>
+            <p style={{ margin: '14px 0 0', color: 'var(--muted)', fontSize: 15, lineHeight: 1.58 }}>
+              Enter the admin password to read live metrics from the existing admin API. This is
+              basic protection only.
             </p>
-            <form className="dam-admin-auth-form" onSubmit={handlePasswordSubmit}>
-              <label className="dam-admin-auth-form__label" htmlFor="dam-admin-password">
-                Admin password
+            <form onSubmit={handlePasswordSubmit} style={{ display: 'grid', gap: 12, marginTop: 20 }}>
+              <label style={{ display: 'grid', gap: 8 }}>
+                <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
+                  Admin password
+                </span>
+                <input
+                  type="password"
+                  value={state.password}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      password: event.target.value,
+                      errorMessage: '',
+                    }))
+                  }
+                  style={inputStyle}
+                  autoComplete="current-password"
+                />
               </label>
-              <input
-                id="dam-admin-password"
-                type="password"
-                value={state.password}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    password: event.target.value,
-                    errorMessage: '',
-                  }))
-                }
-                className="dam-admin-auth-form__input"
-                autoComplete="current-password"
-              />
-              <button
-                type="submit"
-                className="dam-admin-action-button dam-admin-action-button--primary"
-                disabled={state.status === 'loading'}
-              >
+              <button type="submit" style={primaryButtonStyle} disabled={state.status === 'loading'}>
                 {state.status === 'loading' ? 'Checking access...' : 'Open dashboard'}
               </button>
             </form>
-            {state.errorMessage ? <p className="form-error">{state.errorMessage}</p> : null}
+            {state.errorMessage ? (
+              <p className="form-error" style={{ marginTop: 12 }}>
+                {state.errorMessage}
+              </p>
+            ) : null}
           </section>
-        </div>
-      </main>
-    )
-  }
+        ) : null}
 
-  return (
-    <main className="dam-shell">
-      <DashboardView
-        metrics={state.metrics}
-        loading={state.status === 'loading'}
-        errorMessage={state.errorMessage}
-        password={state.password}
-        onRefresh={(password) => {
-          void loadMetrics(password, { persist: false })
-        }}
-        onLogout={handleLogout}
-        claimPanels={claimPanels}
-        onToggleClaimPanel={toggleClaimPanel}
-      />
+        {showDashboard ? (
+          <>
+            <section style={sectionStyle}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'end',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div>
+                  <p className="system-label" style={{ marginBottom: 10 }}>
+                    <span aria-hidden="true" />
+                    Admin telemetry
+                  </p>
+                  <h1 style={{ margin: 0, fontSize: 'clamp(30px, 4vw, 52px)', lineHeight: 0.96 }}>
+                    DAM founder dashboard
+                  </h1>
+                  <p
+                    style={{
+                      margin: '12px 0 0',
+                      color: 'var(--muted)',
+                      fontSize: 14,
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    Read-only visibility into claim volume, latency, confidence, category patterns,
+                    funnel health, and retention signals without opening Supabase.
+                  </p>
+                </div>
+                <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
+                  <span style={{ ...badgeStyle, color: 'var(--muted)' }}>
+                    Last updated: {lastUpdatedLabel}
+                  </span>
+                  {state.status === 'loading' ? (
+                    <span style={{ ...badgeStyle, borderColor: 'var(--red-line)', color: '#f1b1b1' }}>
+                      Refreshing live metrics
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              {metrics?.error?.code === 'misconfigured' ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: 15,
+                    border: '1px solid var(--red-line)',
+                    background: 'var(--red-soft)',
+                    color: '#ffb1b1',
+                    fontSize: 14,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Admin metrics are not configured. Check Supabase env vars.
+                </div>
+              ) : null}
+              {state.errorMessage ? (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: 14,
+                    border: '1px solid rgba(214, 38, 38, 0.36)',
+                    background: 'rgba(214, 38, 38, 0.08)',
+                    color: '#f1b1b1',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {state.errorMessage}
+                </div>
+              ) : null}
+            </section>
+
+            <section
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: 10,
+              }}
+            >
+              {[
+                {
+                  label: 'Total claims',
+                  value: formatCount(metrics?.totalClaims ?? 0),
+                  note: 'All logged analyzer responses',
+                },
+                {
+                  label: 'Claims today',
+                  value: formatCount(metrics?.claimsToday ?? 0),
+                  note: 'Rows created since local midnight',
+                },
+                {
+                  label: 'Average latency',
+                  value: formatLatency(metrics?.averageLatencyMs ?? 0),
+                  note: 'Mean `latency_ms`',
+                },
+                {
+                  label: 'Low-confidence count',
+                  value: formatCount(lowConfidenceCount),
+                  note: 'Latest 20 rows under 60 confidence',
+                },
+                {
+                  label: 'Slowest claim latency',
+                  value: formatLatency(slowestClaimLatency),
+                  note: 'Top row from slowest claims',
+                },
+              ].map((card) => (
+                <article
+                  key={card.label}
+                  style={{
+                    ...cardStyle,
+                    minHeight: 140,
+                    padding: 16,
+                    display: 'grid',
+                    alignContent: 'space-between',
+                    gap: 10,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: 'var(--quiet)',
+                      fontSize: 10,
+                      fontWeight: 850,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {card.label}
+                  </span>
+                  <strong style={{ fontSize: 'clamp(26px, 4vw, 40px)', lineHeight: 1 }}>
+                    {card.value}
+                  </strong>
+                  <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+                    {card.note}
+                  </p>
+                </article>
+              ))}
+            </section>
+
+            <FunnelIntelligence funnel={funnel} />
+            <RetentionIntelligence retention={retention} />
+            <CategoryIntelligenceSection categoryIntelligence={categoryIntelligence} />
+
+            <section
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: 16,
+              }}
+            >
+              <BreakdownList
+                title="Verdict breakdown"
+                items={metrics?.verdictBreakdown ?? []}
+                itemLabel={(item) => (item as VerdictBreakdown).verdict}
+              />
+              <BreakdownList
+                title="Risk label breakdown"
+                items={metrics?.riskLabelBreakdown ?? []}
+                itemLabel={(item) => (item as RiskLabelBreakdown).riskLabel}
+              />
+            </section>
+
+            <ClaimsTable
+              title="Recent claims"
+              subtitle="Latest 20 claim log rows from the admin metrics API."
+              claims={metrics?.recentClaims ?? []}
+            />
+            <ClaimsTable
+              title="Low-confidence claims"
+              subtitle="Latest 20 claims where logged confidence is below 60."
+              claims={metrics?.lowConfidenceClaims ?? []}
+            />
+            <ClaimsTable
+              title="Slowest claims"
+              subtitle="Top 10 rows ordered by highest logged latency."
+              claims={metrics?.slowestClaims ?? []}
+            />
+          </>
+        ) : null}
+      </div>
     </main>
   )
 }
