@@ -380,6 +380,43 @@ function countSessionVisits(aggregate: SessionAggregate) {
   return visitCount
 }
 
+function buildActiveSessionWindowDurations(timestamps: number[]) {
+  const sortedTimestamps = [...timestamps].sort((left, right) => left - right)
+
+  if (sortedTimestamps.length < 2) {
+    return [] as number[]
+  }
+
+  const durations: number[] = []
+  let windowStart = sortedTimestamps[0]
+  let previousTimestamp = sortedTimestamps[0]
+
+  for (let index = 1; index < sortedTimestamps.length; index += 1) {
+    const currentTimestamp = sortedTimestamps[index]
+    const gapMs = currentTimestamp - previousTimestamp
+
+    if (gapMs > RETURNING_SESSION_GAP_MS) {
+      const completedWindowDuration = previousTimestamp - windowStart
+
+      if (completedWindowDuration > 0) {
+        durations.push(completedWindowDuration)
+      }
+
+      windowStart = currentTimestamp
+    }
+
+    previousTimestamp = currentTimestamp
+  }
+
+  const finalWindowDuration = previousTimestamp - windowStart
+
+  if (finalWindowDuration > 0) {
+    durations.push(finalWindowDuration)
+  }
+
+  return durations
+}
+
 function buildCategoryIntelligence(
   claimRows: ClaimLogRow[],
   totalClaims: number
@@ -631,13 +668,14 @@ function buildRetentionMetrics(
       repeatClaimSessions += 1
     }
 
-    if (
-      aggregate.firstEventAt !== null &&
-      aggregate.lastEventAt !== null &&
-      aggregate.lastEventAt > aggregate.firstEventAt &&
-      aggregate.totalEvents > 1
-    ) {
-      totalSessionDurationMs += aggregate.lastEventAt - aggregate.firstEventAt
+    const activityTimestamps = [
+      ...aggregate.appOpenTimestamps,
+      ...(realClaimTimesBySession.get(sessionId) ?? []),
+    ]
+    const activeWindowDurations = buildActiveSessionWindowDurations(activityTimestamps)
+
+    for (const durationMs of activeWindowDurations) {
+      totalSessionDurationMs += durationMs
       sessionDurationSamples += 1
     }
 
