@@ -75,10 +75,23 @@ export type AdminReferrerRecord = {
   sessionCount: number
 }
 
+export type AdminReturningSessionRecord = {
+  sessionId: string
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+  totalClaims: number
+  totalEvents: number
+  totalVisits: number
+}
+
 export type AdminRetentionMetrics = {
   uniqueSessions: number
   returningSessions: number
   returnRate: number | null
+  returningUserRate: number | null
+  firstTimeSessions: number
+  repeatClaimSessions: number
+  latestReturningSessions: AdminReturningSessionRecord[]
   multiDayUsers: number
   averageClaimsPerUser: number
   averageTimeBetweenSessionsMs: number | null

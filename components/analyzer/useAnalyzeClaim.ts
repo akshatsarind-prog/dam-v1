@@ -2,6 +2,7 @@
 
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import {
+  getDamSessionSignalMetadata,
   getDamTelemetryMetadata,
   getOrCreateDamSessionId,
   sendDamSessionEndEvent,
@@ -88,7 +89,7 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
     sendDamTrackEvent({
       event_name: 'app_open_click',
       session_id: sessionId,
-      metadata: getDamTelemetryMetadata({
+      metadata: getDamSessionSignalMetadata(sessionId, {
         page: 'home',
       }),
     })
@@ -108,7 +109,7 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
       sendDamSessionEndEvent({
         event_name: 'app_session_end',
         session_id: sessionId,
-        metadata: getDamTelemetryMetadata({
+        metadata: getDamSessionSignalMetadata(sessionId, {
           duration_ms: Math.max(Date.now() - startedAt, 0),
           page: 'home',
         }),
@@ -186,7 +187,7 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
         sendDamTrackEvent({
           event_name: 'real_claim_submit',
           session_id: sessionId,
-          metadata: getDamTelemetryMetadata({
+          metadata: getDamSessionSignalMetadata(sessionId, {
             page: 'home',
           }),
         })

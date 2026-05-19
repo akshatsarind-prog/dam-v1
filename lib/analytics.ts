@@ -1,4 +1,6 @@
 export const DAM_SESSION_STORAGE_KEY = 'dam_session_id'
+const DAM_SESSION_FIRST_SEEN_AT_STORAGE_KEY = 'dam_session_first_seen_at'
+const DAM_SESSION_LAST_SEEN_AT_STORAGE_KEY = 'dam_session_last_seen_at'
 
 export const DAM_TRACK_EVENT_NAMES = [
   'landing_cta_click',
@@ -40,6 +42,9 @@ export type DamTelemetryMetadata = Record<string, unknown> & {
   page?: string
   referrer?: string
   device_type?: 'mobile' | 'tablet' | 'desktop' | 'unknown'
+  is_returning_user?: boolean
+  first_seen_at?: string
+  last_seen_at?: string
 }
 
 export function getOrCreateDamSessionId() {
@@ -72,6 +77,41 @@ export function getDamTelemetryMetadata(
     referrer: readTelemetryReferrer(),
     device_type: detectDeviceType(),
     ...overrides,
+  }
+}
+
+export function getDamSessionSignalMetadata(
+  sessionId: string,
+  overrides: DamTelemetryMetadata = {}
+): DamTelemetryMetadata {
+  if (typeof window === 'undefined' || !sessionId) {
+    return getDamTelemetryMetadata(overrides)
+  }
+
+  const nowIso = new Date().toISOString()
+
+  try {
+    const storedSessionId = window.localStorage.getItem(DAM_SESSION_STORAGE_KEY)?.trim() ?? ''
+    const existingFirstSeenAt =
+      window.localStorage.getItem(DAM_SESSION_FIRST_SEEN_AT_STORAGE_KEY)?.trim() ?? ''
+    const existingLastSeenAt =
+      window.localStorage.getItem(DAM_SESSION_LAST_SEEN_AT_STORAGE_KEY)?.trim() ?? ''
+    const isSameSession = storedSessionId === sessionId
+    const firstSeenAt = isSameSession && existingFirstSeenAt ? existingFirstSeenAt : nowIso
+    const lastSeenAt = isSameSession && existingLastSeenAt ? existingLastSeenAt : ''
+    const isReturningUser = Boolean(isSameSession && (existingLastSeenAt || existingFirstSeenAt))
+
+    window.localStorage.setItem(DAM_SESSION_FIRST_SEEN_AT_STORAGE_KEY, firstSeenAt)
+    window.localStorage.setItem(DAM_SESSION_LAST_SEEN_AT_STORAGE_KEY, nowIso)
+
+    return getDamTelemetryMetadata({
+      is_returning_user: isReturningUser,
+      first_seen_at: firstSeenAt,
+      last_seen_at: lastSeenAt || undefined,
+      ...overrides,
+    })
+  } catch {
+    return getDamTelemetryMetadata(overrides)
   }
 }
 

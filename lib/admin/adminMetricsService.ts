@@ -10,6 +10,7 @@ import type {
   AdminFunnelStage,
   AdminMetricsResponse,
   AdminRetentionMetrics,
+  AdminReturningSessionRecord,
   AdminReferrerRecord,
   RiskLabelBreakdown,
   VerdictBreakdown,
@@ -117,6 +118,8 @@ type SessionAggregate = {
   firstSeenAt: number | null
   lastSeenAt: number | null
   totalClaims: number
+  totalEvents: number
+  meaningfulEventCount: number
   exampleClaimCount: number
   realClaimCount: number
   appOpenTimestamps: number[]
@@ -172,6 +175,10 @@ const emptyMetrics: AdminMetricsResponse = {
     uniqueSessions: 0,
     returningSessions: 0,
     returnRate: null,
+    returningUserRate: null,
+    firstTimeSessions: 0,
+    repeatClaimSessions: 0,
+    latestReturningSessions: [],
     multiDayUsers: 0,
     averageClaimsPerUser: 0,
     averageTimeBetweenSessionsMs: null,
@@ -343,6 +350,33 @@ function buildTrackedFunnelStage(label: string, count: number): AdminFunnelStage
   }
 }
 
+function toIsoString(timestamp: number | null) {
+  if (timestamp === null) {
+    return null
+  }
+
+  return new Date(timestamp).toISOString()
+}
+
+function countSessionVisits(aggregate: SessionAggregate) {
+  const sortedOpenTimestamps = [...aggregate.appOpenTimestamps].sort((left, right) => left - right)
+  let visitCount = sortedOpenTimestamps.length ? 1 : 0
+
+  for (let index = 1; index < sortedOpenTimestamps.length; index += 1) {
+    const gapMs = sortedOpenTimestamps[index] - sortedOpenTimestamps[index - 1]
+
+    if (gapMs > RETURNING_SESSION_GAP_MS) {
+      visitCount += 1
+    }
+  }
+
+  if (visitCount === 0 && (aggregate.totalClaims > 0 || aggregate.totalEvents > 0)) {
+    return 1
+  }
+
+  return visitCount
+}
+
 function buildCategoryIntelligence(
   claimRows: ClaimLogRow[],
   totalClaims: number
@@ -434,6 +468,8 @@ function buildRetentionMetrics(
         firstSeenAt: null,
         lastSeenAt: null,
         totalClaims: 0,
+        totalEvents: 0,
+        meaningfulEventCount: 0,
         exampleClaimCount: 0,
         realClaimCount: 0,
         appOpenTimestamps: [],
@@ -496,6 +532,11 @@ function buildRetentionMetrics(
     const deviceType = readString(metadata.device_type).trim()
 
     applyActivityTimestamp(aggregate, timestamp)
+    aggregate.totalEvents += 1
+
+    if (eventName !== 'app_session_end') {
+      aggregate.meaningfulEventCount += 1
+    }
 
     if (referrer) {
       aggregate.firstReferrer = aggregate.firstReferrer ?? referrer
@@ -533,6 +574,7 @@ function buildRetentionMetrics(
 
   const uniqueSessions = sessionAggregates.size
   let returningSessions = 0
+  let repeatClaimSessions = 0
   let multiDayUsers = 0
   let returnIntervalsTotalMs = 0
   let returnIntervalsCount = 0
@@ -540,23 +582,39 @@ function buildRetentionMetrics(
   let exampleToRealSessions = 0
 
   const referrerCounts = new Map<string, number>()
+  const latestReturningSessions: AdminReturningSessionRecord[] = []
 
   for (const [sessionId, aggregate] of sessionAggregates) {
     const sortedOpenTimestamps = [...aggregate.appOpenTimestamps].sort((left, right) => left - right)
-    let sessionVisitCount = sortedOpenTimestamps.length ? 1 : 0
+    const sessionVisitCount = countSessionVisits(aggregate)
 
     for (let index = 1; index < sortedOpenTimestamps.length; index += 1) {
       const gapMs = sortedOpenTimestamps[index] - sortedOpenTimestamps[index - 1]
 
       if (gapMs > RETURNING_SESSION_GAP_MS) {
-        sessionVisitCount += 1
         returnIntervalsTotalMs += gapMs
         returnIntervalsCount += 1
       }
     }
 
-    if (sessionVisitCount > 1) {
+    const hasMultipleActivities = aggregate.totalClaims + aggregate.meaningfulEventCount > 1
+    const isReturningSession =
+      hasMultipleActivities || aggregate.totalClaims > 1 || sessionVisitCount > 1
+
+    if (isReturningSession) {
       returningSessions += 1
+      latestReturningSessions.push({
+        sessionId,
+        firstSeenAt: toIsoString(aggregate.firstSeenAt),
+        lastSeenAt: toIsoString(aggregate.lastSeenAt),
+        totalClaims: aggregate.totalClaims,
+        totalEvents: aggregate.totalEvents,
+        totalVisits: sessionVisitCount,
+      })
+    }
+
+    if (aggregate.totalClaims > 1) {
+      repeatClaimSessions += 1
     }
 
     if (aggregate.activityDaysUtc.size > 1) {
@@ -590,10 +648,23 @@ function buildRetentionMetrics(
       sessionCount,
     }))
 
+  latestReturningSessions.sort((left, right) => {
+    const leftTime = left.lastSeenAt ? Date.parse(left.lastSeenAt) : 0
+    const rightTime = right.lastSeenAt ? Date.parse(right.lastSeenAt) : 0
+    return rightTime - leftTime
+  })
+
+  const firstTimeSessions = Math.max(uniqueSessions - returningSessions, 0)
+  const returningUserRate = uniqueSessions > 0 ? returningSessions / uniqueSessions : null
+
   return {
     uniqueSessions,
     returningSessions,
-    returnRate: uniqueSessions > 0 ? returningSessions / uniqueSessions : null,
+    returnRate: returningUserRate,
+    returningUserRate,
+    firstTimeSessions,
+    repeatClaimSessions,
+    latestReturningSessions: latestReturningSessions.slice(0, 10),
     multiDayUsers,
     averageClaimsPerUser: uniqueSessions > 0 ? totalClaims / uniqueSessions : 0,
     averageTimeBetweenSessionsMs:

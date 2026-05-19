@@ -65,6 +65,10 @@ const emptyRetention: AdminRetentionMetrics = {
   uniqueSessions: 0,
   returningSessions: 0,
   returnRate: null,
+  returningUserRate: null,
+  firstTimeSessions: 0,
+  repeatClaimSessions: 0,
+  latestReturningSessions: [],
   multiDayUsers: 0,
   averageClaimsPerUser: 0,
   averageTimeBetweenSessionsMs: null,
@@ -1247,6 +1251,187 @@ function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics
   )
 }
 
+function ReturningUserSignal({ retention }: { retention: AdminRetentionMetrics }) {
+  const returningRate = retention.returningUserRate
+  const status =
+    returningRate === null || returningRate < 0.2
+      ? 'Mostly first-time curiosity'
+      : returningRate < 0.45
+        ? 'Repeat behavior emerging'
+        : 'Retention signal forming'
+
+  return (
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Returning User Signal
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
+            Returning User Signal
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            Simple read on whether DAM usage is still first-touch curiosity or showing repeat anonymous behavior.
+          </p>
+        </div>
+        <span
+          style={{
+            ...badgeStyle,
+            borderColor: 'rgba(214, 38, 38, 0.32)',
+            color: '#f1b1b1',
+          }}
+        >
+          {status}
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
+        {[
+          {
+            label: 'Unique sessions',
+            value: formatCount(retention.uniqueSessions),
+            note: 'Distinct anonymous session ids seen',
+          },
+          {
+            label: 'First-time sessions',
+            value: formatCount(retention.firstTimeSessions),
+            note: 'Single-touch or first-observed sessions',
+          },
+          {
+            label: 'Returning sessions',
+            value: formatCount(retention.returningSessions),
+            note: 'Same session id seen across repeated activity',
+          },
+          {
+            label: 'Returning user rate',
+            value: formatRate(retention.returningUserRate),
+            note: 'Returning sessions / unique sessions',
+          },
+          {
+            label: 'Repeat claim sessions',
+            value: formatCount(retention.repeatClaimSessions),
+            note: 'Sessions with more than one claim submission',
+          },
+        ].map((card) => (
+          <article
+            key={card.label}
+            style={{
+              ...cardStyle,
+              minHeight: 138,
+              padding: 16,
+              display: 'grid',
+              alignContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <span
+              style={{
+                color: 'var(--quiet)',
+                fontSize: 10,
+                fontWeight: 850,
+                textTransform: 'uppercase',
+              }}
+            >
+              {card.label}
+            </span>
+            <strong
+              style={{
+                fontSize: 'clamp(24px, 3.2vw, 34px)',
+                lineHeight: 1.02,
+                color: card.value === 'Not tracked yet' ? 'var(--muted)' : 'var(--text)',
+              }}
+            >
+              {card.value}
+            </strong>
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+              {card.note}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      <article
+        style={{
+          border: '1px solid var(--line)',
+          background: '#0c0c0e',
+          padding: 16,
+        }}
+      >
+        <p className="system-label" style={{ marginBottom: 10 }}>
+          <span aria-hidden="true" />
+          Latest returning sessions
+        </p>
+        <div
+          style={{
+            display: 'grid',
+            gap: 1,
+            border: '1px solid var(--line)',
+            background: 'var(--line)',
+          }}
+        >
+          {retention.latestReturningSessions.length ? (
+            retention.latestReturningSessions.map((session) => (
+              <div
+                key={`${session.sessionId}-${session.lastSeenAt ?? 'unknown'}`}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr) auto',
+                  gap: 12,
+                  alignItems: 'center',
+                  padding: '12px 13px',
+                  background: '#0c0c0e',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <strong
+                    style={{
+                      display: 'block',
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      lineHeight: 1.35,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {session.sessionId}
+                  </strong>
+                  <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+                    Last seen {formatDateTime(session.lastSeenAt)} • Claims {formatCount(session.totalClaims)} • Events{' '}
+                    {formatCount(session.totalEvents)} • Visits {formatCount(session.totalVisits)}
+                  </span>
+                </div>
+                <span style={{ ...badgeStyle, color: '#f1b1b1', borderColor: 'rgba(214, 38, 38, 0.32)' }}>
+                  Returning
+                </span>
+              </div>
+            ))
+          ) : (
+            <div style={{ padding: 14, background: '#0c0c0e', color: 'var(--muted)', fontSize: 13 }}>
+              No returning sessions are visible yet.
+            </div>
+          )}
+        </div>
+      </article>
+    </section>
+  )
+}
+
 function CategoryIntelligenceSection({
   categoryIntelligence,
 }: {
@@ -1900,6 +2085,7 @@ export default function AdminPage() {
             </section>
 
             <FunnelIntelligence funnel={funnel} />
+            <ReturningUserSignal retention={retention} />
             <RetentionIntelligence retention={retention} />
             <CategoryIntelligenceSection categoryIntelligence={categoryIntelligence} />
 
