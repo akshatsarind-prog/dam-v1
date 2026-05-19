@@ -8,6 +8,7 @@ import type {
   AdminFunnelMetrics,
   AdminFunnelStage,
   AdminMetricsResponse,
+  AdminRetentionMetrics,
   RiskLabelBreakdown,
   VerdictBreakdown,
 } from '@/lib/admin/adminMetricsTypes'
@@ -131,6 +132,29 @@ function formatNullableCount(value: number | null) {
 
 function formatLatency(value: number) {
   return `${Math.round(value)} ms`
+}
+
+function formatDurationCompact(value: number | null) {
+  if (value === null) {
+    return 'Not enough repeat data'
+  }
+
+  const totalMinutes = Math.round(value / 60000)
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes} min`
+  }
+
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  if (hours < 24) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+  }
+
+  const days = Math.floor(hours / 24)
+  const remainingHours = hours % 24
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`
 }
 
 function formatRate(value: number | null) {
@@ -808,6 +832,243 @@ function FunnelIntelligence({ funnel }: { funnel: AdminFunnelMetrics }) {
   )
 }
 
+function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics }) {
+  const exampleToRealRate = retention.exampleToRealConversionRate
+  const repeatUsageExists = retention.returningSessions > 0
+  const onboardingConverts = exampleToRealRate !== null && exampleToRealRate >= 0.2
+  const habitFormationLabel =
+    retention.returnRate !== null && retention.returnRate >= 0.25 && retention.multiDayUsers > 0
+      ? 'Early habit formation is emerging.'
+      : retention.returningSessions > 0 || retention.multiDayUsers > 0
+        ? 'Some repeat usage exists, but habit formation is still early.'
+        : 'Usage still looks curiosity-driven.'
+
+  const analysisLines = [
+    repeatUsageExists
+      ? `Repeat usage exists: ${formatCount(retention.returningSessions)} returning sessions have already come back.`
+      : 'Repeat usage has not clearly emerged yet.',
+    exampleToRealRate === null
+      ? 'Onboarding to real usage is not measurable yet because example-to-real conversion data is still sparse.'
+      : onboardingConverts
+        ? 'Onboarding is converting into real behavior; example users are moving into live claim checks.'
+        : 'Onboarding is not yet converting strongly into real behavior.',
+    habitFormationLabel,
+  ]
+
+  return (
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Retention Intelligence
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
+            Retention Intelligence
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            Anonymous repeat-usage, trust depth, onboarding quality, and early habit signals.
+          </p>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {[
+          {
+            label: 'Unique sessions',
+            value: formatCount(retention.uniqueSessions),
+            note: 'Anonymous session ids observed',
+          },
+          {
+            label: 'Returning sessions',
+            value: formatCount(retention.returningSessions),
+            note: 'Same session id seen again after 30+ minutes',
+          },
+          {
+            label: 'Return rate',
+            value: formatRate(retention.returnRate),
+            note: 'Returning sessions / unique sessions',
+          },
+          {
+            label: 'Multi-day users',
+            value: formatCount(retention.multiDayUsers),
+            note: 'Active on different UTC dates',
+          },
+          {
+            label: 'Avg claims per user',
+            value: retention.averageClaimsPerUser.toFixed(retention.averageClaimsPerUser >= 10 ? 1 : 2),
+            note: 'Total claims / unique sessions',
+          },
+          {
+            label: 'Avg time between sessions',
+            value: formatDurationCompact(retention.averageTimeBetweenSessionsMs),
+            note: 'Average gap for returning visits',
+          },
+          {
+            label: 'Example -> real conversion',
+            value: formatRate(retention.exampleToRealConversionRate),
+            note: 'Sessions with example usage that later submit real claims',
+          },
+        ].map((card) => (
+          <article
+            key={card.label}
+            style={{
+              ...cardStyle,
+              minHeight: 138,
+              padding: 16,
+              display: 'grid',
+              alignContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <span
+              style={{
+                color: 'var(--quiet)',
+                fontSize: 10,
+                fontWeight: 850,
+                textTransform: 'uppercase',
+              }}
+            >
+              {card.label}
+            </span>
+            <strong
+              style={{
+                fontSize: 'clamp(24px, 3.2vw, 34px)',
+                lineHeight: 1.02,
+                color:
+                  card.value === 'Not tracked yet' || card.value === 'Not enough repeat data'
+                    ? 'var(--muted)'
+                    : 'var(--text)',
+              }}
+            >
+              {card.value}
+            </strong>
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+              {card.note}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <article
+          style={{
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+            padding: 16,
+          }}
+        >
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Automatic analysis
+          </p>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {analysisLines.map((line) => (
+              <div
+                key={line}
+                style={{
+                  padding: '12px 13px',
+                  border: '1px solid var(--line)',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article
+          style={{
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+            padding: 16,
+          }}
+        >
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Top referrers
+          </p>
+          <div
+            style={{
+              display: 'grid',
+              gap: 1,
+              border: '1px solid var(--line)',
+              background: 'var(--line)',
+            }}
+          >
+            {retention.topReferrers.length ? (
+              retention.topReferrers.map((item) => (
+                <div
+                  key={item.referrer}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1fr) auto',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '12px 13px',
+                    background: '#0c0c0e',
+                  }}
+                >
+                  <strong
+                    style={{
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      lineHeight: 1.35,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {item.referrer}
+                  </strong>
+                  <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
+                    {formatCount(item.sessionCount)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div
+                style={{
+                  padding: 14,
+                  background: '#0c0c0e',
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                }}
+              >
+                Referrer telemetry has not accumulated yet.
+              </div>
+            )}
+          </div>
+        </article>
+      </div>
+    </section>
+  )
+}
+
 export default function AdminPage() {
   const [state, setState] = useState<DashboardState>(() => {
     if (typeof window !== 'undefined') {
@@ -1235,6 +1496,21 @@ export default function AdminPage() {
                     status: 'not_tracked',
                     manualBaseline: false,
                   },
+                }
+              }
+            />
+
+            <RetentionIntelligence
+              retention={
+                state.metrics?.retention ?? {
+                  uniqueSessions: 0,
+                  returningSessions: 0,
+                  returnRate: null,
+                  multiDayUsers: 0,
+                  averageClaimsPerUser: 0,
+                  averageTimeBetweenSessionsMs: null,
+                  exampleToRealConversionRate: null,
+                  topReferrers: [],
                 }
               }
             />

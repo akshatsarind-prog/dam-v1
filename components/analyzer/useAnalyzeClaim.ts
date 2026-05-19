@@ -1,7 +1,12 @@
 'use client'
 
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { getOrCreateDamSessionId, sendDamSessionEndEvent, sendDamTrackEvent } from '@/lib/analytics'
+import {
+  getDamTelemetryMetadata,
+  getOrCreateDamSessionId,
+  sendDamSessionEndEvent,
+  sendDamTrackEvent,
+} from '@/lib/analytics'
 import {
   type Analysis,
   type Indicator,
@@ -83,9 +88,9 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
     sendDamTrackEvent({
       event_name: 'app_open_click',
       session_id: sessionId,
-      metadata: {
+      metadata: getDamTelemetryMetadata({
         page: 'home',
-      },
+      }),
     })
   }, [])
 
@@ -103,10 +108,10 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
       sendDamSessionEndEvent({
         event_name: 'app_session_end',
         session_id: sessionId,
-        metadata: {
+        metadata: getDamTelemetryMetadata({
           duration_ms: Math.max(Date.now() - startedAt, 0),
           page: 'home',
-        },
+        }),
       })
     }
 
@@ -140,14 +145,14 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
     sendDamTrackEvent({
       event_name: 'landing_cta_click',
       session_id: getCurrentSessionId(),
-      metadata: {
+      metadata: getDamTelemetryMetadata({
         button_label: buttonLabel,
         page: 'home',
-      },
+      }),
     })
   }
 
-  async function checkClaim(nextClaimValue?: string) {
+  async function checkClaim(nextClaimValue?: string, source: 'real' | 'example' = 'real') {
     if (loading) {
       return
     }
@@ -176,6 +181,17 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
 
     try {
       const sessionId = getCurrentSessionId()
+
+      if (source === 'real') {
+        sendDamTrackEvent({
+          event_name: 'real_claim_submit',
+          session_id: sessionId,
+          metadata: getDamTelemetryMetadata({
+            page: 'home',
+          }),
+        })
+      }
+
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -213,7 +229,15 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
   }
 
   async function runExampleClaim(value: string) {
-    await checkClaim(value)
+    sendDamTrackEvent({
+      event_name: 'example_claim_click',
+      session_id: getCurrentSessionId(),
+      metadata: getDamTelemetryMetadata({
+        page: 'home',
+      }),
+    })
+
+    await checkClaim(value, 'example')
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {

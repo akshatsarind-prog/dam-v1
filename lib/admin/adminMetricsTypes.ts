@@ -34,6 +34,22 @@ export type AdminFunnelMetrics = {
   emailCaptures: AdminFunnelStage
 }
 
+export type AdminReferrerRecord = {
+  referrer: string
+  sessionCount: number
+}
+
+export type AdminRetentionMetrics = {
+  uniqueSessions: number
+  returningSessions: number
+  returnRate: number | null
+  multiDayUsers: number
+  averageClaimsPerUser: number
+  averageTimeBetweenSessionsMs: number | null
+  exampleToRealConversionRate: number | null
+  topReferrers: AdminReferrerRecord[]
+}
+
 export type AdminApiError = {
   code: 'unauthorized' | 'misconfigured' | 'unavailable' | 'unknown'
   message: string
@@ -48,6 +64,7 @@ export type AdminMetricsResponse = {
   verdictBreakdown: VerdictBreakdown[]
   riskLabelBreakdown: RiskLabelBreakdown[]
   funnel: AdminFunnelMetrics
+  retention: AdminRetentionMetrics
   recentClaims: AdminClaimRecord[]
   lowConfidenceClaims: AdminClaimRecord[]
   slowestClaims: AdminClaimRecord[]

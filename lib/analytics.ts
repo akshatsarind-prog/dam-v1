@@ -4,6 +4,7 @@ export const DAM_TRACK_EVENT_NAMES = [
   'landing_cta_click',
   'app_open_click',
   'example_claim_click',
+  'real_claim_submit',
   'app_session_end',
 ] as const
 
@@ -35,6 +36,12 @@ type TrackTransportOptions = {
   useBeacon: boolean
 }
 
+export type DamTelemetryMetadata = Record<string, unknown> & {
+  page?: string
+  referrer?: string
+  device_type?: 'mobile' | 'tablet' | 'desktop' | 'unknown'
+}
+
 export function getOrCreateDamSessionId() {
   if (typeof window === 'undefined') {
     return ''
@@ -51,6 +58,20 @@ export function getOrCreateDamSessionId() {
     return nextSessionId
   } catch {
     return crypto.randomUUID()
+  }
+}
+
+export function getDamTelemetryMetadata(
+  overrides: DamTelemetryMetadata = {}
+): DamTelemetryMetadata {
+  if (typeof window === 'undefined') {
+    return overrides
+  }
+
+  return {
+    referrer: readTelemetryReferrer(),
+    device_type: detectDeviceType(),
+    ...overrides,
   }
 }
 
@@ -116,4 +137,45 @@ function sendDamTrackEventWithTransport(payload: TrackPayload, options: TrackTra
     body,
     keepalive: options.keepalive,
   }).catch(() => {})
+}
+
+function readTelemetryReferrer() {
+  if (typeof document === 'undefined') {
+    return 'direct'
+  }
+
+  const rawReferrer = document.referrer.trim()
+
+  if (!rawReferrer) {
+    return 'direct'
+  }
+
+  try {
+    const parsed = new URL(rawReferrer)
+    return parsed.hostname || rawReferrer
+  } catch {
+    return rawReferrer
+  }
+}
+
+function detectDeviceType(): DamTelemetryMetadata['device_type'] {
+  if (typeof navigator === 'undefined') {
+    return 'unknown'
+  }
+
+  const userAgent = navigator.userAgent.toLowerCase()
+
+  if (/ipad|tablet/.test(userAgent)) {
+    return 'tablet'
+  }
+
+  if (/mobi|android|iphone|ipod/.test(userAgent)) {
+    return 'mobile'
+  }
+
+  if (userAgent) {
+    return 'desktop'
+  }
+
+  return 'unknown'
 }

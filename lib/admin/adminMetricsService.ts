@@ -5,6 +5,8 @@ import type {
   AdminFunnelMetrics,
   AdminFunnelStage,
   AdminMetricsResponse,
+  AdminRetentionMetrics,
+  AdminReferrerRecord,
   RiskLabelBreakdown,
   VerdictBreakdown,
 } from '@/lib/admin/adminMetricsTypes'
@@ -12,13 +14,28 @@ import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 const CLAIM_LOGS_TABLE = 'dam_claim_logs'
 const BETA_USERS_TABLE = 'dam_beta_users'
+const EVENTS_TABLE = 'dam_events'
 const CLAIM_TEXT_MAX_LENGTH = 280
 const AGGREGATION_BATCH_SIZE = 1000
 const MANUAL_DISTRIBUTED_BASELINE = 850
 const MANUAL_LANDING_VISITORS_BASELINE = 133
 const MANUAL_APP_VISITORS_BASELINE = 39
+const RETURNING_SESSION_GAP_MS = 30 * 60 * 1000
 
 type ClaimLogRow = Record<string, unknown>
+type EventRow = Record<string, unknown>
+type SessionAggregate = {
+  firstSeenAt: number | null
+  lastSeenAt: number | null
+  totalClaims: number
+  exampleClaimCount: number
+  realClaimCount: number
+  appOpenTimestamps: number[]
+  firstReferrer: string | null
+  lastReferrer: string | null
+  deviceType: string | null
+  activityDaysUtc: Set<string>
+}
 
 const emptyFunnel: AdminFunnelMetrics = {
   distributed: {
@@ -62,6 +79,16 @@ const emptyMetrics: AdminMetricsResponse = {
   verdictBreakdown: [],
   riskLabelBreakdown: [],
   funnel: emptyFunnel,
+  retention: {
+    uniqueSessions: 0,
+    returningSessions: 0,
+    returnRate: null,
+    multiDayUsers: 0,
+    averageClaimsPerUser: 0,
+    averageTimeBetweenSessionsMs: null,
+    exampleToRealConversionRate: null,
+    topReferrers: [],
+  },
   recentClaims: [],
   lowConfidenceClaims: [],
   slowestClaims: [],
@@ -99,6 +126,15 @@ function readDateString(value: unknown) {
 
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+}
+
+function readTimestamp(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null
+  }
+
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
 }
 
 function truncateClaimText(claimText: string) {
@@ -156,6 +192,191 @@ function buildTrackedFunnelStage(label: string, count: number): AdminFunnelStage
   }
 }
 
+function buildRetentionMetrics(
+  claimRows: ClaimLogRow[],
+  eventRows: EventRow[],
+  totalClaims: number
+): AdminRetentionMetrics {
+  const sessionAggregates = new Map<string, SessionAggregate>()
+
+  function ensureSession(sessionId: string) {
+    let aggregate = sessionAggregates.get(sessionId)
+
+    if (!aggregate) {
+      aggregate = {
+        firstSeenAt: null,
+        lastSeenAt: null,
+        totalClaims: 0,
+        exampleClaimCount: 0,
+        realClaimCount: 0,
+        appOpenTimestamps: [],
+        firstReferrer: null,
+        lastReferrer: null,
+        deviceType: null,
+        activityDaysUtc: new Set<string>(),
+      }
+      sessionAggregates.set(sessionId, aggregate)
+    }
+
+    return aggregate
+  }
+
+  function applyActivityTimestamp(aggregate: SessionAggregate, timestamp: number | null) {
+    if (timestamp === null) {
+      return
+    }
+
+    aggregate.firstSeenAt =
+      aggregate.firstSeenAt === null ? timestamp : Math.min(aggregate.firstSeenAt, timestamp)
+    aggregate.lastSeenAt =
+      aggregate.lastSeenAt === null ? timestamp : Math.max(aggregate.lastSeenAt, timestamp)
+    aggregate.activityDaysUtc.add(new Date(timestamp).toISOString().slice(0, 10))
+  }
+
+  for (const row of claimRows) {
+    const sessionId = readString(row.session_id).trim()
+
+    if (!sessionId) {
+      continue
+    }
+
+    const aggregate = ensureSession(sessionId)
+    const timestamp = readTimestamp(row.created_at)
+
+    aggregate.totalClaims += 1
+    aggregate.realClaimCount += 1
+    applyActivityTimestamp(aggregate, timestamp)
+  }
+
+  const exampleFirstSeenBySession = new Map<string, number>()
+  const realClaimTimesBySession = new Map<string, number[]>()
+
+  for (const row of eventRows) {
+    const sessionId = readString(row.session_id).trim()
+
+    if (!sessionId) {
+      continue
+    }
+
+    const aggregate = ensureSession(sessionId)
+    const eventName = readString(row.event_name)
+    const timestamp = readTimestamp(row.created_at)
+    const metadata =
+      row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : {}
+    const referrer = readString(metadata.referrer).trim()
+    const deviceType = readString(metadata.device_type).trim()
+
+    applyActivityTimestamp(aggregate, timestamp)
+
+    if (referrer) {
+      aggregate.firstReferrer = aggregate.firstReferrer ?? referrer
+      aggregate.lastReferrer = referrer
+    }
+
+    if (deviceType) {
+      aggregate.deviceType = deviceType
+    }
+
+    if (eventName === 'app_open_click' && timestamp !== null) {
+      aggregate.appOpenTimestamps.push(timestamp)
+    }
+
+    if (eventName === 'example_claim_click') {
+      aggregate.exampleClaimCount += 1
+
+      if (timestamp !== null) {
+        const existing = exampleFirstSeenBySession.get(sessionId)
+        exampleFirstSeenBySession.set(
+          sessionId,
+          existing === undefined ? timestamp : Math.min(existing, timestamp)
+        )
+      }
+    }
+
+    if (eventName === 'real_claim_submit') {
+      if (timestamp !== null) {
+        const existingTimes = realClaimTimesBySession.get(sessionId) ?? []
+        existingTimes.push(timestamp)
+        realClaimTimesBySession.set(sessionId, existingTimes)
+      }
+    }
+  }
+
+  const uniqueSessions = sessionAggregates.size
+  let returningSessions = 0
+  let multiDayUsers = 0
+  let returnIntervalsTotalMs = 0
+  let returnIntervalsCount = 0
+  let exampleSessions = 0
+  let exampleToRealSessions = 0
+
+  const referrerCounts = new Map<string, number>()
+
+  for (const [sessionId, aggregate] of sessionAggregates) {
+    const sortedOpenTimestamps = [...aggregate.appOpenTimestamps].sort((left, right) => left - right)
+    let sessionVisitCount = sortedOpenTimestamps.length ? 1 : 0
+
+    for (let index = 1; index < sortedOpenTimestamps.length; index += 1) {
+      const gapMs = sortedOpenTimestamps[index] - sortedOpenTimestamps[index - 1]
+
+      if (gapMs > RETURNING_SESSION_GAP_MS) {
+        sessionVisitCount += 1
+        returnIntervalsTotalMs += gapMs
+        returnIntervalsCount += 1
+      }
+    }
+
+    if (sessionVisitCount > 1) {
+      returningSessions += 1
+    }
+
+    if (aggregate.activityDaysUtc.size > 1) {
+      multiDayUsers += 1
+    }
+
+    if (aggregate.firstReferrer) {
+      referrerCounts.set(
+        aggregate.firstReferrer,
+        (referrerCounts.get(aggregate.firstReferrer) ?? 0) + 1
+      )
+    }
+
+    const exampleFirstSeenAt = exampleFirstSeenBySession.get(sessionId)
+
+    if (exampleFirstSeenAt !== undefined) {
+      exampleSessions += 1
+      const realClaimTimes = (realClaimTimesBySession.get(sessionId) ?? []).sort((left, right) => left - right)
+
+      if (realClaimTimes.some((time) => time > exampleFirstSeenAt)) {
+        exampleToRealSessions += 1
+      }
+    }
+  }
+
+  const topReferrers = Array.from(referrerCounts.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 8)
+    .map<AdminReferrerRecord>(([referrer, sessionCount]) => ({
+      referrer,
+      sessionCount,
+    }))
+
+  return {
+    uniqueSessions,
+    returningSessions,
+    returnRate: uniqueSessions > 0 ? returningSessions / uniqueSessions : null,
+    multiDayUsers,
+    averageClaimsPerUser: uniqueSessions > 0 ? totalClaims / uniqueSessions : 0,
+    averageTimeBetweenSessionsMs:
+      returnIntervalsCount > 0 ? Math.round(returnIntervalsTotalMs / returnIntervalsCount) : null,
+    exampleToRealConversionRate:
+      exampleSessions > 0 ? exampleToRealSessions / exampleSessions : null,
+    topReferrers,
+  }
+}
+
 async function readTableCountSafe(table: string) {
   const supabaseAdmin = getSupabaseAdminClient()
 
@@ -172,6 +393,49 @@ async function readTableCountSafe(table: string) {
   }
 
   return count
+}
+
+async function readEventRows() {
+  const supabaseAdmin = getSupabaseAdminClient()
+
+  if (!supabaseAdmin) {
+    return [] as EventRow[]
+  }
+
+  const { count, error: countError } = await supabaseAdmin
+    .from(EVENTS_TABLE)
+    .select('*', { count: 'exact', head: true })
+
+  if (countError) {
+    return [] as EventRow[]
+  }
+
+  const totalRows = count ?? 0
+
+  if (totalRows === 0) {
+    return [] as EventRow[]
+  }
+
+  const rows: EventRow[] = []
+
+  for (let offset = 0; offset < totalRows; offset += AGGREGATION_BATCH_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from(EVENTS_TABLE)
+      .select('*')
+      .range(offset, offset + AGGREGATION_BATCH_SIZE - 1)
+
+    if (error) {
+      return [] as EventRow[]
+    }
+
+    rows.push(...((data ?? []) as EventRow[]))
+
+    if (!data || data.length < AGGREGATION_BATCH_SIZE) {
+      break
+    }
+  }
+
+  return rows
 }
 
 async function readAggregateRows() {
@@ -357,6 +621,7 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     })
   }
 
+  const eventRows = await readEventRows()
   const verdictCounts = new Map<string, number>()
   const riskLabelCounts = new Map<string, number>()
   let claimsToday = 0
@@ -387,6 +652,11 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     readSlowestClaims(),
     readFunnelMetrics(aggregateResult.totalClaims),
   ])
+  const retention = buildRetentionMetrics(
+    aggregateResult.rows,
+    eventRows,
+    aggregateResult.totalClaims
+  )
 
   return buildMetricsResponse({
     totalClaims: aggregateResult.totalClaims,
@@ -402,6 +672,7 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
       count,
     })),
     funnel,
+    retention,
     recentClaims,
     lowConfidenceClaims,
     slowestClaims,
