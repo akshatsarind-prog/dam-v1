@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { MAX_CLAIM_LENGTH, type Analysis } from './analyzerData'
 
 type SharedAnalyzeInputProps = {
@@ -12,6 +12,7 @@ type SharedAnalyzeInputProps = {
   onChange: (value: string) => void
   onSubmit: React.FormEventHandler<HTMLFormElement>
   onKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement>
+  textareaRef?: Ref<HTMLTextAreaElement>
   belowTextareaContent?: ReactNode
   afterFooterContent?: ReactNode
 }
@@ -27,6 +28,7 @@ export default function SharedAnalyzeInput({
   onChange,
   onSubmit,
   onKeyDown,
+  textareaRef,
   belowTextareaContent,
   afterFooterContent,
 }: SharedAnalyzeInputProps) {
@@ -62,6 +64,7 @@ export default function SharedAnalyzeInput({
       </label>
       <textarea
         id="claim-input"
+        ref={textareaRef}
         value={claim}
         disabled={loading}
         maxLength={MAX_CLAIM_LENGTH}

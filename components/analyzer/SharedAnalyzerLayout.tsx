@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { startTransition, useEffect, useId, useRef, useState } from 'react'
 import {
   exampleClaimDomains,
   flowSteps,
@@ -20,6 +22,8 @@ const sectionNavItems = [
   { href: '#flow', label: 'Flow' },
   { href: '#system', label: 'System' },
 ]
+
+const thisCouldBeYouHref = '/this-could-be-you'
 
 const mobileNavButtonStyle = {
   minWidth: 44,
@@ -212,6 +216,7 @@ export default function SharedAnalyzerLayout({
   trackLandingCtaClick,
   isMobile = false,
 }: SharedAnalyzerLayoutProps) {
+  const router = useRouter()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isExamplePanelOpen, setIsExamplePanelOpen] = useState(false)
   const mobileMenuId = useId()
@@ -220,6 +225,7 @@ export default function SharedAnalyzerLayout({
   const examplePanelRef = useRef<HTMLElement | null>(null)
   const claimPanelRef = useRef<HTMLDivElement | null>(null)
   const resultPanelRef = useRef<HTMLDivElement | null>(null)
+  const claimInputRef = useRef<HTMLTextAreaElement | null>(null)
   const previousAnalysisRef = useRef<AnalyzeClaimViewModel['analysis']>(null)
 
   function scrollToVerificationArea() {
@@ -260,6 +266,13 @@ export default function SharedAnalyzerLayout({
     setIsExamplePanelOpen(false)
     scrollToVerificationArea()
     await runExampleClaim(exampleClaim)
+  }
+
+  function handleThisCouldBeYouNavigation() {
+    setIsMobileMenuOpen(false)
+    startTransition(() => {
+      router.push(thisCouldBeYouHref)
+    })
   }
 
   useEffect(() => {
@@ -312,6 +325,35 @@ export default function SharedAnalyzerLayout({
     previousAnalysisRef.current = analysis
   }, [isMobile, analysis])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const currentUrl = new URL(window.location.href)
+
+    if (currentUrl.searchParams.get('focus') !== 'claim-input') {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollToElement(claimPanelRef.current ?? verifySectionRef.current, isMobile, 'start')
+      claimInputRef.current?.focus({ preventScroll: true })
+
+      const selectionPosition = claimInputRef.current?.value.length ?? 0
+      claimInputRef.current?.setSelectionRange(selectionPosition, selectionPosition)
+
+      currentUrl.searchParams.delete('focus')
+      const nextSearch = currentUrl.searchParams.toString()
+      const nextUrl = `${currentUrl.pathname}${nextSearch ? `?${nextSearch}` : ''}${currentUrl.hash}`
+      window.history.replaceState(null, '', nextUrl)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [isMobile])
+
   return (
     <main className="dam-shell">
       <div ref={mobileMenuRef}>
@@ -349,6 +391,7 @@ export default function SharedAnalyzerLayout({
                   {item.label}
                 </a>
               ))}
+              <Link href={thisCouldBeYouHref}>This Could Be You</Link>
             </nav>
           )}
         </header>
@@ -356,7 +399,7 @@ export default function SharedAnalyzerLayout({
           <section
             style={{
               ...mobileDrawerShellStyle,
-              maxHeight: isMobileMenuOpen ? 260 : 0,
+              maxHeight: isMobileMenuOpen ? 320 : 0,
               opacity: isMobileMenuOpen ? 1 : 0,
               marginTop: isMobileMenuOpen ? 8 : 0,
             }}
@@ -392,6 +435,13 @@ export default function SharedAnalyzerLayout({
                   <span>{item.label}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={handleThisCouldBeYouNavigation}
+                style={mobileNavMenuItemStyle}
+              >
+                <span>This Could Be You</span>
+              </button>
               <button
                 type="button"
                 onClick={openExamplePanel}
@@ -561,6 +611,7 @@ export default function SharedAnalyzerLayout({
           ) : null}
           <div ref={claimPanelRef} style={isMobile ? mobileInputWrapStyle : undefined}>
             <SharedAnalyzeInput
+              textareaRef={claimInputRef}
               claim={claim}
               analysis={analysis}
               activeAnalysis={activeAnalysis}
