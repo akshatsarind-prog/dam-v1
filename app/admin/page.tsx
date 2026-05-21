@@ -4,22 +4,18 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import DamBrandMark from '@/components/brand/DamBrandMark'
 import type {
-  AdminApiError,
-  AdminCategoryIntelligence,
   AdminClaimCategory,
   AdminClaimRecord,
-  AdminFunnelMetrics,
-  AdminFunnelStage,
   AdminMetricsResponse,
-  AdminRetentionMetrics,
-  RiskLabelBreakdown,
-  AdminTrafficSourceIntelligence,
-  VerdictBreakdown,
+  AdminTrafficSourceRecord,
+  CategoryIntelligence,
+  EmailCaptureIntelligence,
+  ExecutiveSnapshot,
+  OperatorRecommendation,
+  RetentionIntelligence,
 } from '@/lib/admin/adminMetricsTypes'
 
 const SESSION_STORAGE_KEY = 'dam_admin_password'
-
-type AdminCategorizedClaimRecord = AdminCategoryIntelligence['topCategoryClaims'][number]
 
 type DashboardStatus = 'locked' | 'loading' | 'ready' | 'error'
 
@@ -28,73 +24,6 @@ type DashboardState = {
   password: string
   metrics: AdminMetricsResponse | null
   errorMessage: string
-}
-
-const emptyFunnel: AdminFunnelMetrics = {
-  distributed: {
-    label: 'Reached / Distributed',
-    count: null,
-    status: 'not_tracked',
-    manualBaseline: false,
-  },
-  landingVisitors: {
-    label: 'Landing visitors',
-    count: null,
-    status: 'not_tracked',
-    manualBaseline: false,
-  },
-  appVisitors: {
-    label: 'App visitors / sessions',
-    count: null,
-    status: 'not_tracked',
-    manualBaseline: false,
-  },
-  claimSubmissions: {
-    label: 'Claim submissions',
-    count: null,
-    status: 'not_tracked',
-    manualBaseline: false,
-  },
-  emailCaptures: {
-    label: 'Email captures / signups',
-    count: null,
-    status: 'not_tracked',
-    manualBaseline: false,
-  },
-}
-
-const emptyRetention: AdminRetentionMetrics = {
-  uniqueSessions: 0,
-  returningSessions: 0,
-  returnRate: null,
-  returningUserRate: null,
-  firstTimeSessions: 0,
-  repeatClaimSessions: 0,
-  latestReturningSessions: [],
-  multiDayUsers: 0,
-  averageClaimsPerUser: 0,
-  averageTimePerSessionMs: null,
-  averageTimeBetweenSessionsMs: null,
-  exampleToRealConversionRate: null,
-  topReferrers: [],
-}
-
-const emptyCategoryIntelligence: AdminCategoryIntelligence = {
-  categoryBreakdown: [],
-  mostTestedCategory: null,
-  highestLatencyCategory: null,
-  lowestConfidenceCategory: null,
-  emailConversionByCategory: {
-    available: false,
-    message: 'Not linkable yet.',
-  },
-  topCategoryClaims: [],
-}
-
-const emptyTrafficSourceIntelligence: AdminTrafficSourceIntelligence = {
-  available: false,
-  note: 'Traffic source telemetry has not accumulated yet.',
-  rows: [],
 }
 
 const shellStyle = {
@@ -116,100 +45,128 @@ const contentWrapStyle = {
   margin: '0 auto',
   display: 'grid',
   gap: 16,
-  paddingTop: 28,
+  paddingTop: 20,
 } as const
 
-const cardStyle = {
+const jumpNavStyle = {
+  position: 'sticky',
+  top: 10,
+  zIndex: 10,
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 8,
+  padding: 10,
   border: '1px solid var(--line)',
-  background: 'rgba(17, 17, 20, 0.94)',
+  background: 'rgba(10, 10, 12, 0.92)',
   boxShadow: 'var(--shadow)',
+  backdropFilter: 'blur(10px)',
 } as const
 
-const sectionStyle = {
-  ...cardStyle,
-  padding: 18,
-} as const
-
-const buttonBaseStyle = {
-  minHeight: 42,
-  padding: '0 14px',
-  border: '1px solid var(--line)',
-  background: '#0c0c0e',
-  color: 'var(--text)',
-  font: 'inherit',
-  fontSize: 12,
-  fontWeight: 800,
-  cursor: 'pointer',
-  transition: 'background-color 180ms ease, border-color 180ms ease, opacity 180ms ease',
-} as const
-
-const primaryButtonStyle = {
-  ...buttonBaseStyle,
-  border: '1px solid var(--red-line)',
-  background: 'var(--red)',
-  color: '#ffffff',
-  boxShadow: '0 0 22px rgba(214, 38, 38, 0.18)',
-} as const
-
-const secondaryButtonStyle = {
-  ...buttonBaseStyle,
-} as const
-
-const inputStyle = {
-  width: '100%',
-  minHeight: 48,
-  border: '1px solid var(--line)',
-  background: '#080809',
-  color: 'var(--text)',
-  padding: '0 14px',
-  outline: 'none',
-  font: 'inherit',
-  fontSize: 14,
-} as const
-
-const badgeStyle = {
+const anchorLinkStyle = {
+  minHeight: 34,
   display: 'inline-flex',
   alignItems: 'center',
-  minHeight: 24,
-  padding: '6px 8px',
+  padding: '0 12px',
   border: '1px solid var(--line)',
-  background: 'rgba(255, 255, 255, 0.045)',
-  color: 'var(--text)',
-  fontSize: 10,
-  fontWeight: 850,
-  lineHeight: 1,
-  textTransform: 'uppercase' as const,
+  background: 'rgba(255, 255, 255, 0.03)',
+  color: 'var(--muted)',
+  fontSize: 12,
+  fontWeight: 780,
+} as const
+
+const claimTextStyle = {
+  maxWidth: '36ch',
+  overflow: 'hidden',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical' as const,
+} as const
+
+const collapsibleButtonStyle = {
+  width: '100%',
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 14,
+  padding: 0,
+  border: 0,
+  background: 'transparent',
+  color: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left' as const,
 } as const
 
 function formatDateTime(value: string | null) {
   if (!value) {
-    return 'Unknown'
+    return 'Not enough data yet'
   }
 
   const parsed = new Date(value)
 
   if (Number.isNaN(parsed.getTime())) {
-    return 'Unknown'
+    return 'Not enough data yet'
   }
 
   return parsed.toLocaleString()
 }
 
-function formatCount(value: number) {
+function formatCount(value: number | null) {
+  if (value === null) {
+    return 'Not enough data yet'
+  }
+
   return new Intl.NumberFormat('en-US').format(value)
 }
 
-function formatNullableCount(value: number | null) {
-  return value === null ? 'Not tracked yet' : formatCount(value)
+function formatLatency(value: number | null) {
+  if (value === null) {
+    return 'Not enough data yet'
+  }
+
+  return `${Math.round(value)} ms`
 }
 
-function formatLatency(value: number) {
-  return `${Math.round(value)} ms`
+function formatRate(value: number | null) {
+  if (value === null) {
+    return 'Not enough data yet'
+  }
+
+  return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
+}
+
+function formatDecimal(value: number | null) {
+  if (value === null) {
+    return 'Not enough data yet'
+  }
+
+  return value >= 10 ? value.toFixed(1) : value.toFixed(2)
+}
+
+function formatSessionDuration(value: number | null) {
+  if (value === null) {
+    return 'Not enough data yet'
+  }
+
+  const totalSeconds = Math.max(Math.round(value / 1000), 0)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  const hours = Math.floor(minutes / 60)
+
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60
+    return `${hours}h ${String(remainingMinutes).padStart(2, '0')}m`
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+  }
+
+  return `${seconds}s`
 }
 
 function formatDurationCompact(value: number | null) {
   if (value === null) {
-    return 'Not enough repeat data'
+    return 'Not enough data yet'
   }
 
   const totalMinutes = Math.round(value / 60000)
@@ -230,81 +187,57 @@ function formatDurationCompact(value: number | null) {
   return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`
 }
 
-function formatSessionDuration(value: number | null) {
-  if (value === null) {
-    return 'Not tracked yet'
-  }
-
-  const totalSeconds = Math.max(Math.round(value / 1000), 0)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  const hours = Math.floor(minutes / 60)
-
-  if (hours > 0) {
-    const remainingMinutes = minutes % 60
-    return `${hours}h ${String(remainingMinutes).padStart(2, '0')}m`
-  }
-
-  if (minutes > 0) {
-    return `${minutes}m ${String(seconds).padStart(2, '0')}s`
-  }
-
-  return `${seconds}s`
-}
-
-function formatRate(value: number | null) {
-  if (value === null) {
-    return 'Not tracked yet'
-  }
-
-  return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
-}
-
 function formatCategoryLabel(category: AdminClaimCategory) {
   switch (category) {
     case 'social_rumor':
-      return 'Social Rumor'
+      return 'Social rumor'
     default:
       return category.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase())
   }
 }
 
-function calculateRate(numerator: number | null, denominator: number | null) {
-  if (numerator === null || denominator === null || denominator <= 0) {
-    return null
+function shortenId(value: string | null) {
+  if (!value) {
+    return '—'
   }
 
-  return numerator / denominator
+  return value.length <= 14 ? value : `${value.slice(0, 6)}...${value.slice(-4)}`
 }
 
-function getFunnelStageTone(stage: AdminFunnelStage) {
-  if (stage.status === 'tracked') {
-    return {
-      borderColor: 'rgba(255, 255, 255, 0.2)',
-      background: 'rgba(255, 255, 255, 0.07)',
-      color: '#ffffff',
-      label: 'Tracked',
-    }
-  }
-
-  if (stage.status === 'manual') {
-    return {
-      borderColor: 'rgba(214, 38, 38, 0.32)',
-      background: 'rgba(214, 38, 38, 0.07)',
-      color: '#f1b1b1',
-      label: 'Manual baseline',
-    }
-  }
-
-  return {
-    borderColor: 'rgba(214, 38, 38, 0.58)',
-    background: 'rgba(214, 38, 38, 0.15)',
-    color: '#ffb1b1',
-    label: 'Not tracked yet',
+function getStatusBadgeClass(status: ExecutiveSnapshot['status']) {
+  switch (status) {
+    case 'healthy':
+      return 'dam-admin-badge'
+    case 'watch':
+      return 'dam-admin-badge dam-admin-badge--warning'
+    default:
+      return 'dam-admin-badge dam-admin-badge--danger'
   }
 }
 
-function getConfidenceTone(confidence: number) {
+function getStatusLabel(status: ExecutiveSnapshot['status']) {
+  switch (status) {
+    case 'healthy':
+      return 'Healthy'
+    case 'watch':
+      return 'Watch'
+    default:
+      return 'Needs attention'
+  }
+}
+
+function getRecommendationBadgeClass(priority: OperatorRecommendation['priority']) {
+  switch (priority) {
+    case 'high':
+      return 'dam-admin-badge dam-admin-badge--danger'
+    case 'medium':
+      return 'dam-admin-badge dam-admin-badge--warning'
+    default:
+      return 'dam-admin-badge'
+  }
+}
+
+function getConfidenceBadgeStyle(confidence: number) {
   if (confidence < 60) {
     return {
       borderColor: 'rgba(214, 38, 38, 0.58)',
@@ -322,13 +255,13 @@ function getConfidenceTone(confidence: number) {
   }
 
   return {
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    background: 'rgba(255, 255, 255, 0.07)',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    background: 'rgba(255, 255, 255, 0.05)',
     color: '#ffffff',
   }
 }
 
-function getRiskTone(riskLabel: string) {
+function getRiskBadgeStyle(riskLabel: string) {
   const normalized = riskLabel.toLowerCase()
 
   if (normalized.includes('high') || normalized.includes('severe')) {
@@ -348,155 +281,159 @@ function getRiskTone(riskLabel: string) {
   }
 
   return {
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    background: 'rgba(255, 255, 255, 0.07)',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    background: 'rgba(255, 255, 255, 0.05)',
     color: '#ffffff',
   }
 }
 
-function buildCategoryAnalysis(categoryIntelligence: AdminCategoryIntelligence) {
-  const lines: string[] = []
-  const mostTested = categoryIntelligence.mostTestedCategory
-  const highestLatency = categoryIntelligence.highestLatencyCategory
-  const lowestConfidence = categoryIntelligence.lowestConfidenceCategory
+function getClaimRowStyle(claim: AdminClaimRecord) {
+  const highRisk = claim.riskLabel.toLowerCase().includes('high') || claim.riskLabel.toLowerCase().includes('severe')
+  const lowConfidence = claim.confidence < 60
+  const highLatency = claim.latencyMs >= 8000
 
-  if (mostTested) {
-    lines.push(
-      `Users are mostly testing ${formatCategoryLabel(mostTested.category)} claims (${formatRate(mostTested.percentage)} of categorized usage).`
-    )
+  if (highRisk) {
+    return {
+      background: 'rgba(214, 38, 38, 0.09)',
+    } satisfies CSSProperties
   }
 
-  if (highestLatency) {
-    lines.push(
-      `${formatCategoryLabel(highestLatency.category)} is operationally slowest at ${formatLatency(highestLatency.averageLatencyMs)} average latency.`
-    )
+  if (lowConfidence) {
+    return {
+      background: 'rgba(214, 38, 38, 0.05)',
+    } satisfies CSSProperties
   }
 
-  if (lowestConfidence) {
-    lines.push(
-      `${formatCategoryLabel(lowestConfidence.category)} has the weakest average confidence at ${lowestConfidence.averageConfidence.toFixed(1)}.`
-    )
+  if (highLatency) {
+    return {
+      background: 'rgba(214, 38, 38, 0.035)',
+    } satisfies CSSProperties
   }
 
-  if (!categoryIntelligence.emailConversionByCategory.available) {
-    lines.push('Email conversion by category is not linkable yet.')
+  if (claim.attributed) {
+    return {
+      background: 'rgba(255, 255, 255, 0.02)',
+    } satisfies CSSProperties
   }
 
-  const dominantCategory = mostTested?.category ?? null
+  return undefined
+}
 
-  if (dominantCategory === 'scam' || dominantCategory === 'crypto') {
-    lines.push('Current usage pattern looks scam-heavy rather than general exploration.')
-  } else if (
-    dominantCategory &&
-    ['health', 'political', 'government', 'statistics', 'social_rumor'].includes(dominantCategory)
-  ) {
-    lines.push('Current usage pattern looks misinformation-heavy across public narrative claims.')
-  } else if (dominantCategory) {
-    lines.push('Current usage pattern still looks general-curiosity-heavy.')
-  }
+function SectionHeading({
+  id,
+  eyebrow,
+  title,
+  description,
+  badge,
+}: {
+  id: string
+  eyebrow: string
+  title: string
+  description: string
+  badge?: string
+}) {
+  return (
+    <div className="dam-admin-section-heading" id={id}>
+      <p className="system-label" style={{ marginBottom: 10 }}>
+        <span aria-hidden="true" />
+        {eyebrow}
+      </p>
+      <div className="dam-admin-section-heading__title-row">
+        <h2>{title}</h2>
+        {badge ? <span className="dam-admin-badge">{badge}</span> : null}
+      </div>
+      <p>{description}</p>
+    </div>
+  )
+}
 
-  return lines.length ? lines : ['No categorized claims are available yet.']
+function MetricCard({
+  label,
+  value,
+  note,
+  emphasize = false,
+}: {
+  label: string
+  value: string
+  note: string
+  emphasize?: boolean
+}) {
+  return (
+    <article className={`dam-admin-metric-card${emphasize ? ' dam-admin-metric-card--red' : ''}`}>
+      <span className="dam-admin-metric-card__label">{label}</span>
+      <strong className="dam-admin-metric-card__value">{value}</strong>
+      <p className="dam-admin-metric-card__note">{note}</p>
+    </article>
+  )
+}
+
+function RecommendationCard({
+  recommendation,
+  compact = false,
+}: {
+  recommendation: OperatorRecommendation
+  compact?: boolean
+}) {
+  return (
+    <article
+      className="dam-admin-subcard"
+      style={{
+        padding: compact ? 14 : 16,
+        borderColor:
+          recommendation.priority === 'high'
+            ? 'rgba(214, 38, 38, 0.38)'
+            : recommendation.priority === 'medium'
+              ? 'rgba(214, 38, 38, 0.2)'
+              : undefined,
+      }}
+    >
+      <div className="dam-admin-inline-meta" style={{ marginBottom: 12 }}>
+        <span className={getRecommendationBadgeClass(recommendation.priority)}>
+          {recommendation.priority}
+        </span>
+      </div>
+      <h3>{recommendation.title}</h3>
+      <p>{recommendation.detail}</p>
+    </article>
+  )
 }
 
 function CollapsibleSection({
-  eyebrow,
   title,
   description,
   rowCount,
   defaultExpanded = false,
-  containerStyle,
   children,
 }: {
-  eyebrow?: string
   title: string
   description: string
   rowCount?: number
   defaultExpanded?: boolean
-  containerStyle?: CSSProperties
   children: ReactNode
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
   return (
-    <section
-      style={{
-        ...sectionStyle,
-        ...(containerStyle ?? {}),
-      }}
-    >
+    <section className="dam-admin-subcard">
       <button
         type="button"
         onClick={() => setExpanded((current) => !current)}
         aria-expanded={expanded}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'start',
-          justifyContent: 'space-between',
-          gap: 14,
-          padding: 0,
-          border: 0,
-          background: 'transparent',
-          color: 'inherit',
-          cursor: 'pointer',
-          textAlign: 'left',
-        }}
+        style={collapsibleButtonStyle}
       >
-        <div style={{ minWidth: 0 }}>
-          {eyebrow ? (
-            <p className="system-label" style={{ marginBottom: 10 }}>
-              <span aria-hidden="true" />
-              {eyebrow}
-            </p>
-          ) : null}
-          <h3
-            style={{
-              margin: 0,
-              color: 'var(--text)',
-              fontSize: 'clamp(20px, 2.2vw, 28px)',
-              lineHeight: 1.08,
-            }}
-          >
-            {title}
-          </h3>
-          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-            {description}
-          </p>
+        <div className="dam-admin-collapsible__copy">
+          <h3>{title}</h3>
+          <p>{description}</p>
         </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            flexShrink: 0,
-            flexWrap: 'wrap',
-            justifyContent: 'flex-end',
-          }}
-        >
+        <div className="dam-admin-inline-meta" style={{ justifyContent: 'flex-end', flexShrink: 0 }}>
           {typeof rowCount === 'number' ? (
-            <span style={{ ...badgeStyle, color: 'var(--muted)' }}>{formatCount(rowCount)} rows</span>
+            <span className="dam-admin-header-pill">{formatCount(rowCount)} rows</span>
           ) : null}
-          <span
-            aria-hidden="true"
-            style={{
-              width: 36,
-              minHeight: 36,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid var(--line)',
-              background: '#0c0c0e',
-              color: 'var(--text)',
-              fontSize: 18,
-              fontWeight: 700,
-              lineHeight: 1,
-            }}
-          >
-            {expanded ? '−' : '+'}
+          <span className="dam-admin-icon-button" aria-hidden="true">
+            {expanded ? '-' : '+'}
           </span>
         </div>
       </button>
-
       <div
         style={{
           display: 'grid',
@@ -511,338 +448,110 @@ function CollapsibleSection({
   )
 }
 
-function BreakdownList({
-  title,
-  items,
-  itemLabel,
-}: {
-  title: string
-  items: VerdictBreakdown[] | RiskLabelBreakdown[]
-  itemLabel: (item: VerdictBreakdown | RiskLabelBreakdown) => string
-}) {
-  return (
-    <section style={sectionStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 14,
-        }}
-      >
-        <div>
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Breakdown
-          </p>
-          <h2 style={{ margin: 0, fontSize: 'clamp(22px, 2.4vw, 30px)', lineHeight: 1.04 }}>
-            {title}
-          </h2>
-        </div>
-      </div>
-      <div
-        style={{
-          display: 'grid',
-          gap: 1,
-          border: '1px solid var(--line)',
-          background: 'var(--line)',
-        }}
-      >
-        {items.length ? (
-          items.map((item) => (
-            <div
-              key={`${itemLabel(item)}-${item.count}`}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr) auto',
-                gap: 12,
-                alignItems: 'center',
-                padding: '12px 13px',
-                background: '#0c0c0e',
-              }}
-            >
-              <strong style={{ fontSize: 13, lineHeight: 1.35 }}>{itemLabel(item)}</strong>
-              <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
-                {formatCount(item.count)}
-              </span>
-            </div>
-          ))
-        ) : (
-          <div style={{ padding: 14, background: '#0c0c0e', color: 'var(--muted)', fontSize: 13 }}>
-            No records yet.
-          </div>
-        )}
-      </div>
-    </section>
-  )
-}
+function ClaimFlags({ claim }: { claim: AdminClaimRecord }) {
+  const flags: Array<{ label: string; style?: CSSProperties }> = []
 
-function ClaimRowsTable({ claims }: { claims: AdminClaimRecord[] }) {
-  return (
-    <div
-      style={{
-        overflowX: 'auto',
-        border: '1px solid var(--line)',
-        background: '#0c0c0e',
-      }}
-    >
-      <table
-        style={{
-          width: '100%',
-          minWidth: 920,
-          borderCollapse: 'collapse',
-        }}
-      >
-        <thead>
-          <tr>
-            {['Created', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim'].map((label) => (
-              <th
-                key={label}
-                style={{
-                  padding: '12px 14px',
-                  borderBottom: '1px solid var(--line)',
-                  color: 'var(--quiet)',
-                  fontSize: 10,
-                  fontWeight: 850,
-                  textAlign: 'left',
-                  textTransform: 'uppercase',
-                  letterSpacing: 0,
-                }}
-              >
-                {label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {claims.length ? (
-            claims.map((claim, index) => {
-              const confidenceTone = getConfidenceTone(claim.confidence)
-              const riskTone = getRiskTone(claim.riskLabel)
+  if (claim.attributed) {
+    flags.push({ label: 'Attributed' })
+  }
 
-              return (
-                <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`}>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      color: 'var(--muted)',
-                      fontSize: 12,
-                      verticalAlign: 'top',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {formatDateTime(claim.createdAt)}
-                  </td>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      verticalAlign: 'top',
-                    }}
-                  >
-                    <span style={badgeStyle}>{claim.verdict}</span>
-                  </td>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      verticalAlign: 'top',
-                    }}
-                  >
-                    <span style={{ ...badgeStyle, ...confidenceTone }}>{claim.confidence}</span>
-                  </td>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      verticalAlign: 'top',
-                    }}
-                  >
-                    <span style={{ ...badgeStyle, ...riskTone }}>{claim.riskLabel}</span>
-                  </td>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      color: 'var(--text)',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      verticalAlign: 'top',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {formatLatency(claim.latencyMs)}
-                  </td>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      color: 'var(--muted)',
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                      minWidth: 280,
-                      maxWidth: 420,
-                    }}
-                  >
-                    {claim.claimText || 'No claim text logged.'}
-                  </td>
-                </tr>
-              )
-            })
-          ) : (
-            <tr>
-              <td
-                colSpan={6}
-                style={{
-                  padding: 16,
-                  color: 'var(--muted)',
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                }}
-              >
-                No claims available.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+  if (claim.confidence < 60) {
+    flags.push({ label: 'Low confidence', style: getConfidenceBadgeStyle(claim.confidence) })
+  }
+
+  if (claim.latencyMs >= 8000) {
+    flags.push({
+      label: 'Slow',
+      style: {
+        borderColor: 'rgba(214, 38, 38, 0.32)',
+        background: 'rgba(214, 38, 38, 0.07)',
+        color: '#e7bcbc',
+      },
+    })
+  }
+
+  if (claim.riskLabel.toLowerCase().includes('high') || claim.riskLabel.toLowerCase().includes('severe')) {
+    flags.push({ label: 'High risk', style: getRiskBadgeStyle(claim.riskLabel) })
+  }
+
+  if (!flags.length) {
+    return null
+  }
+
+  return (
+    <div className="dam-admin-inline-meta" style={{ marginTop: 8 }}>
+      {flags.map((flag) => (
+        <span key={flag.label} className="dam-admin-row-badge" style={flag.style}>
+          {flag.label}
+        </span>
+      ))}
     </div>
   )
 }
 
 function ClaimsTable({
-  title,
-  subtitle,
   claims,
-  defaultExpanded,
 }: {
-  title: string
-  subtitle: string
   claims: AdminClaimRecord[]
-  defaultExpanded: boolean
 }) {
   return (
-    <CollapsibleSection
-      eyebrow="Claim logs"
-      title={title}
-      description={subtitle}
-      rowCount={claims.length}
-      defaultExpanded={defaultExpanded}
-    >
-      <ClaimRowsTable claims={claims} />
-    </CollapsibleSection>
-  )
-}
-
-function CategorizedClaimsTable({ claims }: { claims: AdminCategorizedClaimRecord[] }) {
-  return (
-    <div
-      style={{
-        overflowX: 'auto',
-        border: '1px solid var(--line)',
-        background: '#0c0c0e',
-      }}
-    >
-      <table
-        style={{
-          width: '100%',
-          minWidth: 980,
-          borderCollapse: 'collapse',
-        }}
-      >
+    <div className="dam-admin-table-shell">
+      <table className="dam-admin-table">
         <thead>
           <tr>
-            {['Created', 'Category', 'Verdict', 'Confidence', 'Risk', 'Latency', 'Claim'].map((label) => (
-              <th
-                key={label}
-                style={{
-                  padding: '12px 14px',
-                  borderBottom: '1px solid var(--line)',
-                  color: 'var(--quiet)',
-                  fontSize: 10,
-                  fontWeight: 850,
-                  textAlign: 'left',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {label}
-              </th>
+            {[
+              'Created',
+              'Claim',
+              'Verdict',
+              'Confidence',
+              'Risk',
+              'Category',
+              'Latency',
+              'Sources',
+              'Evidence quality',
+              'UTM source',
+              'UTM campaign',
+              'Session',
+            ].map((label) => (
+              <th key={label}>{label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {claims.length ? (
-            claims.map((claim, index) => {
-              const confidenceTone = getConfidenceTone(claim.confidence)
-              const riskTone = getRiskTone(claim.riskLabel)
-
-              return (
-                <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${claim.category}-${index}`}>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      color: 'var(--muted)',
-                      fontSize: 12,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {formatDateTime(claim.createdAt)}
-                  </td>
-                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
-                    <span style={badgeStyle}>{formatCategoryLabel(claim.category)}</span>
-                  </td>
-                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
-                    <span style={badgeStyle}>{claim.verdict}</span>
-                  </td>
-                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
-                    <span style={{ ...badgeStyle, ...confidenceTone }}>{claim.confidence}</span>
-                  </td>
-                  <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
-                    <span style={{ ...badgeStyle, ...riskTone }}>{claim.riskLabel}</span>
-                  </td>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      color: 'var(--text)',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {formatLatency(claim.latencyMs)}
-                  </td>
-                  <td
-                    style={{
-                      padding: '13px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      color: 'var(--muted)',
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                      minWidth: 280,
-                      maxWidth: 420,
-                    }}
-                  >
-                    {claim.claimText || 'No claim text logged.'}
-                  </td>
-                </tr>
-              )
-            })
+            claims.map((claim, index) => (
+              <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`} style={getClaimRowStyle(claim)}>
+                <td>{formatDateTime(claim.createdAt)}</td>
+                <td>
+                  <div style={claimTextStyle}>{claim.claimText || 'No claim text logged.'}</div>
+                  <ClaimFlags claim={claim} />
+                </td>
+                <td>
+                  <span className="dam-admin-row-badge">{claim.verdict}</span>
+                </td>
+                <td>
+                  <span className="dam-admin-row-badge" style={getConfidenceBadgeStyle(claim.confidence)}>
+                    {claim.confidence}
+                  </span>
+                </td>
+                <td>
+                  <span className="dam-admin-row-badge" style={getRiskBadgeStyle(claim.riskLabel)}>
+                    {claim.riskLabel}
+                  </span>
+                </td>
+                <td>{formatCategoryLabel(claim.category)}</td>
+                <td>{formatLatency(claim.latencyMs)}</td>
+                <td>{formatCount(claim.sourceCount)}</td>
+                <td>{claim.evidenceQuality ?? 'unknown'}</td>
+                <td>{claim.utmSource ?? (claim.attributed ? 'direct / tracked' : 'No attributed claims yet')}</td>
+                <td>{claim.utmCampaign ?? (claim.attributed ? 'not set' : '—')}</td>
+                <td>{shortenId(claim.sessionId)}</td>
+              </tr>
+            ))
           ) : (
             <tr>
-              <td
-                colSpan={7}
-                style={{
-                  padding: 16,
-                  color: 'var(--muted)',
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                }}
-              >
-                No categorized claims yet.
+              <td colSpan={12} className="dam-admin-table__empty">
+                Not enough data yet.
               </td>
             </tr>
           )}
@@ -852,1230 +561,246 @@ function CategorizedClaimsTable({ claims }: { claims: AdminCategorizedClaimRecor
   )
 }
 
-function FunnelIntelligence({ funnel }: { funnel: AdminFunnelMetrics }) {
-  const stages = [
-    { key: 'distributed', stage: funnel.distributed },
-    { key: 'landingVisitors', stage: funnel.landingVisitors },
-    { key: 'appVisitors', stage: funnel.appVisitors },
-    { key: 'claimSubmissions', stage: funnel.claimSubmissions },
-    { key: 'emailCaptures', stage: funnel.emailCaptures },
-  ] as const
-
-  const conversionCards = [
-    {
-      key: 'reach_to_landing',
-      label: 'Reach -> Landing',
-      from: funnel.distributed,
-      to: funnel.landingVisitors,
-    },
-    {
-      key: 'landing_to_app',
-      label: 'Landing -> App',
-      from: funnel.landingVisitors,
-      to: funnel.appVisitors,
-    },
-    {
-      key: 'app_to_claim',
-      label: 'App -> Claim',
-      from: funnel.appVisitors,
-      to: funnel.claimSubmissions,
-    },
-    {
-      key: 'claim_to_email',
-      label: 'Claim -> Email',
-      from: funnel.claimSubmissions,
-      to: funnel.emailCaptures,
-    },
-    {
-      key: 'reach_to_claim',
-      label: 'Reach -> Claim',
-      from: funnel.distributed,
-      to: funnel.claimSubmissions,
-    },
-    {
-      key: 'reach_to_app',
-      label: 'Reach -> App',
-      from: funnel.distributed,
-      to: funnel.appVisitors,
-    },
-  ].map((item) => ({
-    ...item,
-    rate: calculateRate(item.to.count, item.from.count),
-    isTracked:
-      item.from.status !== 'not_tracked' &&
-      item.to.status !== 'not_tracked' &&
-      item.from.count !== null &&
-      item.to.count !== null,
-  }))
-
-  const adjacentConversions = conversionCards.filter((item) =>
-    ['reach_to_landing', 'landing_to_app', 'app_to_claim', 'claim_to_email'].includes(item.key)
-  )
-  const adjacentAvailable = adjacentConversions.filter((item) => item.rate !== null)
-  const biggestDropOff = adjacentAvailable.length
-    ? [...adjacentAvailable].sort((left, right) => (left.rate ?? 0) - (right.rate ?? 0))[0]
-    : null
-  const strongestStage = adjacentAvailable.length
-    ? [...adjacentAvailable].sort((left, right) => (right.rate ?? 0) - (left.rate ?? 0))[0]
-    : null
-  const appToClaimRate = conversionCards.find((item) => item.key === 'app_to_claim')?.rate ?? null
-  const reachToLandingRate =
-    conversionCards.find((item) => item.key === 'reach_to_landing')?.rate ?? null
-  const claimToEmailRate =
-    conversionCards.find((item) => item.key === 'claim_to_email')?.rate ?? null
-
-  const analysisLines: string[] = []
-
-  if (biggestDropOff) {
-    analysisLines.push(`Biggest drop-off is ${biggestDropOff.label} at ${formatRate(biggestDropOff.rate)}.`)
-  }
-
-  if (strongestStage) {
-    analysisLines.push(`Strongest retained stage is ${strongestStage.label} at ${formatRate(strongestStage.rate)}.`)
-  }
-
-  if (appToClaimRate !== null && appToClaimRate < 0.4) {
-    analysisLines.push('Activation friction likely exists between app visit and claim submission.')
-  }
-
-  if (reachToLandingRate !== null && reachToLandingRate >= 0.1) {
-    analysisLines.push('Distribution hook is working; reach is converting into landing traffic.')
-  }
-
-  if (claimToEmailRate === null) {
-    analysisLines.push('Identity conversion is not fully tracked yet.')
-  }
-
-  if (!analysisLines.length) {
-    analysisLines.push('Funnel coverage is partial; more tracked stages will sharpen conversion analysis.')
-  }
-
-  return (
-    <section style={sectionStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'end',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Funnel Intelligence
-          </p>
-          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
-            Funnel Intelligence
-          </h2>
-          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-            Read-only stage counts and conversion signals from the existing admin metrics API.
-          </p>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: 16,
-        }}
-      >
-        <div style={{ display: 'grid', gap: 8 }}>
-          {stages.map((item, index) => {
-            const tone = getFunnelStageTone(item.stage)
-
-            return (
-              <div key={item.key} style={{ display: 'grid', gap: 8 }}>
-                <article
-                  style={{
-                    border: '1px solid var(--line)',
-                    background: '#0c0c0e',
-                    padding: 16,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'start',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <div>
-                      <span
-                        style={{
-                          display: 'block',
-                          color: 'var(--quiet)',
-                          fontSize: 10,
-                          fontWeight: 850,
-                          textTransform: 'uppercase',
-                        }}
-                      >
-                        Stage {index + 1}
-                      </span>
-                      <h3
-                        style={{
-                          margin: '10px 0 0',
-                          fontSize: 'clamp(18px, 2vw, 24px)',
-                          lineHeight: 1.12,
-                        }}
-                      >
-                        {item.stage.label}
-                      </h3>
-                    </div>
-                    <span style={{ ...badgeStyle, ...tone }}>{tone.label}</span>
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 14,
-                      display: 'flex',
-                      alignItems: 'end',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <strong
-                      style={{
-                        fontSize: 'clamp(26px, 4vw, 38px)',
-                        lineHeight: 1,
-                        color: item.stage.count === null ? 'var(--muted)' : 'var(--text)',
-                      }}
-                    >
-                      {formatNullableCount(item.stage.count)}
-                    </strong>
-                    <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-                      {item.stage.manualBaseline
-                        ? 'manualBaseline: true'
-                        : item.stage.status === 'tracked'
-                          ? 'Read-only metric'
-                          : 'Not tracked yet'}
-                    </span>
-                  </div>
-                </article>
-                {index < stages.length - 1 ? (
-                  <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--quiet)', fontSize: 18 }}>
-                    ↓
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
-        </div>
-
-        <div style={{ display: 'grid', gap: 16 }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 10,
-            }}
-          >
-            {conversionCards.map((item) => (
-              <article
-                key={item.key}
-                style={{
-                  ...cardStyle,
-                  minHeight: 122,
-                  padding: 14,
-                  display: 'grid',
-                  alignContent: 'space-between',
-                  gap: 10,
-                }}
-              >
-                <span
-                  style={{
-                    color: 'var(--quiet)',
-                    fontSize: 10,
-                    fontWeight: 850,
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {item.label}
-                </span>
-                <strong
-                  style={{
-                    fontSize: 'clamp(22px, 3vw, 30px)',
-                    lineHeight: 1.02,
-                    color: item.isTracked ? 'var(--text)' : 'var(--muted)',
-                  }}
-                >
-                  {formatRate(item.rate)}
-                </strong>
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-                  {item.isTracked ? 'Derived from tracked or manual stage counts.' : 'Not tracked yet.'}
-                </p>
-              </article>
-            ))}
-          </div>
-
-          <article
-            style={{
-              border: '1px solid var(--line)',
-              background: '#0c0c0e',
-              padding: 16,
-            }}
-          >
-            <p className="system-label" style={{ marginBottom: 10 }}>
-              <span aria-hidden="true" />
-              Automatic analysis
-            </p>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {analysisLines.map((line) => (
-                <div
-                  key={line}
-                  style={{
-                    padding: '12px 13px',
-                    border: '1px solid var(--line)',
-                    background: 'rgba(255, 255, 255, 0.03)',
-                    color: 'var(--muted)',
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {line}
-                </div>
-              ))}
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics }) {
-  const exampleToRealRate = retention.exampleToRealConversionRate
-  const repeatUsageExists = retention.returningSessions > 0
-  const onboardingConverts = exampleToRealRate !== null && exampleToRealRate >= 0.2
-  const habitFormationLabel =
-    retention.returnRate !== null && retention.returnRate >= 0.25 && retention.multiDayUsers > 0
-      ? 'Early habit formation is emerging.'
-      : retention.returningSessions > 0 || retention.multiDayUsers > 0
-        ? 'Some repeat usage exists, but habit formation is still early.'
-        : 'Usage still looks curiosity-driven.'
-
-  const analysisLines = [
-    repeatUsageExists
-      ? `Repeat usage exists: ${formatCount(retention.returningSessions)} returning sessions have already come back.`
-      : 'Repeat usage has not clearly emerged yet.',
-    exampleToRealRate === null
-      ? 'Onboarding to real usage is not measurable yet because example-to-real conversion data is still sparse.'
-      : onboardingConverts
-        ? 'Onboarding is converting into real behavior; example users are moving into live claim checks.'
-        : 'Onboarding is not yet converting strongly into real behavior.',
-    habitFormationLabel,
-  ]
-
-  return (
-    <section style={sectionStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'end',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Retention Intelligence
-          </p>
-          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
-            Retention Intelligence
-          </h2>
-          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-            Anonymous repeat-usage, trust depth, onboarding quality, and early habit signals.
-          </p>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 10,
-        }}
-      >
-        {[
-          {
-            label: 'Unique sessions',
-            value: formatCount(retention.uniqueSessions),
-            note: 'Anonymous session ids observed',
-          },
-          {
-            label: 'Returning sessions',
-            value: formatCount(retention.returningSessions),
-            note: 'Same session id seen again after 30+ minutes',
-          },
-          {
-            label: 'Return rate',
-            value: formatRate(retention.returnRate),
-            note: 'Returning sessions / unique sessions',
-          },
-          {
-            label: 'Multi-day users',
-            value: formatCount(retention.multiDayUsers),
-            note: 'Active on different UTC dates',
-          },
-            {
-              label: 'Avg claims per user',
-              value: retention.averageClaimsPerUser.toFixed(retention.averageClaimsPerUser >= 10 ? 1 : 2),
-              note: 'Total claims / unique sessions',
-            },
-            {
-              label: 'Avg time per session',
-              value: formatSessionDuration(retention.averageTimePerSessionMs),
-              note: 'Average active duration per anonymous session',
-            },
-            {
-              label: 'Avg time between sessions',
-              value: formatDurationCompact(retention.averageTimeBetweenSessionsMs),
-              note: 'Average gap for returning visits',
-            },
-          {
-            label: 'Example -> real conversion',
-            value: formatRate(retention.exampleToRealConversionRate),
-            note: 'Sessions with example usage that later submit real claims',
-          },
-        ].map((card) => (
-          <article
-            key={card.label}
-            style={{
-              ...cardStyle,
-              minHeight: 138,
-              padding: 16,
-              display: 'grid',
-              alignContent: 'space-between',
-              gap: 10,
-            }}
-          >
-            <span
-              style={{
-                color: 'var(--quiet)',
-                fontSize: 10,
-                fontWeight: 850,
-                textTransform: 'uppercase',
-              }}
-            >
-              {card.label}
-            </span>
-            <strong
-              style={{
-                fontSize: 'clamp(24px, 3.2vw, 34px)',
-                lineHeight: 1.02,
-                color:
-                  card.value === 'Not tracked yet' || card.value === 'Not enough repeat data'
-                    ? 'var(--muted)'
-                    : 'var(--text)',
-              }}
-            >
-              {card.value}
-            </strong>
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-              {card.note}
-            </p>
-          </article>
-        ))}
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: 16,
-          marginTop: 16,
-        }}
-      >
-        <article
-          style={{
-            border: '1px solid var(--line)',
-            background: '#0c0c0e',
-            padding: 16,
-          }}
-        >
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Automatic analysis
-          </p>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {analysisLines.map((line) => (
-              <div
-                key={line}
-                style={{
-                  padding: '12px 13px',
-                  border: '1px solid var(--line)',
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  color: 'var(--muted)',
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                }}
-              >
-                {line}
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <CollapsibleSection
-          title="Top referrers"
-          description="Referrer telemetry ranked by anonymous session count."
-          rowCount={retention.topReferrers.length}
-          defaultExpanded={false}
-          containerStyle={{
-            border: '1px solid var(--line)',
-            background: '#0c0c0e',
-            padding: 16,
-            boxShadow: 'none',
-          }}
-        >
-          <div
-            style={{
-              display: 'grid',
-              gap: 1,
-              border: '1px solid var(--line)',
-              background: 'var(--line)',
-            }}
-          >
-            {retention.topReferrers.length ? (
-              retention.topReferrers.map((item) => (
-                <div
-                  key={item.referrer}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'minmax(0, 1fr) auto',
-                    gap: 12,
-                    alignItems: 'center',
-                    padding: '12px 13px',
-                    background: '#0c0c0e',
-                  }}
-                >
-                  <strong
-                    style={{
-                      color: 'var(--text)',
-                      fontSize: 13,
-                      lineHeight: 1.35,
-                      overflowWrap: 'anywhere',
-                    }}
-                  >
-                    {item.referrer}
-                  </strong>
-                  <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
-                    {formatCount(item.sessionCount)}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div
-                style={{
-                  padding: 14,
-                  background: '#0c0c0e',
-                  color: 'var(--muted)',
-                  fontSize: 13,
-                }}
-              >
-                Referrer telemetry has not accumulated yet.
-              </div>
-            )}
-          </div>
-        </CollapsibleSection>
-      </div>
-    </section>
-  )
-}
-
-function TrafficSourceIntelligenceSection({
-  trafficSourceIntelligence,
+function TrafficSourceTable({
+  rows,
 }: {
-  trafficSourceIntelligence: AdminTrafficSourceIntelligence
+  rows: AdminTrafficSourceRecord[]
 }) {
-  const topRow = trafficSourceIntelligence.rows[0] ?? null
-  const highestClaimRow = [...trafficSourceIntelligence.rows].sort(
-    (left, right) => right.claimSubmissions - left.claimSubmissions || right.eventCount - left.eventCount
-  )[0] ?? null
-  const analysisLines = [
-    topRow
-      ? `Highest event volume is ${topRow.source} / ${topRow.medium} / ${topRow.campaign} with ${formatCount(topRow.eventCount)} tracked events.`
-      : 'Traffic source telemetry has not accumulated yet.',
-    highestClaimRow && highestClaimRow.claimSubmissions > 0
-      ? `Most claim submissions currently come from ${highestClaimRow.source} / ${highestClaimRow.medium} / ${highestClaimRow.campaign}.`
-      : 'No attributed claim submissions are visible yet.',
-    trafficSourceIntelligence.note,
-  ]
-
   return (
-    <section style={sectionStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'end',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Traffic Source Intelligence
-          </p>
-          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
-            Traffic Source Intelligence
-          </h2>
-          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-            Attribution rollup from existing telemetry events and claim logs. Event count is not a unique-visit metric.
-          </p>
-        </div>
-        <span style={{ ...badgeStyle, color: 'var(--muted)' }}>
-          {trafficSourceIntelligence.available
-            ? `${formatCount(trafficSourceIntelligence.rows.length)} source rows`
-            : 'Awaiting telemetry'}
-        </span>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: 10,
-          marginBottom: 16,
-        }}
-      >
-        {[
-          {
-            label: 'Tracked source rows',
-            value: formatCount(trafficSourceIntelligence.rows.length),
-            note: 'Distinct source / medium / campaign combinations in the current rollup',
-          },
-          {
-            label: 'Top source',
-            value: topRow ? `${topRow.source} / ${topRow.medium}` : 'No data',
-            note: topRow ? `${topRow.campaign} campaign` : 'Waiting for attributed events.',
-          },
-          {
-            label: 'Top claim source',
-            value: highestClaimRow ? `${highestClaimRow.source} / ${highestClaimRow.medium}` : 'No data',
-            note: highestClaimRow
-              ? `${formatCount(highestClaimRow.claimSubmissions)} claim submissions`
-              : 'Waiting for attributed claim rows.',
-          },
-        ].map((card) => (
-          <article
-            key={card.label}
-            style={{
-              ...cardStyle,
-              minHeight: 138,
-              padding: 16,
-              display: 'grid',
-              alignContent: 'space-between',
-              gap: 10,
-            }}
-          >
-            <span
-              style={{
-                color: 'var(--quiet)',
-                fontSize: 10,
-                fontWeight: 850,
-                textTransform: 'uppercase',
-              }}
-            >
-              {card.label}
-            </span>
-            <strong
-              style={{
-                fontSize: 'clamp(24px, 3.2vw, 34px)',
-                lineHeight: 1.02,
-                color: card.value === 'No data' ? 'var(--muted)' : 'var(--text)',
-              }}
-            >
-              {card.value}
-            </strong>
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-              {card.note}
-            </p>
-          </article>
-        ))}
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1.5fr) minmax(280px, 0.8fr)',
-          gap: 16,
-        }}
-      >
-        <div
-          style={{
-            overflowX: 'auto',
-            border: '1px solid var(--line)',
-            background: '#0c0c0e',
-          }}
-        >
-          <table
-            style={{
-              width: '100%',
-              minWidth: 900,
-              borderCollapse: 'collapse',
-            }}
-          >
-            <thead>
-              <tr>
-                {[
-                  'Source',
-                  'Medium',
-                  'Campaign',
-                  'Event count',
-                  'CTA clicks',
-                  'Claim submissions',
-                  'Email captures',
-                  'Claim conversion',
-                ].map((label) => (
-                  <th
-                    key={label}
-                    style={{
-                      padding: '12px 14px',
-                      borderBottom: '1px solid var(--line)',
-                      color: 'var(--quiet)',
-                      fontSize: 10,
-                      fontWeight: 850,
-                      textAlign: 'left',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {trafficSourceIntelligence.rows.length ? (
-                trafficSourceIntelligence.rows.map((row) => (
-                  <tr key={`${row.source}-${row.medium}-${row.campaign}`}>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
-                      <span style={badgeStyle}>{row.source}</span>
-                    </td>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      {row.medium}
-                    </td>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      {row.campaign}
-                    </td>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      {formatCount(row.eventCount)}
-                    </td>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      {formatCount(row.ctaClicks)}
-                    </td>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      {formatCount(row.claimSubmissions)}
-                    </td>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      {formatCount(row.emailCaptures)}
-                    </td>
-                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                      {formatRate(row.claimConversionRate)}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={8}
-                    style={{
-                      padding: 16,
-                      color: 'var(--muted)',
-                      fontSize: 13,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    No traffic source rows are available yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <article
-          style={{
-            border: '1px solid var(--line)',
-            background: '#0c0c0e',
-            padding: 16,
-          }}
-        >
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Operational read
-          </p>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {analysisLines.map((line) => (
-              <div
-                key={line}
-                style={{
-                  padding: '12px 13px',
-                  border: '1px solid var(--line)',
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  color: 'var(--muted)',
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                }}
-              >
-                {line}
-              </div>
+    <div className="dam-admin-table-shell">
+      <table className="dam-admin-table dam-admin-table--compact">
+        <thead>
+          <tr>
+            {[
+              'Source',
+              'Medium',
+              'Campaign',
+              'Claim submissions',
+              'Unique sessions',
+              'Unique visitors',
+              'Tracked events',
+              'CTA clicks',
+              'Email captures',
+              'Claims / session',
+              'Latest claim',
+              'Interpretation',
+            ].map((label) => (
+              <th key={label}>{label}</th>
             ))}
-          </div>
-        </article>
-      </div>
-    </section>
-  )
-}
-
-function ReturningUserSignal({ retention }: { retention: AdminRetentionMetrics }) {
-  const returningRate = retention.returningUserRate
-  const status =
-    returningRate === null || returningRate < 0.2
-      ? 'Mostly first-time curiosity'
-      : returningRate < 0.45
-        ? 'Repeat behavior emerging'
-        : 'Retention signal forming'
-
-  return (
-    <section style={sectionStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'end',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Returning User Signal
-          </p>
-          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
-            Returning User Signal
-          </h2>
-          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-            Simple read on whether DAM usage is still first-touch curiosity or showing repeat anonymous behavior.
-          </p>
-        </div>
-        <span
-          style={{
-            ...badgeStyle,
-            borderColor: 'rgba(214, 38, 38, 0.32)',
-            color: '#f1b1b1',
-          }}
-        >
-          {status}
-        </span>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 10,
-          marginBottom: 16,
-        }}
-      >
-        {[
-          {
-            label: 'Unique sessions',
-            value: formatCount(retention.uniqueSessions),
-            note: 'Distinct anonymous session ids seen',
-          },
-          {
-            label: 'First-time sessions',
-            value: formatCount(retention.firstTimeSessions),
-            note: 'Single-touch or first-observed sessions',
-          },
-          {
-            label: 'Returning sessions',
-            value: formatCount(retention.returningSessions),
-            note: 'Same session id seen across repeated activity',
-          },
-          {
-            label: 'Returning user rate',
-            value: formatRate(retention.returningUserRate),
-            note: 'Returning sessions / unique sessions',
-          },
-          {
-            label: 'Repeat claim sessions',
-            value: formatCount(retention.repeatClaimSessions),
-            note: 'Sessions with more than one claim submission',
-          },
-        ].map((card) => (
-          <article
-            key={card.label}
-            style={{
-              ...cardStyle,
-              minHeight: 138,
-              padding: 16,
-              display: 'grid',
-              alignContent: 'space-between',
-              gap: 10,
-            }}
-          >
-            <span
-              style={{
-                color: 'var(--quiet)',
-                fontSize: 10,
-                fontWeight: 850,
-                textTransform: 'uppercase',
-              }}
-            >
-              {card.label}
-            </span>
-            <strong
-              style={{
-                fontSize: 'clamp(24px, 3.2vw, 34px)',
-                lineHeight: 1.02,
-                color: card.value === 'Not tracked yet' ? 'var(--muted)' : 'var(--text)',
-              }}
-            >
-              {card.value}
-            </strong>
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-              {card.note}
-            </p>
-          </article>
-        ))}
-      </div>
-      <CollapsibleSection
-        title="Latest returning sessions"
-        description="Most recently active anonymous sessions that already show repeat behavior."
-        rowCount={retention.latestReturningSessions.length}
-        defaultExpanded={false}
-        containerStyle={{
-          border: '1px solid var(--line)',
-          background: '#0c0c0e',
-          padding: 16,
-          boxShadow: 'none',
-        }}
-      >
-        <div
-          style={{
-            display: 'grid',
-            gap: 1,
-            border: '1px solid var(--line)',
-            background: 'var(--line)',
-          }}
-        >
-          {retention.latestReturningSessions.length ? (
-            retention.latestReturningSessions.map((session) => (
-              <div
-                key={`${session.sessionId}-${session.lastSeenAt ?? 'unknown'}`}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 1fr) auto',
-                  gap: 12,
-                  alignItems: 'center',
-                  padding: '12px 13px',
-                  background: '#0c0c0e',
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <strong
-                    style={{
-                      display: 'block',
-                      color: 'var(--text)',
-                      fontSize: 13,
-                      lineHeight: 1.35,
-                      overflowWrap: 'anywhere',
-                    }}
-                  >
-                    {session.sessionId}
-                  </strong>
-                  <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-                    Last seen {formatDateTime(session.lastSeenAt)} | Claims {formatCount(session.totalClaims)} | Events{' '}
-                    {formatCount(session.totalEvents)} | Visits {formatCount(session.totalVisits)}
-                  </span>
-                </div>
-                <span style={{ ...badgeStyle, color: '#f1b1b1', borderColor: 'rgba(214, 38, 38, 0.32)' }}>
-                  Returning
-                </span>
-              </div>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length ? (
+            rows.map((row) => (
+              <tr key={`${row.source}-${row.medium}-${row.campaign}`}>
+                <td>{row.source}</td>
+                <td>{row.medium}</td>
+                <td>{row.campaign}</td>
+                <td>{formatCount(row.claimSubmissions)}</td>
+                <td>{formatCount(row.uniqueSessions)}</td>
+                <td>{formatCount(row.uniqueVisitors)}</td>
+                <td>{formatCount(row.eventCount)}</td>
+                <td>{formatCount(row.ctaClicks)}</td>
+                <td>{formatCount(row.emailCaptures)}</td>
+                <td>{formatDecimal(row.claimsPerSession)}</td>
+                <td>{formatDateTime(row.latestClaimAt)}</td>
+                <td>{row.interpretation}</td>
+              </tr>
             ))
           ) : (
-            <div style={{ padding: 14, background: '#0c0c0e', color: 'var(--muted)', fontSize: 13 }}>
-              No returning sessions are visible yet.
-            </div>
+            <tr>
+              <td colSpan={12} className="dam-admin-table__empty">
+                No attributed claims yet.
+              </td>
+            </tr>
           )}
-        </div>
-      </CollapsibleSection>
-    </section>
+        </tbody>
+      </table>
+    </div>
   )
 }
 
-function CategoryIntelligenceSection({
+function HighIntentSessionsTable({
+  retention,
+}: {
+  retention: RetentionIntelligence
+}) {
+  return (
+    <div className="dam-admin-table-shell">
+      <table className="dam-admin-table dam-admin-table--compact">
+        <thead>
+          <tr>
+            {[
+              'Session',
+              'Visitor',
+              'Claims',
+              'Source',
+              'Campaign',
+              'First seen',
+              'Last seen',
+              'Returning',
+              'Email captured',
+            ].map((label) => (
+              <th key={label}>{label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {retention.highIntentSessions.length ? (
+            retention.highIntentSessions.map((session) => (
+              <tr key={session.sessionId}>
+                <td>{shortenId(session.sessionId)}</td>
+                <td>{shortenId(session.visitorId)}</td>
+                <td>{formatCount(session.claimCount)}</td>
+                <td>{session.source ?? 'Not enough data yet'}</td>
+                <td>{session.campaign ?? 'Not enough data yet'}</td>
+                <td>{formatDateTime(session.firstSeenAt)}</td>
+                <td>{formatDateTime(session.lastSeenAt)}</td>
+                <td>{session.isReturning ? 'Yes' : 'No'}</td>
+                <td>{session.emailCaptured ? 'Yes' : 'Not linkable yet'}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={9} className="dam-admin-table__empty">
+                No repeat sessions yet.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function CategoryTable({
   categoryIntelligence,
 }: {
-  categoryIntelligence: AdminCategoryIntelligence
+  categoryIntelligence: CategoryIntelligence
 }) {
-  const analysisLines = buildCategoryAnalysis(categoryIntelligence)
-  const topCategoryClaims = categoryIntelligence.topCategoryClaims.slice(0, 10)
-
   return (
-    <section style={sectionStyle}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'end',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Category Intelligence
-          </p>
-          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
-            Category Intelligence
-          </h2>
-          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
-            Derived category patterns from existing claim logs only. This does not affect DAM analysis.
-          </p>
-        </div>
-        <span
-          style={{
-            ...badgeStyle,
-            borderColor: 'rgba(214, 38, 38, 0.58)',
-            background: 'rgba(214, 38, 38, 0.16)',
-            color: '#ffb1b1',
-          }}
-        >
-          New
-        </span>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: 10,
-          marginBottom: 16,
-        }}
-      >
-        {[
-          {
-            label: 'Most tested category',
-            value: categoryIntelligence.mostTestedCategory
-              ? formatCategoryLabel(categoryIntelligence.mostTestedCategory.category)
-              : 'No data',
-            note: categoryIntelligence.mostTestedCategory
-              ? `${formatCount(categoryIntelligence.mostTestedCategory.count)} claims (${formatRate(categoryIntelligence.mostTestedCategory.percentage)})`
-              : 'No categorized claims yet.',
-          },
-          {
-            label: 'Highest latency category',
-            value: categoryIntelligence.highestLatencyCategory
-              ? formatCategoryLabel(categoryIntelligence.highestLatencyCategory.category)
-              : 'No data',
-            note: categoryIntelligence.highestLatencyCategory
-              ? `${formatLatency(categoryIntelligence.highestLatencyCategory.averageLatencyMs)} average latency`
-              : 'No categorized claims yet.',
-          },
-          {
-            label: 'Lowest confidence category',
-            value: categoryIntelligence.lowestConfidenceCategory
-              ? formatCategoryLabel(categoryIntelligence.lowestConfidenceCategory.category)
-              : 'No data',
-            note: categoryIntelligence.lowestConfidenceCategory
-              ? `${categoryIntelligence.lowestConfidenceCategory.averageConfidence.toFixed(1)} average confidence`
-              : 'No categorized claims yet.',
-          },
-          {
-            label: 'Email conversion by category',
-            value: categoryIntelligence.emailConversionByCategory.available ? 'Available' : 'Not linkable yet',
-            note: categoryIntelligence.emailConversionByCategory.message,
-          },
-        ].map((card) => (
-          <article
-            key={card.label}
-            style={{
-              ...cardStyle,
-              minHeight: 138,
-              padding: 16,
-              display: 'grid',
-              alignContent: 'space-between',
-              gap: 10,
-            }}
-          >
-            <span
-              style={{
-                color: 'var(--quiet)',
-                fontSize: 10,
-                fontWeight: 850,
-                textTransform: 'uppercase',
-              }}
-            >
-              {card.label}
-            </span>
-            <strong
-              style={{
-                fontSize: 'clamp(24px, 3.2vw, 34px)',
-                lineHeight: 1.02,
-                color: card.value === 'No data' || card.value === 'Not linkable yet' ? 'var(--muted)' : 'var(--text)',
-              }}
-            >
-              {card.value}
-            </strong>
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-              {card.note}
-            </p>
-          </article>
-        ))}
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: 16,
-          marginBottom: 16,
-        }}
-      >
-        <article
-          style={{
-            border: '1px solid var(--line)',
-            background: '#0c0c0e',
-            padding: 16,
-          }}
-        >
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Category breakdown
-          </p>
-          <div style={{ overflowX: 'auto', border: '1px solid var(--line)', background: '#0a0a0c' }}>
-            <table
-              style={{
-                width: '100%',
-                minWidth: 620,
-                borderCollapse: 'collapse',
-              }}
-            >
-              <thead>
-                <tr>
-                  {['Category', 'Claims', '%', 'Avg latency', 'Avg confidence'].map((label) => (
-                    <th
-                      key={label}
-                      style={{
-                        padding: '12px 14px',
-                        borderBottom: '1px solid var(--line)',
-                        color: 'var(--quiet)',
-                        fontSize: 10,
-                        fontWeight: 850,
-                        textAlign: 'left',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {categoryIntelligence.categoryBreakdown.length ? (
-                  categoryIntelligence.categoryBreakdown.map((row) => (
-                    <tr key={row.category}>
-                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
-                        <span style={badgeStyle}>{formatCategoryLabel(row.category)}</span>
-                      </td>
-                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                        {formatCount(row.count)}
-                      </td>
-                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                        {formatRate(row.percentage)}
-                      </td>
-                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                        {formatLatency(row.averageLatencyMs)}
-                      </td>
-                      <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
-                        {row.averageConfidence.toFixed(1)}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      style={{
-                        padding: 16,
-                        color: 'var(--muted)',
-                        fontSize: 13,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      No categorized claims yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article
-          style={{
-            border: '1px solid var(--line)',
-            background: '#0c0c0e',
-            padding: 16,
-          }}
-        >
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Operational read
-          </p>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {analysisLines.map((line) => (
-              <div
-                key={line}
-                style={{
-                  padding: '12px 13px',
-                  border: '1px solid var(--line)',
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  color: 'var(--muted)',
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                }}
-              >
-                {line}
-              </div>
+    <div className="dam-admin-table-shell">
+      <table className="dam-admin-table dam-admin-table--compact">
+        <thead>
+          <tr>
+            {[
+              'Category',
+              'Count',
+              'Share',
+              'Avg confidence',
+              'Avg latency',
+              'Avg source count',
+              'Top source',
+              'Top campaign',
+              'Latest claim',
+            ].map((label) => (
+              <th key={label}>{label}</th>
             ))}
-          </div>
-        </article>
+          </tr>
+        </thead>
+        <tbody>
+          {categoryIntelligence.categoryBreakdown.length ? (
+            categoryIntelligence.categoryBreakdown.map((row) => (
+              <tr key={row.category}>
+                <td>
+                  <span className="dam-admin-row-badge">{formatCategoryLabel(row.category)}</span>
+                </td>
+                <td>{formatCount(row.count)}</td>
+                <td>{formatRate(row.percentage)}</td>
+                <td>{row.averageConfidence.toFixed(1)}</td>
+                <td>{formatLatency(row.averageLatencyMs)}</td>
+                <td>{formatDecimal(row.averageSourceCount)}</td>
+                <td>{row.topSource ?? 'Not enough data yet'}</td>
+                <td>{row.topCampaign ?? 'Not enough data yet'}</td>
+                <td>
+                  <div style={claimTextStyle}>{row.latestClaimText ?? 'Not enough data yet'}</div>
+                </td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={9} className="dam-admin-table__empty">
+                No category data yet.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function EmailSourceTable({
+  emailCaptureIntelligence,
+}: {
+  emailCaptureIntelligence: EmailCaptureIntelligence
+}) {
+  return (
+    <div className="dam-admin-table-shell">
+      <table className="dam-admin-table dam-admin-table--compact">
+        <thead>
+          <tr>
+            {['Source', 'Medium', 'Campaign', 'Email captures'].map((label) => (
+              <th key={label}>{label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {emailCaptureIntelligence.sourceBreakdown.length ? (
+            emailCaptureIntelligence.sourceBreakdown.map((row) => (
+              <tr key={`${row.source}-${row.medium}-${row.campaign}`}>
+                <td>{row.source}</td>
+                <td>{row.medium}</td>
+                <td>{row.campaign}</td>
+                <td>{formatCount(row.emailCaptures)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={4} className="dam-admin-table__empty">
+                {emailCaptureIntelligence.note}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function CompactList({
+  title,
+  description,
+  rows,
+  emptyMessage,
+}: {
+  title: string
+  description: string
+  rows: Array<{ key: string; title: string; meta?: string; trailing?: string }>
+  emptyMessage: string
+}) {
+  return (
+    <article className="dam-admin-subcard">
+      <h3>{title}</h3>
+      <p>{description}</p>
+      <div className="dam-admin-mini-claims" style={{ marginTop: 16 }}>
+        {rows.length ? (
+          rows.map((row) => (
+            <div key={row.key} className="dam-admin-mini-claims__row">
+              <strong>{row.title}</strong>
+              {row.meta ? <span>{row.meta}</span> : null}
+              {row.trailing ? (
+                <div className="dam-admin-mini-claims__footer">
+                  <span>{row.trailing}</span>
+                </div>
+              ) : null}
+            </div>
+          ))
+        ) : (
+          <div className="dam-admin-placeholder">{emptyMessage}</div>
+        )}
       </div>
-      <CollapsibleSection
-        eyebrow="Recent categorized claims"
-        title="Recent categorized claims"
-        description="Latest claims tagged by the analytics-only category layer."
-        rowCount={topCategoryClaims.length}
-        defaultExpanded={false}
-        containerStyle={{
-          border: '1px solid var(--line)',
-          background: '#0c0c0e',
-          padding: 16,
-          boxShadow: 'none',
-        }}
-      >
-        <CategorizedClaimsTable claims={topCategoryClaims} />
-      </CollapsibleSection>
-    </section>
+    </article>
   )
 }
 
@@ -2101,9 +826,6 @@ export default function AdminPage() {
       errorMessage: '',
     }
   })
-
-  const lowConfidenceCount = state.metrics?.lowConfidenceClaims.length ?? 0
-  const slowestClaimLatency = state.metrics?.slowestClaims[0]?.latencyMs ?? 0
 
   const handleUnauthorized = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -2143,7 +865,7 @@ export default function AdminPage() {
 
         const payload = (await response.json().catch(() => null)) as
           | AdminMetricsResponse
-          | { error?: AdminApiError | null }
+          | { error?: { message?: string | null } | null }
           | null
 
         if (response.status === 401) {
@@ -2196,10 +918,6 @@ export default function AdminPage() {
     }
   }, [loadMetrics, state.metrics, state.password, state.status])
 
-  const lastUpdatedLabel = state.metrics?.generatedAt
-    ? formatDateTime(state.metrics.generatedAt)
-    : 'Not loaded'
-
   function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -2229,13 +947,258 @@ export default function AdminPage() {
 
   const showDashboard =
     state.status === 'ready' || (state.status === 'loading' && Boolean(state.metrics))
-
   const metrics = state.metrics
-  const funnel = metrics?.funnel ?? emptyFunnel
-  const retention = metrics?.retention ?? emptyRetention
-  const trafficSourceIntelligence =
-    metrics?.trafficSourceIntelligence ?? emptyTrafficSourceIntelligence
-  const categoryIntelligence = metrics?.categoryIntelligence ?? emptyCategoryIntelligence
+
+  if (!showDashboard || !metrics) {
+    return (
+      <main className="dam-shell" style={shellStyle}>
+        <div style={headerWrapStyle}>
+          <header
+            className="dam-header"
+            style={{
+              height: 'auto',
+              minHeight: 72,
+              padding: '14px 0',
+              gap: 16,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Link className="dam-mark" href="/" aria-label="Return to DAM home">
+              <DamBrandMark collapseTextOnNarrow />
+            </Link>
+            <span className="dam-admin-header-pill">Private admin</span>
+          </header>
+        </div>
+
+        <div style={contentWrapStyle}>
+          <section className="dam-admin-auth-shell" style={{ minHeight: 'auto', padding: 0 }}>
+            <div className="dam-admin-auth-card">
+              <div>
+                <p className="system-label" style={{ marginBottom: 12 }}>
+                  <span aria-hidden="true" />
+                  Founder dashboard
+                </p>
+                <h1>Private DAM analytics</h1>
+                <p>
+                  This command center stays read-only. Enter the admin password to load live
+                  traffic, retention, category, and operational health signals from the existing
+                  admin API.
+                </p>
+              </div>
+
+              <form onSubmit={handlePasswordSubmit} className="dam-admin-auth-form">
+                <label className="dam-admin-auth-form__label" htmlFor="admin-password">
+                  Admin password
+                </label>
+                <input
+                  id="admin-password"
+                  type="password"
+                  value={state.password}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      password: event.target.value,
+                      errorMessage: '',
+                    }))
+                  }
+                  className="dam-admin-auth-form__input"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="submit"
+                  className="dam-admin-action-button dam-admin-action-button--primary"
+                  disabled={state.status === 'loading'}
+                >
+                  {state.status === 'loading' ? 'Checking access...' : 'Open dashboard'}
+                </button>
+              </form>
+
+              {state.errorMessage ? <p className="form-error">{state.errorMessage}</p> : null}
+            </div>
+          </section>
+        </div>
+      </main>
+    )
+  }
+
+  const executive = metrics.executiveSnapshot
+  const sources = metrics.trafficSourceIntelligence
+  const funnel = metrics.funnelIntelligence
+  const retention = metrics.retentionIntelligence
+  const categories = metrics.categoryIntelligence
+  const health = metrics.operationalHealth
+  const emails = metrics.emailCaptureIntelligence
+  const recommendations = metrics.operatorRecommendations
+  const lastUpdatedLabel = formatDateTime(metrics.generatedAt)
+  const topRecommendations = recommendations.slice(0, 3)
+
+  const executiveCards = [
+    {
+      label: 'Total claims',
+      value: formatCount(executive.totalClaims),
+      note: 'All logged analyzer responses',
+      emphasize: false,
+    },
+    {
+      label: 'Claims today',
+      value: formatCount(executive.claimsToday),
+      note: 'Rows created since local midnight',
+      emphasize: executive.claimsToday === 0,
+    },
+    {
+      label: 'Unique sessions',
+      value: formatCount(executive.uniqueSessions),
+      note: 'Sessions seen across claims and events',
+      emphasize: false,
+    },
+    {
+      label: 'Returning session rate',
+      value: formatRate(executive.returningSessionRate),
+      note: 'Best quick retention read',
+      emphasize:
+        executive.returningSessionRate !== null && executive.returningSessionRate < 0.15,
+    },
+    {
+      label: 'Repeat-claim sessions',
+      value: formatCount(executive.repeatClaimSessions),
+      note: 'Sessions with repeated claims across visits',
+      emphasize: false,
+    },
+    {
+      label: 'Email captures',
+      value: formatCount(executive.emailCaptures),
+      note: 'Tracked beta signups',
+      emphasize: false,
+    },
+    {
+      label: 'Claim -> Email',
+      value: formatRate(executive.claimToEmailConversionRate),
+      note: 'Email captures divided by total claims',
+      emphasize:
+        executive.claimToEmailConversionRate !== null &&
+        executive.totalClaims >= 5 &&
+        executive.claimToEmailConversionRate < 0.15,
+    },
+    {
+      label: 'Avg latency',
+      value: formatLatency(executive.averageLatencyMs),
+      note: 'Mean backend response latency',
+      emphasize: executive.averageLatencyMs >= 7000,
+    },
+    {
+      label: 'P95 latency',
+      value: formatLatency(executive.p95LatencyMs),
+      note: 'Tail latency if enough data exists',
+      emphasize: (executive.p95LatencyMs ?? 0) >= 10000,
+    },
+    {
+      label: 'Attributed claims',
+      value: formatCount(executive.attributedClaims),
+      note: 'Claims with traffic context logged',
+      emphasize: false,
+    },
+    {
+      label: 'Unattributed claims',
+      value: formatCount(executive.unattributedClaims),
+      note: 'Old NULL rows are included here',
+      emphasize: executive.totalClaims > 0 && executive.unattributedClaims > 0,
+    },
+  ]
+
+  const sourceCards = [
+    {
+      label: 'Best source by claims',
+      value: sources.bestSourceByClaims?.label ?? 'No attributed claims yet',
+      note: sources.bestSourceByClaims
+        ? `${formatCount(sources.bestSourceByClaims.claimSubmissions)} claim submissions`
+        : 'Not enough data yet',
+    },
+    {
+      label: 'Best source by claims / session',
+      value: sources.bestSourceByClaimsPerSession?.label ?? 'Not enough data yet',
+      note: sources.bestSourceByClaimsPerSession
+        ? `${formatDecimal(sources.bestSourceByClaimsPerSession.claimsPerSession)} claims per session`
+        : 'Not enough data yet',
+    },
+    {
+      label: 'Best campaign by claims',
+      value: sources.bestCampaignByClaimSubmissions?.campaign ?? 'Not enough data yet',
+      note: sources.bestCampaignByClaimSubmissions
+        ? `${formatCount(sources.bestCampaignByClaimSubmissions.claimSubmissions)} claim submissions`
+        : 'Not enough data yet',
+    },
+    {
+      label: 'Unattributed claims',
+      value: formatCount(sources.unattributedClaims),
+      note: 'Use tracked links consistently to shrink this',
+    },
+  ]
+
+  const retentionCards = [
+    { label: 'Unique sessions', value: formatCount(retention.uniqueSessions), note: 'All known sessions' },
+    { label: 'First-time sessions', value: formatCount(retention.firstTimeSessions), note: 'No clear return signal yet' },
+    { label: 'Returning sessions', value: formatCount(retention.returningSessions), note: 'Sessions with a return signal' },
+    { label: 'Returning rate', value: formatRate(retention.returningSessionRate), note: 'Returning sessions / unique sessions' },
+    { label: 'Repeat-claim sessions', value: formatCount(retention.repeatClaimSessions), note: 'Repeated claims across visits' },
+    { label: 'Sessions with 2+ claims', value: formatCount(retention.sessionsWithTwoPlusClaims), note: 'Raw depth inside the session' },
+    { label: 'Sessions with 3+ claims', value: formatCount(retention.sessionsWithThreePlusClaims), note: 'Higher-intent session depth' },
+    { label: 'Multi-day users', value: formatCount(retention.multiDayUsers), note: 'Activity spanning multiple dates' },
+    { label: 'Avg claims / session', value: formatDecimal(retention.averageClaimsPerSession), note: 'Total claims / unique sessions' },
+    { label: 'Avg time / session', value: formatSessionDuration(retention.averageTimePerSessionMs), note: 'Active duration estimate' },
+    { label: 'Avg time between sessions', value: formatDurationCompact(retention.averageTimeBetweenSessionsMs), note: 'Gap between return visits' },
+  ]
+
+  const healthCards = [
+    { label: 'Avg latency', value: formatLatency(health.averageLatencyMs), note: 'Mean response time', emphasize: health.averageLatencyMs >= 7000 },
+    { label: 'Median latency', value: formatLatency(health.medianLatencyMs), note: 'Typical latency' },
+    { label: 'P95 latency', value: formatLatency(health.p95LatencyMs), note: 'Tail latency', emphasize: (health.p95LatencyMs ?? 0) >= 10000 },
+    { label: 'Max latency', value: formatLatency(health.maxLatencyMs), note: 'Worst recent latency', emphasize: (health.maxLatencyMs ?? 0) >= 12000 },
+    { label: 'Claims over 8s', value: formatCount(health.claimsOver8s), note: 'Slow claims needing review' },
+    { label: 'Claims over 12s', value: formatCount(health.claimsOver12s), note: 'Very slow claims' },
+    { label: 'Avg source count', value: formatDecimal(health.averageSourceCount), note: 'Average retrieved evidence count' },
+    { label: 'Claims with zero sources', value: formatCount(health.claimsWithZeroSources), note: 'Evidence retrieval failed or empty' },
+    { label: 'Low-confidence claims', value: formatCount(health.lowConfidenceClaimsCount), note: 'Confidence under 60' },
+    { label: 'Last claim timestamp', value: formatDateTime(health.lastClaimAt), note: 'Latest logged claim' },
+    { label: 'Last event timestamp', value: formatDateTime(health.lastEventAt), note: 'Latest telemetry event' },
+  ]
+
+  const categoryCards = [
+    {
+      label: 'Most tested category',
+      value: categories.mostTestedCategory ? formatCategoryLabel(categories.mostTestedCategory.category) : 'Not enough data yet',
+      note: categories.mostTestedCategory ? `${formatRate(categories.mostTestedCategory.percentage)} of all claims` : 'Not enough data yet',
+    },
+    {
+      label: 'Highest latency category',
+      value: categories.highestLatencyCategory ? formatCategoryLabel(categories.highestLatencyCategory.category) : 'Not enough data yet',
+      note: categories.highestLatencyCategory ? formatLatency(categories.highestLatencyCategory.averageLatencyMs) : 'Not enough data yet',
+    },
+    {
+      label: 'Lowest confidence category',
+      value: categories.lowestConfidenceCategory ? formatCategoryLabel(categories.lowestConfidenceCategory.category) : 'Not enough data yet',
+      note: categories.lowestConfidenceCategory ? categories.lowestConfidenceCategory.averageConfidence.toFixed(1) : 'Not enough data yet',
+    },
+    {
+      label: 'Strongest attributed category',
+      value: categories.highestSourceCampaignCategory ? formatCategoryLabel(categories.highestSourceCampaignCategory.category) : 'Not enough data yet',
+      note: categories.highestSourceCampaignCategory && categories.highestSourceCampaignCategory.topSource
+        ? `${categories.highestSourceCampaignCategory.topSource} / ${categories.highestSourceCampaignCategory.topCampaign ?? 'not set'}`
+        : 'Not enough data yet',
+    },
+  ]
+
+  const sourceRowsForList = sources.topReferrers.map((row) => ({
+    key: row.referrer,
+    title: row.referrer,
+    trailing: `${formatCount(row.sessionCount)} sessions`,
+  }))
+
+  const maskedEmailRows = emails.latestMaskedEmails.map((row) => ({
+    key: `${row.maskedEmail}-${row.createdAt ?? 'unknown'}`,
+    title: row.maskedEmail,
+    meta: row.source && row.campaign ? `${row.source} / ${row.campaign}` : emails.note,
+    trailing: formatDateTime(row.createdAt),
+  }))
 
   return (
     <main className="dam-shell" style={shellStyle}>
@@ -2250,11 +1213,9 @@ export default function AdminPage() {
             flexWrap: 'wrap',
           }}
         >
-          <div>
-            <Link className="dam-mark" href="/" aria-label="Return to DAM home">
-              <DamBrandMark collapseTextOnNarrow />
-            </Link>
-          </div>
+          <Link className="dam-mark" href="/" aria-label="Return to DAM home">
+            <DamBrandMark collapseTextOnNarrow />
+          </Link>
           <div
             style={{
               display: 'flex',
@@ -2264,271 +1225,392 @@ export default function AdminPage() {
               justifyContent: 'flex-end',
             }}
           >
-            <span style={{ ...badgeStyle, color: 'var(--muted)' }}>Private admin</span>
-            {showDashboard ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void loadMetrics(state.password, {
-                      persist: false,
-                    })
-                  }
-                  style={secondaryButtonStyle}
-                  disabled={state.status === 'loading'}
-                >
-                  {state.status === 'loading' ? 'Refreshing...' : 'Refresh'}
-                </button>
-                <button type="button" onClick={handleLogout} style={secondaryButtonStyle}>
-                  Logout
-                </button>
-              </>
-            ) : null}
+            <span className="dam-admin-header-pill">Private admin</span>
+            <button
+              type="button"
+              onClick={() =>
+                void loadMetrics(state.password, {
+                  persist: false,
+                })
+              }
+              className="dam-admin-action-button"
+              disabled={state.status === 'loading'}
+            >
+              {state.status === 'loading' ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button type="button" onClick={handleLogout} className="dam-admin-action-button">
+              Logout
+            </button>
           </div>
         </header>
       </div>
 
       <div style={contentWrapStyle}>
-        {!showDashboard ? (
+        <nav style={jumpNavStyle} aria-label="Admin sections">
+          {[
+            ['overview', 'Overview'],
+            ['sources', 'Sources'],
+            ['funnel', 'Funnel'],
+            ['retention', 'Retention'],
+            ['categories', 'Categories'],
+            ['health', 'Health'],
+            ['claims', 'Claims'],
+            ['recommendations', 'Recommendations'],
+          ].map(([href, label]) => (
+            <a key={href} href={`#${href}`} style={anchorLinkStyle}>
+              {label}
+            </a>
+          ))}
+        </nav>
+
+        <section className="dam-admin-header-card">
+          <div className="dam-admin-header-card__copy">
+            <p className="system-label" style={{ marginBottom: 10 }}>
+              <span aria-hidden="true" />
+              Admin telemetry
+            </p>
+            <h1>DAM founder command center</h1>
+            <p>
+              Read-only visibility into acquisition, funnel health, retention, category patterns,
+              and backend reliability using the existing Supabase logs only.
+            </p>
+          </div>
+          <div className="dam-admin-header-card__actions">
+            <div className="dam-admin-inline-meta">
+              <span className={getStatusBadgeClass(executive.status)}>
+                {getStatusLabel(executive.status)}
+              </span>
+              <span className="dam-admin-header-pill">Updated {lastUpdatedLabel}</span>
+              {state.status === 'loading' ? (
+                <span className="dam-admin-header-pill">Refreshing live metrics</span>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        {metrics.error?.code === 'misconfigured' ? (
+          <div className="dam-admin-alert dam-admin-alert--warning">
+            Admin metrics are not configured. Check the Supabase admin environment variables
+            before trusting any summary on this page.
+          </div>
+        ) : null}
+
+        {state.errorMessage ? <div className="dam-admin-alert">{state.errorMessage}</div> : null}
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="overview"
+            eyebrow="Executive command strip"
+            title="Executive command strip"
+            description="This is the compact operator layer: what is growing, what is stuck, and whether the backend is healthy enough to act on growth signals."
+            badge={getStatusLabel(executive.status)}
+          />
           <section
             style={{
-              ...sectionStyle,
-              width: 'min(100%, 520px)',
-              margin: '0 auto',
-              padding: 22,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 10,
             }}
           >
-            <p className="system-label" style={{ marginBottom: 12 }}>
-              <span aria-hidden="true" />
-              Founder dashboard
-            </p>
-            <h1 style={{ margin: 0, fontSize: 'clamp(28px, 5vw, 48px)', lineHeight: 0.98 }}>
-              Private DAM analytics
-            </h1>
-            <p style={{ margin: '14px 0 0', color: 'var(--muted)', fontSize: 15, lineHeight: 1.58 }}>
-              Enter the admin password to read live metrics from the existing admin API. This is
-              basic protection only.
-            </p>
-            <form onSubmit={handlePasswordSubmit} style={{ display: 'grid', gap: 12, marginTop: 20 }}>
-              <label style={{ display: 'grid', gap: 8 }}>
-                <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>
-                  Admin password
-                </span>
-                <input
-                  type="password"
-                  value={state.password}
-                  onChange={(event) =>
-                    setState((current) => ({
-                      ...current,
-                      password: event.target.value,
-                      errorMessage: '',
-                    }))
-                  }
-                  style={inputStyle}
-                  autoComplete="current-password"
-                />
-              </label>
-              <button type="submit" style={primaryButtonStyle} disabled={state.status === 'loading'}>
-                {state.status === 'loading' ? 'Checking access...' : 'Open dashboard'}
-              </button>
-            </form>
-            {state.errorMessage ? (
-              <p className="form-error" style={{ marginTop: 12 }}>
-                {state.errorMessage}
-              </p>
-            ) : null}
+            {executiveCards.map((card) => (
+              <MetricCard
+                key={card.label}
+                label={card.label}
+                value={card.value}
+                note={card.note}
+                emphasize={card.emphasize}
+              />
+            ))}
           </section>
-        ) : null}
+          <div className="dam-admin-section-stack">
+            <div className="dam-admin-section-heading__title-row">
+              <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.18 }}>Operator recommendations</h3>
+              <span className="dam-admin-badge">Top 3</span>
+            </div>
+            <div className="dam-admin-detail-grid">
+              {topRecommendations.map((recommendation) => (
+                <RecommendationCard
+                  key={`${recommendation.priority}-${recommendation.title}`}
+                  recommendation={recommendation}
+                  compact
+                />
+              ))}
+            </div>
+          </div>
+        </section>
 
-        {showDashboard ? (
-          <>
-            <section style={sectionStyle}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'end',
-                  justifyContent: 'space-between',
-                  gap: 14,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div>
-                  <p className="system-label" style={{ marginBottom: 10 }}>
-                    <span aria-hidden="true" />
-                    Admin telemetry
-                  </p>
-                  <h1 style={{ margin: 0, fontSize: 'clamp(30px, 4vw, 52px)', lineHeight: 0.96 }}>
-                    DAM founder dashboard
-                  </h1>
-                  <p
-                    style={{
-                      margin: '12px 0 0',
-                      color: 'var(--muted)',
-                      fontSize: 14,
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    Read-only visibility into claim volume, latency, confidence, category patterns,
-                    funnel health, and retention signals without opening Supabase.
-                  </p>
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="sources"
+            eyebrow="Acquisition / source intelligence"
+            title="Traffic Source Intelligence"
+            description="Use this section to decide where quality traffic is actually coming from. Event counts here are tracked events, not exact visits."
+            badge={`${formatCount(sources.rows.length)} source rows`}
+          />
+
+          <section className="dam-admin-mini-grid">
+            {sourceCards.map((card) => (
+              <MetricCard key={card.label} label={card.label} value={card.value} note={card.note} />
+            ))}
+          </section>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(320px, 0.9fr)', gap: 16 }}>
+            <article className="dam-admin-subcard">
+              <h3>Source / campaign performance</h3>
+              <p>{sources.note}</p>
+              <div style={{ marginTop: 16 }}>
+                <TrafficSourceTable rows={sources.rows} />
+              </div>
+            </article>
+
+            <div className="dam-admin-section-stack">
+              <article className="dam-admin-subcard">
+                <h3>Email capture intelligence</h3>
+                <p>{emails.note}</p>
+                <section className="dam-admin-mini-grid" style={{ marginTop: 16 }}>
+                  <MetricCard label="Total emails" value={formatCount(emails.totalEmails)} note="All captured beta signups" />
+                  <MetricCard label="Emails today" value={formatCount(emails.emailsToday)} note="Captured since local midnight" />
+                  <MetricCard label="Emails last 7 days" value={formatCount(emails.emailsLast7Days)} note="Recent capture momentum" />
+                  <MetricCard label="Claim -> Email" value={formatRate(emails.claimToEmailConversionRate)} note="Do not fake source linkage here" />
+                </section>
+                <div style={{ marginTop: 16 }}>
+                  <EmailSourceTable emailCaptureIntelligence={emails} />
                 </div>
-                <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
-                  <span style={{ ...badgeStyle, color: 'var(--muted)' }}>
-                    Last updated: {lastUpdatedLabel}
-                  </span>
-                  {state.status === 'loading' ? (
-                    <span style={{ ...badgeStyle, borderColor: 'var(--red-line)', color: '#f1b1b1' }}>
-                      Refreshing live metrics
-                    </span>
+              </article>
+
+              <CompactList
+                title="Latest captured emails"
+                description="Emails are masked by default."
+                rows={maskedEmailRows}
+                emptyMessage="Not enough data yet."
+              />
+
+              <CompactList
+                title="Top referrers"
+                description="A quick read on referral surfaces outside explicit UTM sources."
+                rows={sourceRowsForList}
+                emptyMessage="Not enough data yet."
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="funnel"
+            eyebrow="Funnel intelligence"
+            title="Funnel Intelligence"
+            description="Manual baseline support stays intact, but tracked sessions now surface higher in the dashboard."
+            badge={`${formatCount(funnel.stages.length)} stages`}
+          />
+
+          <section
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {funnel.stages.map((stage) => (
+              <article key={stage.key} className="dam-admin-subcard" style={{ padding: 14 }}>
+                <div className="dam-admin-inline-meta" style={{ justifyContent: 'space-between' }}>
+                  <span className="dam-admin-badge">{stage.status === 'manual' ? 'Manual baseline' : stage.status === 'tracked' ? 'Tracked' : 'Not tracked yet'}</span>
+                  {stage.conversionFromPrevious !== null ? (
+                    <span className="dam-admin-header-pill">{formatRate(stage.conversionFromPrevious)}</span>
                   ) : null}
                 </div>
-              </div>
-              {metrics?.error?.code === 'misconfigured' ? (
-                <div
-                  style={{
-                    marginTop: 16,
-                    padding: 15,
-                    border: '1px solid var(--red-line)',
-                    background: 'var(--red-soft)',
-                    color: '#ffb1b1',
-                    fontSize: 14,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Admin metrics are not configured. Check Supabase env vars.
-                </div>
-              ) : null}
-              {state.errorMessage ? (
-                <div
-                  style={{
-                    marginTop: 16,
-                    padding: 14,
-                    border: '1px solid rgba(214, 38, 38, 0.36)',
-                    background: 'rgba(214, 38, 38, 0.08)',
-                    color: '#f1b1b1',
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {state.errorMessage}
-                </div>
-              ) : null}
-            </section>
+                <h3 style={{ marginTop: 12 }}>{stage.label}</h3>
+                <strong className="dam-admin-subcard__value">{formatCount(stage.count)}</strong>
+                <p>{stage.sourceLabel}</p>
+                <p style={{ marginTop: 10 }}>
+                  {stage.conversionFromPrevious !== null
+                    ? `Conversion from previous stage: ${formatRate(stage.conversionFromPrevious)}`
+                    : 'First stage or not enough data yet.'}
+                </p>
+              </article>
+            ))}
+          </section>
 
-            <section
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: 10,
-              }}
-            >
-              {[
-                {
-                  label: 'Total claims',
-                  value: formatCount(metrics?.totalClaims ?? 0),
-                  note: 'All logged analyzer responses',
-                },
-                {
-                  label: 'Claims today',
-                  value: formatCount(metrics?.claimsToday ?? 0),
-                  note: 'Rows created since local midnight',
-                },
-                {
-                  label: 'Average latency',
-                  value: formatLatency(metrics?.averageLatencyMs ?? 0),
-                  note: 'Mean `latency_ms`',
-                },
-                {
-                  label: 'Low-confidence count',
-                  value: formatCount(lowConfidenceCount),
-                  note: 'Latest 20 rows under 60 confidence',
-                },
-                {
-                  label: 'Slowest claim latency',
-                  value: formatLatency(slowestClaimLatency),
-                  note: 'Top row from slowest claims',
-                },
-              ].map((card) => (
-                <article
-                  key={card.label}
-                  style={{
-                    ...cardStyle,
-                    minHeight: 140,
-                    padding: 16,
-                    display: 'grid',
-                    alignContent: 'space-between',
-                    gap: 10,
-                  }}
-                >
-                  <span
-                    style={{
-                      color: 'var(--quiet)',
-                      fontSize: 10,
-                      fontWeight: 850,
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {card.label}
-                  </span>
-                  <strong style={{ fontSize: 'clamp(26px, 4vw, 40px)', lineHeight: 1 }}>
-                    {card.value}
-                  </strong>
-                  <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
-                    {card.note}
-                  </p>
-                </article>
+          <section className="dam-admin-mini-grid">
+            <MetricCard
+              label="Biggest drop-off"
+              value={funnel.biggestDropOff?.label ?? 'Not enough data yet'}
+              note={funnel.biggestDropOff ? formatRate(funnel.biggestDropOff.conversion) : 'Not enough data yet'}
+            />
+            <MetricCard
+              label="Strongest retained stage"
+              value={funnel.strongestRetainedStage?.label ?? 'Not enough data yet'}
+              note={funnel.strongestRetainedStage ? formatRate(funnel.strongestRetainedStage.conversion) : 'Not enough data yet'}
+            />
+            <MetricCard
+              label="Best source"
+              value={funnel.bestSource?.label ?? 'Not enough data yet'}
+              note={funnel.bestSource ? `${formatCount(funnel.bestSource.claimSubmissions)} claim submissions` : 'Not enough data yet'}
+            />
+            <MetricCard
+              label="Next recommended action"
+              value={funnel.nextRecommendedAction}
+              note="Automatic operator guidance from the current funnel shape"
+            />
+          </section>
+        </section>
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="retention"
+            eyebrow="Retention intelligence"
+            title="Retention Intelligence"
+            description="This merges returning-user and retention signals into one operational section."
+            badge={`${formatCount(retention.highIntentSessions.length)} high-intent sessions`}
+          />
+
+          <section className="dam-admin-mini-grid">
+            {retentionCards.map((card) => (
+              <MetricCard key={card.label} label={card.label} value={card.value} note={card.note} />
+            ))}
+          </section>
+
+          <article className="dam-admin-subcard">
+            <h3>Automatic interpretation</h3>
+            <div className="dam-admin-analysis-list" style={{ marginTop: 14 }}>
+              {retention.interpretation.map((line) => (
+                <div key={line} className="dam-admin-placeholder">
+                  {line}
+                </div>
               ))}
-            </section>
+            </div>
+          </article>
 
-            <FunnelIntelligence funnel={funnel} />
-            <ReturningUserSignal retention={retention} />
-            <RetentionIntelligence retention={retention} />
-            <TrafficSourceIntelligenceSection
-              trafficSourceIntelligence={trafficSourceIntelligence}
-            />
-            <CategoryIntelligenceSection categoryIntelligence={categoryIntelligence} />
+          <article className="dam-admin-subcard">
+            <h3>High-intent sessions</h3>
+            <p>These are the most useful sessions to inspect when you want to understand repeat behavior and source quality.</p>
+            <div style={{ marginTop: 16 }}>
+              <HighIntentSessionsTable retention={retention} />
+            </div>
+          </article>
+        </section>
 
-            <section
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: 16,
-              }}
-            >
-              <BreakdownList
-                title="Verdict breakdown"
-                items={metrics?.verdictBreakdown ?? []}
-                itemLabel={(item) => (item as VerdictBreakdown).verdict}
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="categories"
+            eyebrow="Claim category intelligence"
+            title="Claim Category Intelligence"
+            description="Category derivation stays analytics-only. Nothing here feeds back into DAM claim analysis behavior."
+            badge={`${formatCount(categories.categoryBreakdown.length)} categories`}
+          />
+
+          <section className="dam-admin-mini-grid">
+            {categoryCards.map((card) => (
+              <MetricCard key={card.label} label={card.label} value={card.value} note={card.note} />
+            ))}
+          </section>
+
+          <article className="dam-admin-subcard">
+            <h3>Automatic interpretation</h3>
+            <div className="dam-admin-analysis-list" style={{ marginTop: 14 }}>
+              {categories.interpretation.map((line) => (
+                <div key={line} className="dam-admin-placeholder">
+                  {line}
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="dam-admin-subcard">
+            <h3>Category breakdown</h3>
+            <p>Use this to decide whether demand is scam-heavy, curiosity-heavy, or skewing into lower-confidence claim classes.</p>
+            <div style={{ marginTop: 16 }}>
+              <CategoryTable categoryIntelligence={categories} />
+            </div>
+          </article>
+        </section>
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="health"
+            eyebrow="Reliability / backend health"
+            title="Operational Health"
+            description="Use this to judge whether latency, evidence retrieval quality, or low-confidence output is the main reliability problem."
+            badge={`${formatCount(health.slowestClaims.length)} slow-claim rows`}
+          />
+
+          <section className="dam-admin-mini-grid">
+            {healthCards.map((card) => (
+              <MetricCard
+                key={card.label}
+                label={card.label}
+                value={card.value}
+                note={card.note}
+                emphasize={card.emphasize}
               />
-              <BreakdownList
-                title="Risk label breakdown"
-                items={metrics?.riskLabelBreakdown ?? []}
-                itemLabel={(item) => (item as RiskLabelBreakdown).riskLabel}
-              />
-            </section>
+            ))}
+          </section>
 
-            <ClaimsTable
-              title="Recent claims"
-              subtitle="Latest 20 claim log rows from the admin metrics API."
-              claims={metrics?.recentClaims ?? []}
-              defaultExpanded
-            />
-            <ClaimsTable
-              title="Low-confidence claims"
-              subtitle="Latest 20 claims where logged confidence is below 60."
-              claims={metrics?.lowConfidenceClaims ?? []}
-              defaultExpanded={false}
-            />
-            <ClaimsTable
+          <div className="dam-admin-section-stack">
+            <CollapsibleSection
               title="Slowest claims"
-              subtitle="Top 10 rows ordered by highest logged latency."
-              claims={metrics?.slowestClaims ?? []}
-              defaultExpanded={false}
-            />
-          </>
-        ) : null}
+              description="Inspect tail latency first when the command strip shows backend pressure."
+              rowCount={health.slowestClaims.length}
+              defaultExpanded
+            >
+              <ClaimsTable claims={health.slowestClaims} />
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Low-confidence claims"
+              description="Use this when quality looks weaker than growth."
+              rowCount={health.lowConfidenceClaims.length}
+            >
+              <ClaimsTable claims={health.lowConfidenceClaims} />
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="High-risk claims"
+              description="Recent claims with high or severe risk labels."
+              rowCount={health.highRiskClaims.length}
+            >
+              <ClaimsTable claims={health.highRiskClaims} />
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Claims with zero / low sources"
+              description="Evidence-sparse claims usually need retrieval or query-quality inspection."
+              rowCount={health.claimsWithLowSources.length}
+            >
+              <ClaimsTable claims={health.claimsWithLowSources} />
+            </CollapsibleSection>
+          </div>
+        </section>
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="claims"
+            eyebrow="Recent claims / debug tables"
+            title="Recent Claims"
+            description="The latest claim rows stay near the bottom so they support decisions instead of leading the page."
+            badge={`${formatCount(metrics.recentClaims.length)} recent rows`}
+          />
+          <ClaimsTable claims={metrics.recentClaims} />
+        </section>
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="recommendations"
+            eyebrow="Operator recommendations"
+            title="Operator Recommendations"
+            description="These are the current suggested next moves based on the metrics above. They are derived reads, not hard-coded playbooks."
+            badge={`${formatCount(recommendations.length)} actions`}
+          />
+          <div className="dam-admin-detail-grid">
+            {recommendations.map((recommendation) => (
+              <RecommendationCard
+                key={`${recommendation.priority}-${recommendation.title}`}
+                recommendation={recommendation}
+              />
+            ))}
+          </div>
+        </section>
       </div>
     </main>
   )
 }
-
