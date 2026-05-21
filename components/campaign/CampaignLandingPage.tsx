@@ -91,39 +91,43 @@ export default function CampaignLandingPage({
       <DamMarketingHeader activeHref={activeHref} />
 
       <section className="section-frame campaign-hero" aria-labelledby="campaign-title">
-        <div className="campaign-copy">
-          <p className="system-label">
-            <span aria-hidden="true" />
-            {eyebrow}
-          </p>
-          <h1 id="campaign-title">{title}</h1>
-          <p className="campaign-subtitle">{subtitle}</p>
-          <div className="campaign-actions">
-            <button
-              type="button"
-              className="primary-link"
-              onClick={() => handleAnalyzerRoute(ctaLabel)}
-            >
-              {ctaLabel}
-            </button>
-            <p>Routes into the live DAM analyzer and focuses the existing claim input.</p>
+        <div className="campaign-hero-grid">
+          <div className="campaign-hero-copy">
+            <p className="system-label campaign-eyebrow">
+              <span aria-hidden="true" />
+              {eyebrow}
+            </p>
+            <h1 id="campaign-title" className="campaign-headline">
+              {title}
+            </h1>
+            <p className="campaign-subheadline">{subtitle}</p>
+            <div className="campaign-cta">
+              <button
+                type="button"
+                className="primary-link campaign-cta__button"
+                onClick={() => handleAnalyzerRoute(ctaLabel)}
+              >
+                {ctaLabel}
+              </button>
+              <p className="campaign-cta__note">Opens the live DAM analyzer.</p>
+            </div>
           </div>
-        </div>
 
-        <aside className="campaign-panel" aria-label={heroPanelTitle}>
-          <div className="panel-topline">
-            <p>{heroPanelTitle}</p>
-            <span className="live-dot active" aria-hidden="true" />
-          </div>
-          <div className="campaign-list-panel">
-            {heroPanelItems.map((item) => (
-              <div className="campaign-list-row" key={item}>
-                <span aria-hidden="true" />
-                <p>{item}</p>
-              </div>
-            ))}
-          </div>
-        </aside>
+          <aside className="campaign-hero-card campaign-panel" aria-label={heroPanelTitle}>
+            <div className="panel-topline">
+              <p>{heroPanelTitle}</p>
+              <span className="live-dot active" aria-hidden="true" />
+            </div>
+            <div className="campaign-list-panel">
+              {heroPanelItems.map((item) => (
+                <div className="campaign-list-row" key={item}>
+                  <span aria-hidden="true" />
+                  <p>{item}</p>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </div>
       </section>
 
       <section className="section-frame campaign-section">
