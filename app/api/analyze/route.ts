@@ -40,6 +40,17 @@ const EVIDENCE_SNIPPET_MAX_CHARS = 300
 const FALLBACK_REASON = 'Evidence-backed verification did not complete safely.'
 const FALLBACK_EVIDENCE_STATUS = 'No reliable supporting evidence was retrieved.'
 const TIMEOUT_CONTRADICTIONS = 'No direct contradiction was identified in retrieved evidence.'
+const ATTRIBUTION_TEXT_FIELDS = [
+  'visitor_id',
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'utm_term',
+  'gclid',
+  'referrer',
+  'landing_path',
+] as const
 
 const verdictValues = [
   'Corroborated',
@@ -66,6 +77,32 @@ const verdictValues = [
   'Suspicious link behavior',
   'Guaranteed-return scam pattern',
 ] as const
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeRequestOptionalText(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalizedValue = value.trim()
+  return normalizedValue ? normalizedValue : null
+}
+
+function normalizeAnalyzeRequestAttribution(value: unknown, sessionId: string) {
+  const attributionSource = isPlainObject(value) ? value : {}
+  const attribution: Record<string, string | null> = {
+    session_id: sessionId,
+  }
+
+  for (const field of ATTRIBUTION_TEXT_FIELDS) {
+    attribution[field] = normalizeRequestOptionalText(attributionSource[field])
+  }
+
+  return attribution as Record<(typeof ATTRIBUTION_TEXT_FIELDS)[number] | 'session_id', string | null>
+}
 
 type RoutingBucket = 'scam' | 'civic_rumor' | 'breaking_news' | 'statistical_overreach' | 'general'
 
@@ -8728,6 +8765,7 @@ async function analyzeRequest(
     typeof body?.session_id === 'string' && body.session_id.trim()
       ? body.session_id.trim()
       : crypto.randomUUID()
+  const requestAttribution = normalizeAnalyzeRequestAttribution(body?.attribution, sessionId)
 
   if (!rawClaim) {
     const response = Response.json({ error: 'Claim intake is empty.' }, { status: 400 })
@@ -9177,17 +9215,26 @@ Sharper wording must not increase confidence.`,
           source_count: Array.isArray(parsed?.evidence) ? parsed.evidence.length : evidence.length,
           session_id: sessionId,
         }
-        const extendedInsertPayload = {
+        const attributionInsertPayload = {
           ...baseInsertPayload,
+          ...requestAttribution,
+        }
+        const extendedInsertPayload = {
+          ...attributionInsertPayload,
           claim_route: claimRoute.category,
           claim_length: rawClaim.length,
           response_success: true,
         }
         const firstInsertResult = await supabase.from("dam_claim_logs").insert(extendedInsertPayload)
         if (firstInsertResult.error) {
-          const fallbackResult = await supabase.from("dam_claim_logs").insert(baseInsertPayload)
-          if (fallbackResult.error) {
-            console.error("SUPABASE INSERT ERROR", fallbackResult.error);
+          const attributionFallbackResult = await supabase
+            .from("dam_claim_logs")
+            .insert(attributionInsertPayload)
+          if (attributionFallbackResult.error) {
+            const fallbackResult = await supabase.from("dam_claim_logs").insert(baseInsertPayload)
+            if (fallbackResult.error) {
+              console.error("SUPABASE INSERT ERROR", fallbackResult.error);
+            }
           }
         }
       }
