@@ -367,7 +367,7 @@ export default function SharedAnalyzerLayout({
 
   return (
     <main className="dam-shell">
-      <div ref={mobileMenuRef}>
+      <div ref={mobileMenuRef} className="dam-marketing-header">
         <header className="dam-header">
           <a className="dam-mark" href="#top" aria-label="DAM home">
             <DamBrandMark collapseTextOnNarrow={isMobile} />

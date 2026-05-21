@@ -115,8 +115,21 @@ a {
 .section-frame {
   width: min(1180px, calc(100% - 48px));
   position: relative;
-  z-index: 1;
   margin: 0 auto;
+}
+
+.dam-header {
+  z-index: 1000;
+  overflow: visible;
+}
+
+.section-frame {
+  z-index: 1;
+}
+
+.dam-marketing-header {
+  position: relative;
+  z-index: 1000;
 }
 
 .dam-header {
@@ -176,9 +189,12 @@ a {
 }
 
 .dam-nav {
+  position: relative;
+  z-index: 1001;
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow: visible;
 }
 
 .dam-nav a {
@@ -202,6 +218,8 @@ a {
 .dam-usecase-dropdown,
 .dam-nav-dropdown {
   position: relative;
+  z-index: 1100;
+  overflow: visible;
 }
 
 .dam-usecase-trigger,
@@ -266,7 +284,7 @@ a {
   pointer-events: none;
   transform: translateY(-6px) scale(0.98);
   transition: opacity 160ms ease, transform 180ms ease, visibility 160ms ease;
-  z-index: 12;
+  z-index: 1200;
 }
 
 .dam-usecase-dropdown[data-open="true"] .dam-usecase-menu,
@@ -290,6 +308,7 @@ a {
   color: var(--muted);
   transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease,
     transform 180ms ease;
+  pointer-events: auto;
 }
 
 .dam-usecase-item:hover,

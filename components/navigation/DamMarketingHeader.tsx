@@ -108,7 +108,7 @@ export default function DamMarketingHeader({
   }, [isMobileMenuOpen])
 
   return (
-    <div ref={mobileMenuRef}>
+    <div ref={mobileMenuRef} className="dam-marketing-header">
       <header className="dam-header">
         <Link className="dam-mark" href="/" aria-label="DAM home">
           <DamBrandMark collapseTextOnNarrow={isMobile} />
