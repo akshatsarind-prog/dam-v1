@@ -3,8 +3,9 @@ import "./globals.css";
 import { Analytics } from "@vercel/analytics/react";
 
 export const metadata: Metadata = {
-  title: "Don't share this yet",
-  description: "A lightweight claim checker.",
+  title: "DAM | Defence Against Misinformation",
+  description:
+    "DAM is an evidence-first intelligence layer for reviewing claims before distribution.",
 };
 
 export default function RootLayout({

@@ -8,6 +8,10 @@ export const DAM_TRACK_EVENT_NAMES = [
   'example_claim_click',
   'real_claim_submit',
   'app_session_end',
+  'campaign_page_view',
+  'campaign_scam_checker_cta_click',
+  'campaign_whatsapp_checker_cta_click',
+  'campaign_govt_checker_cta_click',
 ] as const
 
 export type DamTrackEventName = (typeof DAM_TRACK_EVENT_NAMES)[number]

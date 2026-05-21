@@ -1,6 +1,10 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { startTransition, useEffect, useId, useRef, useState } from 'react'
+import DamBrandMark from '@/components/brand/DamBrandMark'
+import DamUseCasesDropdown from '@/components/navigation/DamUseCasesDropdown'
+import { useCaseLinks } from '@/components/navigation/useCaseLinks'
 import {
   exampleClaimDomains,
   flowSteps,
@@ -275,6 +279,13 @@ export default function SharedAnalyzerLayout({
     })
   }
 
+  function handleMobileRouteNavigation(href: string) {
+    setIsMobileMenuOpen(false)
+    startTransition(() => {
+      router.push(href)
+    })
+  }
+
   useEffect(() => {
     if (!isMobileMenuOpen) {
       return
@@ -358,8 +369,8 @@ export default function SharedAnalyzerLayout({
     <main className="dam-shell">
       <div ref={mobileMenuRef}>
         <header className="dam-header">
-          <a className="dam-mark" href="#top" aria-label="DAM V1 home">
-            DAM
+          <a className="dam-mark" href="#top" aria-label="DAM home">
+            <DamBrandMark collapseTextOnNarrow={isMobile} />
           </a>
           {isMobile ? (
             <button
@@ -391,6 +402,7 @@ export default function SharedAnalyzerLayout({
                   {item.label}
                 </a>
               ))}
+              <DamUseCasesDropdown />
               <Link href={thisCouldBeYouHref}>This Could Be You</Link>
             </nav>
           )}
@@ -435,6 +447,16 @@ export default function SharedAnalyzerLayout({
                   <span>{item.label}</span>
                 </button>
               ))}
+              {useCaseLinks.map((item) => (
+                <button
+                  key={item.href}
+                  type="button"
+                  onClick={() => handleMobileRouteNavigation(item.href)}
+                  style={mobileNavMenuItemStyle}
+                >
+                  <span>{item.label}</span>
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={handleThisCouldBeYouNavigation}
@@ -456,9 +478,21 @@ export default function SharedAnalyzerLayout({
 
       <section id="top" className="dam-hero section-frame" aria-labelledby="hero-title">
         <div className="hero-copy">
+          <div className="dam-brand-lockup">
+            <div className="dam-brand-lockup__image">
+              <Image
+                src="/brand/dam-lockup.png"
+                alt="DAM logo"
+                fill
+                preload
+                sizes="(max-width: 760px) 0px, (max-width: 1180px) 320px, 420px"
+                className="dam-brand-lockup__img"
+              />
+            </div>
+          </div>
           <p className="system-label">
             <span aria-hidden="true" />
-            DAM V1 / Evidence intelligence layer
+            DAM / Evidence intelligence layer
           </p>
           <h1 id="hero-title">Information should pass through evidence.</h1>
           <p className="hero-text">
@@ -737,11 +771,22 @@ export default function SharedAnalyzerLayout({
             Why DAM
           </p>
           <h2>Mission on the landing page. Evidence in the product.</h2>
-          <p>
-            DAM V1 turns tense information moments into a repeatable operational routine:
+          <p className="why-card__body">
+            DAM turns tense information moments into a repeatable operational routine:
             retrieve sources, rank credibility, inspect contradictions, and decide what
             should not be amplified.
           </p>
+          <div className="dam-brand-wordmark">
+            <div className="dam-brand-wordmark__image">
+              <Image
+                src="/brand/dam-wordmark.png"
+                alt="DAM logo"
+                fill
+                sizes="(max-width: 760px) 240px, 360px"
+                className="dam-brand-wordmark__img"
+              />
+            </div>
+          </div>
         </article>
       </section>
     </main>

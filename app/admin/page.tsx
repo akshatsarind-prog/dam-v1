@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import DamBrandMark from '@/components/brand/DamBrandMark'
 import type {
   AdminApiError,
   AdminCategoryIntelligence,
@@ -1995,7 +1996,7 @@ export default function AdminPage() {
         >
           <div>
             <Link className="dam-mark" href="/" aria-label="Return to DAM home">
-              DAM
+              <DamBrandMark collapseTextOnNarrow />
             </Link>
           </div>
           <div

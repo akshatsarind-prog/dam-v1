@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import DamMarketingHeader from '@/components/navigation/DamMarketingHeader'
 import ThisCouldBeYouCarousel from './ThisCouldBeYouCarousel'
 import { thisCouldBeYouStories } from './stories'
 
@@ -10,16 +11,7 @@ export default function ThisCouldBeYouPage() {
   return (
     <main className="dam-shell this-could-be-you-page">
       {/* TODO: Track this route opening once frontend-only analytics hooks can be added without changing API event validation. */}
-      <header className="dam-header">
-        <Link className="dam-mark" href="/" aria-label="DAM V1 home">
-          DAM
-        </Link>
-        <nav className="dam-nav" aria-label="Product page navigation">
-          <Link href={returnToAnalyzerHref} scroll={false}>
-            Back to DAM
-          </Link>
-        </nav>
-      </header>
+      <DamMarketingHeader activeHref="/this-could-be-you" />
 
       <section className="section-frame this-could-be-you-hero">
         <div className="this-could-be-you-copy">
