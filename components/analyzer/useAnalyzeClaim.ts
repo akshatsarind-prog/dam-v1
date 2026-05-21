@@ -2,6 +2,7 @@
 
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import {
+  getDamAttributionPayload,
   getDamSessionSignalMetadata,
   getDamTelemetryMetadata,
   getOrCreateDamSessionId,
@@ -196,7 +197,13 @@ export function useAnalyzeClaim(): AnalyzeClaimViewModel {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claim: claimToAnalyze, session_id: sessionId }),
+        body: JSON.stringify({
+          claim: claimToAnalyze,
+          session_id: sessionId,
+          attribution: getDamAttributionPayload({
+            sessionId,
+          }),
+        }),
       })
 
       const text = await response.text()

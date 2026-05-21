@@ -75,6 +75,17 @@ export type AdminReferrerRecord = {
   sessionCount: number
 }
 
+export type AdminTrafficSourceRecord = {
+  source: string
+  medium: string
+  campaign: string
+  eventCount: number
+  ctaClicks: number
+  claimSubmissions: number
+  emailCaptures: number
+  claimConversionRate: number | null
+}
+
 export type AdminReturningSessionRecord = {
   sessionId: string
   firstSeenAt: string | null
@@ -100,6 +111,12 @@ export type AdminRetentionMetrics = {
   topReferrers: AdminReferrerRecord[]
 }
 
+export type AdminTrafficSourceIntelligence = {
+  available: boolean
+  note: string
+  rows: AdminTrafficSourceRecord[]
+}
+
 export type AdminApiError = {
   code: 'unauthorized' | 'misconfigured' | 'unavailable' | 'unknown'
   message: string
@@ -115,6 +132,7 @@ export type AdminMetricsResponse = {
   riskLabelBreakdown: RiskLabelBreakdown[]
   funnel: AdminFunnelMetrics
   retention: AdminRetentionMetrics
+  trafficSourceIntelligence: AdminTrafficSourceIntelligence
   categoryIntelligence: AdminCategoryIntelligence
   recentClaims: AdminClaimRecord[]
   lowConfidenceClaims: AdminClaimRecord[]

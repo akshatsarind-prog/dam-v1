@@ -1,24 +1,29 @@
-import type { Metadata } from "next";
-import "./globals.css";
-import { Analytics } from "@vercel/analytics/react";
+import type { Metadata } from 'next'
+import { Suspense } from 'react'
+import { Analytics } from '@vercel/analytics/react'
+import DamAttributionTracker from '@/components/analytics/DamAttributionTracker'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: "DAM | Defence Against Misinformation",
+  title: 'DAM | Defence Against Misinformation',
   description:
-    "DAM is an evidence-first intelligence layer for reviewing claims before distribution.",
-};
+    'DAM is an evidence-first intelligence layer for reviewing claims before distribution.',
+}
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: React.ReactNode
 }>) {
   return (
     <html lang="en">
       <body>
-  {children}
-  <Analytics />
-</body>
+        <Suspense fallback={null}>
+          <DamAttributionTracker />
+        </Suspense>
+        {children}
+        <Analytics />
+      </body>
     </html>
-  );
+  )
 }

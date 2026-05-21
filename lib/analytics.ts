@@ -1,8 +1,12 @@
 export const DAM_SESSION_STORAGE_KEY = 'dam_session_id'
+export const DAM_VISITOR_STORAGE_KEY = 'dam_visitor_id'
 const DAM_SESSION_FIRST_SEEN_AT_STORAGE_KEY = 'dam_session_first_seen_at'
 const DAM_SESSION_LAST_SEEN_AT_STORAGE_KEY = 'dam_session_last_seen_at'
+const DAM_ATTRIBUTION_FIRST_TOUCH_STORAGE_KEY = 'dam_attribution_first_touch'
+const DAM_ATTRIBUTION_SESSION_STORAGE_KEY = 'dam_attribution_session'
 
 export const DAM_TRACK_EVENT_NAMES = [
+  'page_view',
   'landing_cta_click',
   'app_open_click',
   'example_claim_click',
@@ -12,9 +16,21 @@ export const DAM_TRACK_EVENT_NAMES = [
   'campaign_scam_checker_cta_click',
   'campaign_whatsapp_checker_cta_click',
   'campaign_govt_checker_cta_click',
+  'email_capture_success',
 ] as const
 
 export type DamTrackEventName = (typeof DAM_TRACK_EVENT_NAMES)[number]
+
+const DAM_ATTRIBUTION_QUERY_KEYS = [
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'utm_term',
+  'gclid',
+] as const
+
+type DamAttributionStoragePayload = Partial<DamAttributionPayload>
 
 const URL_WITH_EMBEDDED_CREDENTIALS_PATTERN = /\bhttps?:\/\/[^/\s:@]+:[^/\s@]+@[^\s]+/gi
 const URL_WITH_SENSITIVE_TOKEN_PATTERN =
@@ -44,11 +60,35 @@ type TrackTransportOptions = {
 
 export type DamTelemetryMetadata = Record<string, unknown> & {
   page?: string
+  visitor_id?: string
+  session_id?: string
+  utm_source?: string
+  utm_medium?: string
+  utm_campaign?: string
+  utm_content?: string
+  utm_term?: string
+  gclid?: string
   referrer?: string
+  landing_path?: string
+  current_path?: string
   device_type?: 'mobile' | 'tablet' | 'desktop' | 'unknown'
   is_returning_user?: boolean
   first_seen_at?: string
   last_seen_at?: string
+}
+
+export type DamAttributionPayload = {
+  visitor_id?: string
+  session_id?: string
+  utm_source?: string
+  utm_medium?: string
+  utm_campaign?: string
+  utm_content?: string
+  utm_term?: string
+  gclid?: string
+  referrer?: string
+  landing_path?: string
+  current_path?: string
 }
 
 export function getOrCreateDamSessionId() {
@@ -70,6 +110,118 @@ export function getOrCreateDamSessionId() {
   }
 }
 
+export function getOrCreateDamVisitorId() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  try {
+    const existingVisitorId = window.localStorage.getItem(DAM_VISITOR_STORAGE_KEY)
+    if (existingVisitorId) {
+      return existingVisitorId
+    }
+
+    const nextVisitorId = crypto.randomUUID()
+    window.localStorage.setItem(DAM_VISITOR_STORAGE_KEY, nextVisitorId)
+    return nextVisitorId
+  } catch {
+    return crypto.randomUUID()
+  }
+}
+
+export function syncDamAttribution(
+  options: {
+    pathname?: string
+    search?: string
+    sessionId?: string
+  } = {}
+): DamAttributionPayload {
+  if (typeof window === 'undefined') {
+    return normalizeAttributionPayload({
+      session_id: options.sessionId,
+    })
+  }
+
+  const sessionId = options.sessionId || getOrCreateDamSessionId()
+  const visitorId = getOrCreateDamVisitorId()
+  const pathname = normalizePathname(options.pathname ?? window.location.pathname)
+  const search = normalizeSearchString(options.search ?? window.location.search)
+  const referrer = readTelemetryReferrer()
+  const observedAttribution = buildObservedAttribution(
+    new URLSearchParams(search),
+    pathname,
+    referrer
+  )
+  const storedFirstTouch = readStoredAttribution(
+    window.localStorage,
+    DAM_ATTRIBUTION_FIRST_TOUCH_STORAGE_KEY
+  )
+  const storedSessionAttribution = readStoredAttribution(
+    window.sessionStorage,
+    DAM_ATTRIBUTION_SESSION_STORAGE_KEY
+  )
+  const hasExplicitCampaignAttribution = hasObservedCampaignAttribution(observedAttribution)
+  const sessionSeedAttribution = hasExplicitCampaignAttribution ? {} : storedSessionAttribution
+
+  const firstTouchAttribution = normalizeAttributionPayload({
+    visitor_id: visitorId,
+    ...storedFirstTouch,
+    ...pickAttributionFields(
+      storedFirstTouch,
+      observedAttribution,
+      pathname
+    ),
+  })
+
+  const sessionAttribution = normalizeAttributionPayload({
+    visitor_id: visitorId,
+    session_id: sessionId,
+    ...pickAttributionFields(
+      sessionSeedAttribution,
+      observedAttribution,
+      hasExplicitCampaignAttribution
+        ? pathname
+        : storedSessionAttribution.landing_path ||
+        firstTouchAttribution.landing_path ||
+        pathname
+    ),
+    current_path: pathname,
+  })
+
+  writeStoredAttribution(
+    window.localStorage,
+    DAM_ATTRIBUTION_FIRST_TOUCH_STORAGE_KEY,
+    {
+      visitor_id: firstTouchAttribution.visitor_id,
+      utm_source: firstTouchAttribution.utm_source,
+      utm_medium: firstTouchAttribution.utm_medium,
+      utm_campaign: firstTouchAttribution.utm_campaign,
+      utm_content: firstTouchAttribution.utm_content,
+      utm_term: firstTouchAttribution.utm_term,
+      gclid: firstTouchAttribution.gclid,
+      referrer: firstTouchAttribution.referrer,
+      landing_path: firstTouchAttribution.landing_path,
+    }
+  )
+  writeStoredAttribution(
+    window.sessionStorage,
+    DAM_ATTRIBUTION_SESSION_STORAGE_KEY,
+    sessionAttribution
+  )
+
+  return sessionAttribution
+}
+
+export function getDamAttributionPayload(
+  options: {
+    pathname?: string
+    search?: string
+    sessionId?: string
+  } = {}
+): DamAttributionPayload {
+  return syncDamAttribution(options)
+}
+
 export function getDamTelemetryMetadata(
   overrides: DamTelemetryMetadata = {}
 ): DamTelemetryMetadata {
@@ -77,8 +229,26 @@ export function getDamTelemetryMetadata(
     return overrides
   }
 
+  const sessionIdOverride =
+    typeof overrides.session_id === 'string' && overrides.session_id.trim()
+      ? overrides.session_id.trim()
+      : undefined
+  const attribution = syncDamAttribution({
+    sessionId: sessionIdOverride,
+  })
+
   return {
-    referrer: readTelemetryReferrer(),
+    visitor_id: attribution.visitor_id,
+    session_id: attribution.session_id,
+    utm_source: attribution.utm_source,
+    utm_medium: attribution.utm_medium,
+    utm_campaign: attribution.utm_campaign,
+    utm_content: attribution.utm_content,
+    utm_term: attribution.utm_term,
+    gclid: attribution.gclid,
+    referrer: attribution.referrer,
+    landing_path: attribution.landing_path,
+    current_path: attribution.current_path,
     device_type: detectDeviceType(),
     ...overrides,
   }
@@ -91,6 +261,8 @@ export function getDamSessionSignalMetadata(
   if (typeof window === 'undefined' || !sessionId) {
     return getDamTelemetryMetadata(overrides)
   }
+
+  syncDamAttribution({ sessionId })
 
   const nowIso = new Date().toISOString()
 
@@ -194,12 +366,7 @@ function readTelemetryReferrer() {
     return 'direct'
   }
 
-  try {
-    const parsed = new URL(rawReferrer)
-    return parsed.hostname || rawReferrer
-  } catch {
-    return rawReferrer
-  }
+  return rawReferrer
 }
 
 function detectDeviceType(): DamTelemetryMetadata['device_type'] {
@@ -222,4 +389,153 @@ function detectDeviceType(): DamTelemetryMetadata['device_type'] {
   }
 
   return 'unknown'
+}
+
+function normalizeSearchString(search: string) {
+  if (!search) {
+    return ''
+  }
+
+  return search.startsWith('?') ? search.slice(1) : search
+}
+
+function normalizeOptionalString(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalizedValue = value.trim()
+  return normalizedValue ? normalizedValue : undefined
+}
+
+function normalizePathname(pathname: string | undefined) {
+  const normalizedPathname = normalizeOptionalString(pathname)
+
+  if (!normalizedPathname) {
+    return '/'
+  }
+
+  return normalizedPathname.startsWith('/') ? normalizedPathname : `/${normalizedPathname}`
+}
+
+function normalizeAttributionPayload(
+  payload: DamAttributionStoragePayload
+): DamAttributionPayload {
+  return {
+    visitor_id: normalizeOptionalString(payload.visitor_id),
+    session_id: normalizeOptionalString(payload.session_id),
+    utm_source: normalizeOptionalString(payload.utm_source),
+    utm_medium: normalizeOptionalString(payload.utm_medium),
+    utm_campaign: normalizeOptionalString(payload.utm_campaign),
+    utm_content: normalizeOptionalString(payload.utm_content),
+    utm_term: normalizeOptionalString(payload.utm_term),
+    gclid: normalizeOptionalString(payload.gclid),
+    referrer: normalizeOptionalString(payload.referrer),
+    landing_path: normalizeOptionalString(payload.landing_path),
+    current_path: normalizeOptionalString(payload.current_path),
+  }
+}
+
+function readStoredAttribution(
+  storage: Storage,
+  key: string
+): DamAttributionStoragePayload {
+  try {
+    const rawValue = storage.getItem(key)
+
+    if (!rawValue) {
+      return {}
+    }
+
+    const parsedValue: unknown = JSON.parse(rawValue)
+
+    if (!parsedValue || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+      return {}
+    }
+
+    return parsedValue as DamAttributionStoragePayload
+  } catch {
+    return {}
+  }
+}
+
+function writeStoredAttribution(
+  storage: Storage,
+  key: string,
+  payload: DamAttributionStoragePayload
+) {
+  try {
+    storage.setItem(key, JSON.stringify(payload))
+  } catch {}
+}
+
+function buildObservedAttribution(
+  searchParams: URLSearchParams,
+  pathname: string,
+  referrer: string
+) {
+  const payload: DamAttributionPayload = {
+    referrer: normalizeOptionalString(referrer),
+    landing_path: pathname,
+    current_path: pathname,
+  }
+
+  for (const key of DAM_ATTRIBUTION_QUERY_KEYS) {
+    const value = searchParams.get(key)
+
+    if (!value) {
+      continue
+    }
+
+    payload[key] = value.trim()
+  }
+
+  return payload
+}
+
+function pickAttributionFields(
+  existingPayload: DamAttributionStoragePayload,
+  observedPayload: DamAttributionPayload,
+  landingPathFallback: string
+) {
+  const mergedPayload: DamAttributionPayload = {
+    utm_source:
+      normalizeOptionalString(existingPayload.utm_source) ||
+      normalizeOptionalString(observedPayload.utm_source),
+    utm_medium:
+      normalizeOptionalString(existingPayload.utm_medium) ||
+      normalizeOptionalString(observedPayload.utm_medium),
+    utm_campaign:
+      normalizeOptionalString(existingPayload.utm_campaign) ||
+      normalizeOptionalString(observedPayload.utm_campaign),
+    utm_content:
+      normalizeOptionalString(existingPayload.utm_content) ||
+      normalizeOptionalString(observedPayload.utm_content),
+    utm_term:
+      normalizeOptionalString(existingPayload.utm_term) ||
+      normalizeOptionalString(observedPayload.utm_term),
+    gclid:
+      normalizeOptionalString(existingPayload.gclid) ||
+      normalizeOptionalString(observedPayload.gclid),
+    referrer:
+      normalizeOptionalString(existingPayload.referrer) ||
+      normalizeOptionalString(observedPayload.referrer),
+    landing_path:
+      normalizeOptionalString(existingPayload.landing_path) ||
+      normalizeOptionalString(observedPayload.landing_path) ||
+      landingPathFallback,
+  }
+
+  return mergedPayload
+}
+
+function hasObservedCampaignAttribution(payload: DamAttributionPayload) {
+  return Boolean(
+    payload.utm_source ||
+      payload.utm_medium ||
+      payload.utm_campaign ||
+      payload.utm_content ||
+      payload.utm_term ||
+      payload.gclid
+  )
 }

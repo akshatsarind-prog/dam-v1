@@ -12,6 +12,8 @@ import type {
   AdminRetentionMetrics,
   AdminReturningSessionRecord,
   AdminReferrerRecord,
+  AdminTrafficSourceIntelligence,
+  AdminTrafficSourceRecord,
   RiskLabelBreakdown,
   VerdictBreakdown,
 } from '@/lib/admin/adminMetricsTypes'
@@ -26,6 +28,14 @@ const MANUAL_DISTRIBUTED_BASELINE = 1000
 const MANUAL_LANDING_VISITORS_BASELINE = 200
 const MANUAL_APP_VISITORS_BASELINE = 61
 const RETURNING_SESSION_GAP_MS = 30 * 60 * 1000
+const PAGE_VIEW_EVENT_NAMES = new Set(['page_view', 'campaign_page_view'] as const)
+const CTA_EVENT_NAMES = new Set([
+  'landing_cta_click',
+  'campaign_scam_checker_cta_click',
+  'campaign_whatsapp_checker_cta_click',
+  'campaign_govt_checker_cta_click',
+] as const)
+const EMAIL_CAPTURE_EVENT_NAMES = new Set(['email_capture_success'] as const)
 const CRYPTO_KEYWORDS = [
   'crypto',
   'bitcoin',
@@ -188,6 +198,11 @@ const emptyMetrics: AdminMetricsResponse = {
     exampleToRealConversionRate: null,
     topReferrers: [],
   },
+  trafficSourceIntelligence: {
+    available: false,
+    note: 'Traffic source telemetry has not accumulated yet.',
+    rows: [],
+  },
   categoryIntelligence: {
     categoryBreakdown: [],
     mostTestedCategory: null,
@@ -245,6 +260,62 @@ function readTimestamp(value: unknown) {
 
   const parsed = Date.parse(value)
   return Number.isNaN(parsed) ? null : parsed
+}
+
+function readMetadata(row: EventRow) {
+  return row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+    ? (row.metadata as Record<string, unknown>)
+    : {}
+}
+
+function normalizeReferrerLabel(value: unknown) {
+  const rawValue = readString(value).trim()
+
+  if (!rawValue) {
+    return ''
+  }
+
+  if (rawValue === 'direct') {
+    return 'direct'
+  }
+
+  try {
+    const parsedUrl = new URL(rawValue)
+    return parsedUrl.hostname || rawValue
+  } catch {
+    return rawValue
+  }
+}
+
+function normalizeTrafficSourceDimension(value: string, fallback: string) {
+  const normalizedValue = value.trim()
+  return normalizedValue ? normalizedValue : fallback
+}
+
+function resolveTrafficSourceDimensions(input: {
+  utmSource?: unknown
+  utmMedium?: unknown
+  utmCampaign?: unknown
+  referrer?: unknown
+}) {
+  const utmSource = readString(input.utmSource).trim()
+  const utmMedium = readString(input.utmMedium).trim()
+  const utmCampaign = readString(input.utmCampaign).trim()
+  const referrer = normalizeReferrerLabel(input.referrer)
+
+  const source = utmSource || (referrer && referrer !== 'direct' ? referrer : 'direct')
+  const medium = utmMedium || (!utmSource && referrer && referrer !== 'direct' ? 'referral' : 'none')
+  const campaign = utmCampaign || 'not set'
+
+  return {
+    source: normalizeTrafficSourceDimension(source, 'direct'),
+    medium: normalizeTrafficSourceDimension(medium, 'none'),
+    campaign: normalizeTrafficSourceDimension(campaign, 'not set'),
+  }
+}
+
+function buildTrafficSourceKey(source: string, medium: string, campaign: string) {
+  return `${source}__${medium}__${campaign}`
 }
 
 function truncateClaimText(claimText: string) {
@@ -566,11 +637,8 @@ function buildRetentionMetrics(
     const aggregate = ensureSession(sessionId)
     const eventName = readString(row.event_name)
     const timestamp = readTimestamp(row.created_at)
-    const metadata =
-      row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
-        ? (row.metadata as Record<string, unknown>)
-        : {}
-    const referrer = readString(metadata.referrer).trim()
+    const metadata = readMetadata(row)
+    const referrer = normalizeReferrerLabel(metadata.referrer)
     const deviceType = readString(metadata.device_type).trim()
 
     applyActivityTimestamp(aggregate, timestamp)
@@ -736,6 +804,127 @@ function buildRetentionMetrics(
     exampleToRealConversionRate:
       exampleSessions > 0 ? exampleToRealSessions / exampleSessions : null,
     topReferrers,
+  }
+}
+
+function buildTrafficSourceIntelligence(
+  claimRows: ClaimLogRow[],
+  eventRows: EventRow[]
+): AdminTrafficSourceIntelligence {
+  type TrafficSourceAggregate = {
+    source: string
+    medium: string
+    campaign: string
+    eventCount: number
+    pageViewEvents: number
+    ctaClicks: number
+    claimSubmissions: number
+    emailCaptures: number
+  }
+
+  const aggregates = new Map<string, TrafficSourceAggregate>()
+
+  function ensureAggregate(source: string, medium: string, campaign: string) {
+    const key = buildTrafficSourceKey(source, medium, campaign)
+    let aggregate = aggregates.get(key)
+
+    if (!aggregate) {
+      aggregate = {
+        source,
+        medium,
+        campaign,
+        eventCount: 0,
+        pageViewEvents: 0,
+        ctaClicks: 0,
+        claimSubmissions: 0,
+        emailCaptures: 0,
+      }
+      aggregates.set(key, aggregate)
+    }
+
+    return aggregate
+  }
+
+  for (const row of eventRows) {
+    const metadata = readMetadata(row)
+    const eventName = readString(row.event_name).trim()
+    const dimensions = resolveTrafficSourceDimensions({
+      utmSource: metadata.utm_source,
+      utmMedium: metadata.utm_medium,
+      utmCampaign: metadata.utm_campaign,
+      referrer: metadata.referrer,
+    })
+    const aggregate = ensureAggregate(
+      dimensions.source,
+      dimensions.medium,
+      dimensions.campaign
+    )
+
+    aggregate.eventCount += 1
+
+    if (PAGE_VIEW_EVENT_NAMES.has(eventName as 'page_view' | 'campaign_page_view')) {
+      aggregate.pageViewEvents += 1
+    }
+
+    if (CTA_EVENT_NAMES.has(eventName as
+      | 'landing_cta_click'
+      | 'campaign_scam_checker_cta_click'
+      | 'campaign_whatsapp_checker_cta_click'
+      | 'campaign_govt_checker_cta_click')) {
+      aggregate.ctaClicks += 1
+    }
+
+    if (EMAIL_CAPTURE_EVENT_NAMES.has(eventName as 'email_capture_success')) {
+      aggregate.emailCaptures += 1
+    }
+  }
+
+  for (const row of claimRows) {
+    const dimensions = resolveTrafficSourceDimensions({
+      utmSource: row.utm_source,
+      utmMedium: row.utm_medium,
+      utmCampaign: row.utm_campaign,
+      referrer: row.referrer,
+    })
+    const aggregate = ensureAggregate(
+      dimensions.source,
+      dimensions.medium,
+      dimensions.campaign
+    )
+
+    aggregate.claimSubmissions += 1
+  }
+
+  const rows = Array.from(aggregates.values())
+    .sort(
+      (left, right) =>
+        right.claimSubmissions - left.claimSubmissions ||
+        right.ctaClicks - left.ctaClicks ||
+        right.eventCount - left.eventCount ||
+        left.source.localeCompare(right.source) ||
+        left.medium.localeCompare(right.medium) ||
+        left.campaign.localeCompare(right.campaign)
+    )
+    .slice(0, 30)
+    .map<AdminTrafficSourceRecord>((aggregate) => ({
+      source: aggregate.source,
+      medium: aggregate.medium,
+      campaign: aggregate.campaign,
+      eventCount: aggregate.eventCount,
+      ctaClicks: aggregate.ctaClicks,
+      claimSubmissions: aggregate.claimSubmissions,
+      emailCaptures: aggregate.emailCaptures,
+      claimConversionRate:
+        aggregate.pageViewEvents > 0
+          ? aggregate.claimSubmissions / aggregate.pageViewEvents
+          : null,
+    }))
+
+  return {
+    available: rows.length > 0,
+    note:
+      'Event count is raw telemetry rows. Claim conversion rate uses page-view event counts when available.',
+    rows,
   }
 }
 
@@ -1019,6 +1208,10 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     eventRows,
     aggregateResult.totalClaims
   )
+  const trafficSourceIntelligence = buildTrafficSourceIntelligence(
+    aggregateResult.rows,
+    eventRows
+  )
   const categoryIntelligence = buildCategoryIntelligence(
     aggregateResult.rows,
     aggregateResult.totalClaims
@@ -1039,6 +1232,7 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     })),
     funnel,
     retention,
+    trafficSourceIntelligence,
     categoryIntelligence,
     recentClaims,
     lowConfidenceClaims,

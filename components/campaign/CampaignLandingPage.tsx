@@ -71,17 +71,12 @@ export default function CampaignLandingPage({
 
   useEffect(() => {
     const sessionId = getOrCreateDamSessionId()
-    const searchParams = new URLSearchParams(window.location.search)
 
     sendDamTrackEvent({
       event_name: 'campaign_page_view',
       session_id: sessionId,
       metadata: getDamSessionSignalMetadata(sessionId, {
         page: pageKey,
-        utm_source: searchParams.get('utm_source') || undefined,
-        utm_medium: searchParams.get('utm_medium') || undefined,
-        utm_campaign: searchParams.get('utm_campaign') || undefined,
-        gclid_present: searchParams.has('gclid'),
       }),
     })
   }, [pageKey])

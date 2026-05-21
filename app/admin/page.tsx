@@ -13,6 +13,7 @@ import type {
   AdminMetricsResponse,
   AdminRetentionMetrics,
   RiskLabelBreakdown,
+  AdminTrafficSourceIntelligence,
   VerdictBreakdown,
 } from '@/lib/admin/adminMetricsTypes'
 
@@ -88,6 +89,12 @@ const emptyCategoryIntelligence: AdminCategoryIntelligence = {
     message: 'Not linkable yet.',
   },
   topCategoryClaims: [],
+}
+
+const emptyTrafficSourceIntelligence: AdminTrafficSourceIntelligence = {
+  available: false,
+  note: 'Traffic source telemetry has not accumulated yet.',
+  rows: [],
 }
 
 const shellStyle = {
@@ -1384,6 +1391,253 @@ function RetentionIntelligence({ retention }: { retention: AdminRetentionMetrics
   )
 }
 
+function TrafficSourceIntelligenceSection({
+  trafficSourceIntelligence,
+}: {
+  trafficSourceIntelligence: AdminTrafficSourceIntelligence
+}) {
+  const topRow = trafficSourceIntelligence.rows[0] ?? null
+  const highestClaimRow = [...trafficSourceIntelligence.rows].sort(
+    (left, right) => right.claimSubmissions - left.claimSubmissions || right.eventCount - left.eventCount
+  )[0] ?? null
+  const analysisLines = [
+    topRow
+      ? `Highest event volume is ${topRow.source} / ${topRow.medium} / ${topRow.campaign} with ${formatCount(topRow.eventCount)} tracked events.`
+      : 'Traffic source telemetry has not accumulated yet.',
+    highestClaimRow && highestClaimRow.claimSubmissions > 0
+      ? `Most claim submissions currently come from ${highestClaimRow.source} / ${highestClaimRow.medium} / ${highestClaimRow.campaign}.`
+      : 'No attributed claim submissions are visible yet.',
+    trafficSourceIntelligence.note,
+  ]
+
+  return (
+    <section style={sectionStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Traffic Source Intelligence
+          </p>
+          <h2 style={{ margin: 0, fontSize: 'clamp(24px, 2.8vw, 34px)', lineHeight: 1.02 }}>
+            Traffic Source Intelligence
+          </h2>
+          <p style={{ margin: '10px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+            Attribution rollup from existing telemetry events and claim logs. Event count is not a unique-visit metric.
+          </p>
+        </div>
+        <span style={{ ...badgeStyle, color: 'var(--muted)' }}>
+          {trafficSourceIntelligence.available
+            ? `${formatCount(trafficSourceIntelligence.rows.length)} source rows`
+            : 'Awaiting telemetry'}
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 10,
+          marginBottom: 16,
+        }}
+      >
+        {[
+          {
+            label: 'Tracked source rows',
+            value: formatCount(trafficSourceIntelligence.rows.length),
+            note: 'Distinct source / medium / campaign combinations in the current rollup',
+          },
+          {
+            label: 'Top source',
+            value: topRow ? `${topRow.source} / ${topRow.medium}` : 'No data',
+            note: topRow ? `${topRow.campaign} campaign` : 'Waiting for attributed events.',
+          },
+          {
+            label: 'Top claim source',
+            value: highestClaimRow ? `${highestClaimRow.source} / ${highestClaimRow.medium}` : 'No data',
+            note: highestClaimRow
+              ? `${formatCount(highestClaimRow.claimSubmissions)} claim submissions`
+              : 'Waiting for attributed claim rows.',
+          },
+        ].map((card) => (
+          <article
+            key={card.label}
+            style={{
+              ...cardStyle,
+              minHeight: 138,
+              padding: 16,
+              display: 'grid',
+              alignContent: 'space-between',
+              gap: 10,
+            }}
+          >
+            <span
+              style={{
+                color: 'var(--quiet)',
+                fontSize: 10,
+                fontWeight: 850,
+                textTransform: 'uppercase',
+              }}
+            >
+              {card.label}
+            </span>
+            <strong
+              style={{
+                fontSize: 'clamp(24px, 3.2vw, 34px)',
+                lineHeight: 1.02,
+                color: card.value === 'No data' ? 'var(--muted)' : 'var(--text)',
+              }}
+            >
+              {card.value}
+            </strong>
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, lineHeight: 1.45 }}>
+              {card.note}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1.5fr) minmax(280px, 0.8fr)',
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            overflowX: 'auto',
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+          }}
+        >
+          <table
+            style={{
+              width: '100%',
+              minWidth: 900,
+              borderCollapse: 'collapse',
+            }}
+          >
+            <thead>
+              <tr>
+                {[
+                  'Source',
+                  'Medium',
+                  'Campaign',
+                  'Event count',
+                  'CTA clicks',
+                  'Claim submissions',
+                  'Email captures',
+                  'Claim conversion',
+                ].map((label) => (
+                  <th
+                    key={label}
+                    style={{
+                      padding: '12px 14px',
+                      borderBottom: '1px solid var(--line)',
+                      color: 'var(--quiet)',
+                      fontSize: 10,
+                      fontWeight: 850,
+                      textAlign: 'left',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {trafficSourceIntelligence.rows.length ? (
+                trafficSourceIntelligence.rows.map((row) => (
+                  <tr key={`${row.source}-${row.medium}-${row.campaign}`}>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)' }}>
+                      <span style={badgeStyle}>{row.source}</span>
+                    </td>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      {row.medium}
+                    </td>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      {row.campaign}
+                    </td>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      {formatCount(row.eventCount)}
+                    </td>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      {formatCount(row.ctaClicks)}
+                    </td>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      {formatCount(row.claimSubmissions)}
+                    </td>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      {formatCount(row.emailCaptures)}
+                    </td>
+                    <td style={{ padding: '13px 14px', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                      {formatRate(row.claimConversionRate)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={8}
+                    style={{
+                      padding: 16,
+                      color: 'var(--muted)',
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    No traffic source rows are available yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <article
+          style={{
+            border: '1px solid var(--line)',
+            background: '#0c0c0e',
+            padding: 16,
+          }}
+        >
+          <p className="system-label" style={{ marginBottom: 10 }}>
+            <span aria-hidden="true" />
+            Operational read
+          </p>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {analysisLines.map((line) => (
+              <div
+                key={line}
+                style={{
+                  padding: '12px 13px',
+                  border: '1px solid var(--line)',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  color: 'var(--muted)',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        </article>
+      </div>
+    </section>
+  )
+}
+
 function ReturningUserSignal({ retention }: { retention: AdminRetentionMetrics }) {
   const returningRate = retention.returningUserRate
   const status =
@@ -1979,6 +2233,8 @@ export default function AdminPage() {
   const metrics = state.metrics
   const funnel = metrics?.funnel ?? emptyFunnel
   const retention = metrics?.retention ?? emptyRetention
+  const trafficSourceIntelligence =
+    metrics?.trafficSourceIntelligence ?? emptyTrafficSourceIntelligence
   const categoryIntelligence = metrics?.categoryIntelligence ?? emptyCategoryIntelligence
 
   return (
@@ -2227,6 +2483,9 @@ export default function AdminPage() {
             <FunnelIntelligence funnel={funnel} />
             <ReturningUserSignal retention={retention} />
             <RetentionIntelligence retention={retention} />
+            <TrafficSourceIntelligenceSection
+              trafficSourceIntelligence={trafficSourceIntelligence}
+            />
             <CategoryIntelligenceSection categoryIntelligence={categoryIntelligence} />
 
             <section

@@ -1,7 +1,12 @@
 'use client'
 
 import { type FormEvent, useState } from 'react'
-import { DAM_SESSION_STORAGE_KEY } from '@/lib/analytics'
+import {
+  DAM_SESSION_STORAGE_KEY,
+  getDamSessionSignalMetadata,
+  getOrCreateDamSessionId,
+  sendDamTrackEvent,
+} from '@/lib/analytics'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -128,6 +133,17 @@ export default function BetaSignupCard() {
 
       setEmail(normalizedEmail)
       setStatus('success')
+
+      const sessionId = getDamSessionId() ?? getOrCreateDamSessionId()
+
+      sendDamTrackEvent({
+        event_name: 'email_capture_success',
+        session_id: sessionId,
+        metadata: getDamSessionSignalMetadata(sessionId, {
+          page: 'home',
+          source: 'result_signup',
+        }),
+      })
     } catch (requestError) {
       setStatus('idle')
       setError(
