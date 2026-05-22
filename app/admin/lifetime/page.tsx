@@ -615,13 +615,19 @@ export default function AdminLifetimePage() {
   const updatedAt = formatDateTime(metrics.generatedAt)
   const summaryCards = [
     {
-      label: 'Total sessions',
-      value: formatCount(lifetime.snapshot.totalSessions),
-      note: `${formatCount(lifetime.snapshot.totalVisitors, 'Tracked visitors unavailable')} tracked visitors`,
+      label: 'Tracked visitors',
+      value: formatCount(lifetime.dataCoverage.trackedVisitors, 'Unavailable'),
+      note: 'Distinct visitor_id values present in Supabase claim and event logs only',
       alert: false,
     },
     {
-      label: 'Total claim submissions',
+      label: 'Supabase-tracked sessions',
+      value: formatCount(lifetime.dataCoverage.trackedSessions),
+      note: 'Distinct session_id values seen in logged claim and event rows',
+      alert: false,
+    },
+    {
+      label: 'Claim submissions',
       value: formatCount(lifetime.snapshot.totalClaimSubmissions),
       note: `${formatDecimal(lifetime.snapshot.averageClaimsPerSession)} claims per session`,
       alert: false,
@@ -673,7 +679,7 @@ export default function AdminLifetimePage() {
           </Link>
           <div className="dam-life-topbar__actions">
             <Link href="/admin" className="dam-life-action">
-              Current admin
+              Admin Home
             </Link>
             <button type="button" className="dam-life-action" onClick={handleLogout}>
               Log out
@@ -720,6 +726,9 @@ export default function AdminLifetimePage() {
 
         {metrics.error ? <div className="dam-life-banner">{metrics.error.message}</div> : null}
         {state.errorMessage ? <div className="dam-life-banner">{state.errorMessage}</div> : null}
+        <div className="dam-life-banner">
+          Visitor, session, device, and attribution counts on this page come from Supabase-tracked telemetry only. Vercel Web Analytics is installed in the app, but Vercel aggregate visitors and page views are not connected to this dashboard yet.
+        </div>
 
         <Section
           eyebrow="Section 1"
@@ -781,6 +790,7 @@ export default function AdminLifetimePage() {
                 }
                 emptyCopy="Not tracked yet."
               />
+              <p>Source: {lifetime.dataCoverage.deviceSplitSource}.</p>
             </article>
             <article className="dam-life-subpanel">
               <h3>Operational read</h3>
@@ -792,6 +802,72 @@ export default function AdminLifetimePage() {
               </div>
             </article>
           </div>
+          <article className="dam-life-subpanel">
+            <h3>Data Coverage</h3>
+            <p>{lifetime.dataCoverage.mismatchSummary}</p>
+            <DataTable headers={['Signal', 'Value', 'Coverage note']}>
+              <tr>
+                <td>Supabase tracked visitors</td>
+                <td>{formatCount(lifetime.dataCoverage.trackedVisitors, 'Unavailable')}</td>
+                <td>Distinct visitor_id values from logged claims and events only.</td>
+              </tr>
+              <tr>
+                <td>Supabase tracked sessions</td>
+                <td>{formatCount(lifetime.dataCoverage.trackedSessions)}</td>
+                <td>Distinct session_id values from logged claims and event rows only.</td>
+              </tr>
+              <tr>
+                <td>Vercel Analytics connected</td>
+                <td>No</td>
+                <td>Client analytics is installed, but the admin metrics API does not pull Vercel aggregate traffic yet.</td>
+              </tr>
+              <tr>
+                <td>Vercel visitors</td>
+                <td>Unavailable</td>
+                <td>Requires a server-side Vercel API connection.</td>
+              </tr>
+              <tr>
+                <td>Page views</td>
+                <td>{formatCount(lifetime.dataCoverage.trackedPageViewEvents)}</td>
+                <td>Supabase page_view and campaign_page_view events only. Vercel page views unavailable unless API connected.</td>
+              </tr>
+              <tr>
+                <td>App opens</td>
+                <td>{formatCount(lifetime.dataCoverage.trackedAppOpenEvents)}</td>
+                <td>Supabase app_open_click events only.</td>
+              </tr>
+              <tr>
+                <td>Countries</td>
+                <td>Unavailable</td>
+                <td>Country-level traffic is not available from current Supabase tables.</td>
+              </tr>
+              <tr>
+                <td>Bounce rate</td>
+                <td>Unavailable</td>
+                <td>Not derivable from current Supabase tables alone.</td>
+              </tr>
+              <tr>
+                <td>Device split source</td>
+                <td>{lifetime.dataCoverage.deviceSplitSource}</td>
+                <td>Computed only from event rows carrying device_type metadata.</td>
+              </tr>
+              <tr>
+                <td>Event rows with visitor_id</td>
+                <td>{formatCount(lifetime.dataCoverage.eventRowsWithVisitorId)}</td>
+                <td>{`${formatCount(lifetime.dataCoverage.eventRowsWithDeviceType)} rows also carry device_type.`}</td>
+              </tr>
+              <tr>
+                <td>Event rows with referrer / landing path</td>
+                <td>{`${formatCount(lifetime.dataCoverage.eventRowsWithReferrer)} / ${formatCount(lifetime.dataCoverage.eventRowsWithLandingPath)}`}</td>
+                <td>{`${formatCount(lifetime.dataCoverage.eventRowsWithAnyUtm)} event rows currently carry UTM metadata.`}</td>
+              </tr>
+              <tr>
+                <td>Claim rows with attribution</td>
+                <td>{formatCount(lifetime.dataCoverage.claimRowsWithAttribution)}</td>
+                <td>{`${formatCount(lifetime.dataCoverage.claimRowsWithVisitorId)} claim rows currently include visitor_id.`}</td>
+              </tr>
+            </DataTable>
+          </article>
         </Section>
 
         <Section
