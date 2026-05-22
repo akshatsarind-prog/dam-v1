@@ -911,6 +911,7 @@ export default function AdminPage() {
   const health = metrics.operationalHealth
   const emails = metrics.emailCaptureIntelligence
   const recommendations = metrics.operatorRecommendations
+  const automation = metrics.automationIntelligence
   const lastUpdatedLabel = formatDateTime(metrics.generatedAt)
 
   const executiveCards = [
@@ -1055,6 +1056,53 @@ export default function AdminPage() {
     },
   ]
 
+  const automationSnapshotCards = [
+    {
+      label: 'Claims today',
+      value: formatCount(automation.dailySnapshot.claimsToday),
+      note: 'Claim rows created since local midnight',
+      emphasize: automation.dailySnapshot.claimsToday === 0,
+    },
+    {
+      label: 'Sessions today',
+      value: formatCount(automation.dailySnapshot.sessionsToday),
+      note: 'Sessions active since local midnight',
+      emphasize: false,
+    },
+    {
+      label: 'Emails today',
+      value: formatCount(automation.dailySnapshot.emailsToday),
+      note: 'Captured beta signups today',
+      emphasize: false,
+    },
+    {
+      label: 'Returning sessions today',
+      value: formatCount(automation.dailySnapshot.returningSessionsToday),
+      note: 'Returning-session activity today',
+      emphasize: false,
+    },
+    {
+      label: 'Average latency today',
+      value: formatLatency(automation.dailySnapshot.averageLatencyMs),
+      note: 'Mean latency for today only',
+      emphasize: (automation.dailySnapshot.averageLatencyMs ?? 0) >= 7000,
+    },
+    {
+      label: 'Top source today',
+      value: formatText(automation.dailySnapshot.topSourceToday, 'No data yet'),
+      note: 'Highest claim volume source today',
+      emphasize: false,
+    },
+    {
+      label: 'Top category today',
+      value: automation.dailySnapshot.topCategoryToday
+        ? formatCategoryLabel(automation.dailySnapshot.topCategoryToday)
+        : 'No data yet',
+      note: 'Most tested category today',
+      emphasize: false,
+    },
+  ]
+
   return (
     <main className="dam-shell" style={shellStyle}>
       <div style={headerWrapStyle}>
@@ -1081,6 +1129,9 @@ export default function AdminPage() {
             }}
           >
             <span className="dam-admin-header-pill">Private admin</span>
+            <Link href="/admin/lifetime" className="dam-admin-action-button">
+              Lifetime
+            </Link>
             <button
               type="button"
               onClick={() =>
@@ -1104,6 +1155,7 @@ export default function AdminPage() {
         <nav style={navStyle} aria-label="Admin sections">
           {[
             ['executive', 'Executive'],
+            ['automation', 'Daily Intelligence'],
             ['funnel', 'Funnel'],
             ['sources', 'Traffic Sources'],
             ['retention', 'Retention'],
@@ -1156,7 +1208,7 @@ export default function AdminPage() {
 
         {state.errorMessage ? <div className="dam-admin-alert">{state.errorMessage}</div> : null}
 
-        <section className="dam-admin-card dam-admin-section">
+          <section className="dam-admin-card dam-admin-section">
           <SectionHeading
             id="executive"
             eyebrow="Executive snapshot"
@@ -1174,6 +1226,163 @@ export default function AdminPage() {
                 emphasize={card.emphasize}
               />
             ))}
+          </section>
+          </section>
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="automation"
+            eyebrow="Derived daily operator layer"
+            title="Automation / Daily Intelligence"
+            description="A compact daily read built from the existing Supabase claim, event, and beta-user tables only."
+            badge={<span className="dam-admin-badge">Derived from existing data</span>}
+          />
+          <section className="dam-admin-summary-grid">
+            {automationSnapshotCards.map((card) => (
+              <MetricCard
+                key={card.label}
+                label={card.label}
+                value={card.value}
+                note={card.note}
+                emphasize={card.emphasize}
+              />
+            ))}
+          </section>
+          <section style={compactGridStyle}>
+            <SummaryList
+              title="Growth signal"
+              description="Traffic quality, attribution health, and short-window momentum."
+            >
+              <div style={metricListStyle}>
+                <p style={helperCopyStyle}>
+                  Best source by claims:{' '}
+                  {automation.growthSignals.bestTrafficSourceByClaims?.label ?? 'No data yet'}
+                </p>
+                <p style={helperCopyStyle}>
+                  Best source by emails:{' '}
+                  {automation.growthSignals.bestTrafficSourceByEmails
+                    ? `${automation.growthSignals.bestTrafficSourceByEmails.source} / ${automation.growthSignals.bestTrafficSourceByEmails.campaign}`
+                    : 'No data yet'}
+                </p>
+                <p style={helperCopyStyle}>
+                  Unattributed traffic:{' '}
+                  {formatRate(automation.growthSignals.unattributedTrafficPercentage)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Repeat-session trend: {automation.growthSignals.repeatSessionTrend.summary}
+                </p>
+                <p style={helperCopyStyle}>
+                  Claim-submission trend: {automation.growthSignals.claimSubmissionsTrend.summary}
+                </p>
+              </div>
+            </SummaryList>
+            <SummaryList
+              title="Product signal"
+              description="What people are testing, where confidence is weakest, and which sessions look intent-heavy."
+            >
+              <div style={metricListStyle}>
+                <p style={helperCopyStyle}>
+                  Most tested category:{' '}
+                  {automation.productSignals.mostTestedCategory
+                    ? formatCategoryLabel(automation.productSignals.mostTestedCategory.category)
+                    : 'No data yet'}
+                </p>
+                <p style={helperCopyStyle}>
+                  Lowest-confidence category:{' '}
+                  {automation.productSignals.lowestConfidenceCategory
+                    ? formatCategoryLabel(automation.productSignals.lowestConfidenceCategory.category)
+                    : 'No data yet'}
+                </p>
+                <p style={helperCopyStyle}>
+                  Slowest category:{' '}
+                  {automation.productSignals.slowestCategory
+                    ? formatCategoryLabel(automation.productSignals.slowestCategory.category)
+                    : 'No data yet'}
+                </p>
+                <p style={helperCopyStyle}>
+                  Sessions with multiple claims:{' '}
+                  {formatCount(automation.productSignals.sessionsWithMultipleClaims)}
+                </p>
+                <div className="dam-admin-analysis-list">
+                  {automation.productSignals.recentHighIntentSessions.length ? (
+                    automation.productSignals.recentHighIntentSessions.map((session) => (
+                      <div key={session.sessionId} className="dam-admin-placeholder">
+                        {`${shortenId(session.sessionId)} • ${formatCount(session.claimCount)} claims • ${formatText(session.source, 'Unattributed')}`}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="dam-admin-placeholder">No data yet.</div>
+                  )}
+                </div>
+              </div>
+            </SummaryList>
+            <SummaryList
+              title="Reliability signal"
+              description="Operational quality checks from the currently exposed admin metrics only."
+            >
+              <div style={metricListStyle}>
+                <p style={helperCopyStyle}>
+                  Claims over 8 seconds:{' '}
+                  {formatCount(automation.reliabilitySignals.claimsOver8Seconds)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Missing attribution rows:{' '}
+                  {formatCount(automation.reliabilitySignals.missingAttributionRows)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Unknown verdict rows:{' '}
+                  {formatCount(automation.reliabilitySignals.unknownVerdictRows)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Unknown risk rows: {formatCount(automation.reliabilitySignals.unknownRiskRows)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Empty claim text rows:{' '}
+                  {formatCount(automation.reliabilitySignals.emptyClaimTextRows)}
+                </p>
+                <div className="dam-admin-analysis-list">
+                  {automation.reliabilitySignals.lowConfidenceClusters.length ? (
+                    automation.reliabilitySignals.lowConfidenceClusters.map((cluster) => (
+                      <div key={cluster.category} className="dam-admin-placeholder">
+                        {`${formatCategoryLabel(cluster.category)} • ${formatCount(cluster.count)} low-confidence claims • avg ${cluster.averageConfidence.toFixed(1)}`}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="dam-admin-placeholder">No low-confidence clusters yet.</div>
+                  )}
+                </div>
+              </div>
+            </SummaryList>
+            <SummaryList
+              title="Recommended next action"
+              description="Derived from the daily automation layer only."
+            >
+              {automation.recommendedNextAction ? (
+                <div style={metricListStyle}>
+                  <div className="dam-admin-inline-meta">
+                    <span className={getPriorityBadgeClass(automation.recommendedNextAction.priority)}>
+                      {automation.recommendedNextAction.priority}
+                    </span>
+                  </div>
+                  <h3 style={{ margin: 0 }}>{automation.recommendedNextAction.title}</h3>
+                  <p style={helperCopyStyle}>{automation.recommendedNextAction.detail}</p>
+                  {automation.recommendations.length > 1 ? (
+                    <div className="dam-admin-analysis-list">
+                      {automation.recommendations.slice(1, 4).map((recommendation) => (
+                        <div
+                          key={`${recommendation.priority}-${recommendation.title}`}
+                          className="dam-admin-placeholder"
+                        >
+                          {recommendation.title}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="dam-admin-placeholder">No data yet.</div>
+              )}
+            </SummaryList>
           </section>
         </section>
 

@@ -228,6 +228,229 @@ export type OperatorRecommendation = {
   detail: string
 }
 
+export type AdminTrendDirection = 'up' | 'down' | 'flat' | 'no_data'
+
+export type AdminTrendSignal = {
+  currentCount: number
+  previousCount: number
+  delta: number
+  direction: AdminTrendDirection
+  summary: string
+}
+
+export type AdminDailySnapshot = {
+  claimsToday: number
+  sessionsToday: number
+  emailsToday: number
+  returningSessionsToday: number
+  averageLatencyMs: number | null
+  topSourceToday: string | null
+  topCategoryToday: AdminClaimCategory | null
+}
+
+export type AdminGrowthSignals = {
+  bestTrafficSourceByClaims: CampaignPerformance | null
+  bestTrafficSourceByEmails: EmailSourceBreakdownRecord | null
+  unattributedTrafficPercentage: number | null
+  repeatSessionTrend: AdminTrendSignal
+  claimSubmissionsTrend: AdminTrendSignal
+}
+
+export type AdminProductSignals = {
+  mostTestedCategory: AdminCategoryBreakdownRecord | null
+  lowestConfidenceCategory: AdminCategoryBreakdownRecord | null
+  slowestCategory: AdminCategoryBreakdownRecord | null
+  recentHighIntentSessions: AdminHighIntentSessionRecord[]
+  sessionsWithMultipleClaims: number
+}
+
+export type AdminLowConfidenceCluster = {
+  category: AdminClaimCategory
+  count: number
+  averageConfidence: number
+}
+
+export type AdminReliabilitySignals = {
+  slowestClaims: AdminClaimRecord[]
+  claimsOver8Seconds: number
+  missingAttributionRows: number
+  unknownVerdictRows: number
+  unknownRiskRows: number
+  emptyClaimTextRows: number
+  lowConfidenceClusters: AdminLowConfidenceCluster[]
+}
+
+export type AdminAutomationIntelligence = {
+  dailySnapshot: AdminDailySnapshot
+  growthSignals: AdminGrowthSignals
+  productSignals: AdminProductSignals
+  reliabilitySignals: AdminReliabilitySignals
+  recommendations: OperatorRecommendation[]
+  recommendedNextAction: OperatorRecommendation | null
+}
+
+export type AdminLifetimeStage =
+  | 'Exploration'
+  | 'Early Signal Validation'
+  | 'Activation Optimization'
+  | 'Retention Discovery'
+  | 'Early Habit Formation'
+
+export type AdminValueShare = {
+  label: string
+  count: number
+  percentage: number | null
+}
+
+export type AdminDeviceSplit = {
+  mobile: number
+  tablet: number
+  desktop: number
+  unknown: number
+}
+
+export type AdminTimelinePoint = {
+  day: string
+  visitors: number
+  sessions: number
+  claims: number
+  emails: number
+}
+
+export type AdminSessionSummary = {
+  sessionId: string
+  visitorId: string | null
+  source: string | null
+  campaign: string | null
+  deviceType: 'mobile' | 'tablet' | 'desktop' | 'unknown'
+  claimCount: number
+  durationMs: number | null
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+  emailCaptured: boolean
+}
+
+export type AdminKeywordSignal = {
+  label: string
+  count: number
+}
+
+export type AdminFlowSummary = {
+  label: string
+  count: number
+}
+
+export type AdminTimelineMilestone = {
+  label: string
+  at: string | null
+  detail: string
+}
+
+export type AdminLifetimeSnapshot = {
+  totalVisitors: number | null
+  totalSessions: number
+  totalPageViews: number
+  totalClaimSubmissions: number
+  totalRepeatSessions: number
+  returningSessionRate: number | null
+  totalEmailCaptures: number | null
+  averageClaimsPerSession: number
+  averageLatencyMs: number
+  medianLatencyMs: number | null
+  highestLatencyEverMs: number | null
+  mostActiveDay: AdminTimelinePoint | null
+  mostActiveSource: string | null
+  mostTestedCategory: AdminClaimCategory | null
+  totalCountriesReached: number | null
+  mobileVsDesktopSplit: AdminDeviceSplit | null
+  totalAttributedCampaigns: number
+  totalOperationalDays: number | null
+  currentDamStage: AdminLifetimeStage
+}
+
+export type AdminLifetimeGrowthIntelligence = {
+  visitorGrowthTrend: AdminTrendSignal
+  claimGrowthTrend: AdminTrendSignal
+  repeatSessionTrend: AdminTrendSignal
+  emailCaptureTrend: AdminTrendSignal
+  topAcquisitionChannels: AdminTrafficSourceRecord[]
+  bestConvertingSources: AdminTrafficSourceRecord[]
+  worstConvertingSources: AdminTrafficSourceRecord[]
+  unattributedTrafficPercentage: number | null
+  biggestGrowthBottleneck: string
+  timeline: AdminTimelinePoint[]
+}
+
+export type AdminLifetimeBehaviorIntelligence = {
+  claimsPerSessionDistribution: AdminValueShare[]
+  firstTimeSessions: number
+  repeatSessions: number
+  averageTimeBeforeFirstClaimMs: number | null
+  mostCommonUserFlow: AdminFlowSummary | null
+  highIntentSessionPatterns: string[]
+  repeatUserPatterns: string[]
+  exampleClaimUsageRate: number | null
+  mobileVsDesktopEngagement: AdminDeviceSplit | null
+  longestSessions: AdminSessionSummary[]
+  highestClaimDepthSessions: AdminSessionSummary[]
+  mostValuableBehavioralSignal: string
+}
+
+export type AdminLifetimeTrustProductIntelligence = {
+  topClaimCategories: AdminCategoryBreakdownRecord[]
+  lowestConfidenceCategory: AdminCategoryBreakdownRecord | null
+  highestLatencyCategory: AdminCategoryBreakdownRecord | null
+  scamVsMisinformationDistribution: AdminValueShare[]
+  lowConfidenceTrend: AdminTrendSignal
+  sourceEvidenceDistribution: AdminValueShare[]
+  mostCommonSuspiciousKeywords: AdminKeywordSignal[]
+  recurringMisinformationThemes: AdminKeywordSignal[]
+  recurringScamThemes: AdminKeywordSignal[]
+  currentUserIntent: string
+}
+
+export type AdminLifetimeReliabilityIntelligence = {
+  averageLatencyMs: number
+  medianLatencyMs: number | null
+  highestLatencyEverMs: number | null
+  latencyDistribution: AdminValueShare[]
+  claimsOver8Seconds: number
+  slowestClaimsEver: AdminClaimRecord[]
+  unknownVerdictRows: number
+  unknownRiskRows: number
+  emptyClaimRows: number
+  attributionFailures: number
+  operationalUptimeIndicator: string | null
+  vercelFunctionHealth: string | null
+  deploymentCount: number | null
+  currentReliabilityStatus: string
+}
+
+export type AdminLifetimeStrategicRecommendations = {
+  topNextActions: OperatorRecommendation[]
+  highestLeverageProductFix: string
+  highestLeverageGrowthAction: string
+  highestLeverageRetentionAction: string
+  biggestAnalyticsBlindSpot: string
+  biggestOperationalRisk: string
+  strongestCurrentSignal: string
+}
+
+export type AdminLifetimeTimeline = {
+  milestones: AdminTimelineMilestone[]
+  hasEnoughHistoricalData: boolean
+}
+
+export type AdminLifetimeIntelligence = {
+  snapshot: AdminLifetimeSnapshot
+  growth: AdminLifetimeGrowthIntelligence
+  behavior: AdminLifetimeBehaviorIntelligence
+  trustProduct: AdminLifetimeTrustProductIntelligence
+  reliability: AdminLifetimeReliabilityIntelligence
+  strategy: AdminLifetimeStrategicRecommendations
+  timeline: AdminLifetimeTimeline
+}
+
 export type AdminApiError = {
   code: 'unauthorized' | 'misconfigured' | 'unavailable' | 'unknown'
   message: string
@@ -247,5 +470,7 @@ export type AdminMetricsResponse = {
   emailCaptureIntelligence: EmailCaptureIntelligence
   recentClaims: AdminClaimRecord[]
   operatorRecommendations: OperatorRecommendation[]
+  automationIntelligence: AdminAutomationIntelligence
+  lifetimeIntelligence: AdminLifetimeIntelligence
   error: AdminApiError | null
 }
