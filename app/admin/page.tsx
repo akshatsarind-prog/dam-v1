@@ -6,10 +6,10 @@ import DamBrandMark from '@/components/brand/DamBrandMark'
 import type {
   AdminClaimCategory,
   AdminClaimRecord,
+  AdminFunnelStage,
   AdminMetricsResponse,
   AdminTrafficSourceRecord,
   CategoryIntelligence,
-  EmailCaptureIntelligence,
   ExecutiveSnapshot,
   OperatorRecommendation,
   RetentionIntelligence,
@@ -31,7 +31,7 @@ const shellStyle = {
 } as const
 
 const headerWrapStyle = {
-  width: 'min(1180px, calc(100% - 48px))',
+  width: 'min(1200px, calc(100% - 40px))',
   position: 'relative',
   zIndex: 1,
   margin: '0 auto',
@@ -39,7 +39,7 @@ const headerWrapStyle = {
 } as const
 
 const contentWrapStyle = {
-  width: 'min(1180px, calc(100% - 48px))',
+  width: 'min(1200px, calc(100% - 40px))',
   position: 'relative',
   zIndex: 1,
   margin: '0 auto',
@@ -48,13 +48,13 @@ const contentWrapStyle = {
   paddingTop: 20,
 } as const
 
-const jumpNavStyle = {
+const navStyle = {
   position: 'sticky',
   top: 10,
   zIndex: 10,
   display: 'flex',
+  gap: 10,
   flexWrap: 'wrap',
-  gap: 8,
   padding: 10,
   border: '1px solid var(--line)',
   background: 'rgba(10, 10, 12, 0.92)',
@@ -62,8 +62,8 @@ const jumpNavStyle = {
   backdropFilter: 'blur(10px)',
 } as const
 
-const anchorLinkStyle = {
-  minHeight: 34,
+const navLinkStyle = {
+  minHeight: 36,
   display: 'inline-flex',
   alignItems: 'center',
   padding: '0 12px',
@@ -72,119 +72,97 @@ const anchorLinkStyle = {
   color: 'var(--muted)',
   fontSize: 12,
   fontWeight: 780,
+  whiteSpace: 'nowrap' as const,
 } as const
 
-const claimTextStyle = {
-  maxWidth: '36ch',
+const compactGridStyle = {
+  display: 'grid',
+  gap: 16,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+} as const
+
+const subtlePanelStyle = {
+  display: 'grid',
+  gap: 12,
+} as const
+
+const metricListStyle = {
+  display: 'grid',
+  gap: 8,
+} as const
+
+const helperCopyStyle = {
+  margin: 0,
+  color: 'var(--muted)',
+  fontSize: 12,
+  lineHeight: 1.55,
+} as const
+
+const claimTextClampStyle = {
+  maxWidth: '38ch',
   overflow: 'hidden',
   display: '-webkit-box',
-  WebkitLineClamp: 2,
+  WebkitLineClamp: 3,
   WebkitBoxOrient: 'vertical' as const,
 } as const
 
-const collapsibleButtonStyle = {
-  width: '100%',
-  display: 'flex',
-  alignItems: 'flex-start',
-  justifyContent: 'space-between',
-  gap: 14,
-  padding: 0,
-  border: 0,
-  background: 'transparent',
-  color: 'inherit',
-  cursor: 'pointer',
-  textAlign: 'left' as const,
+const recommendationListStyle = {
+  display: 'grid',
+  gap: 12,
 } as const
 
-function formatDateTime(value: string | null) {
+const healthUnavailableListStyle = {
+  margin: 0,
+  paddingLeft: 18,
+  color: 'var(--muted)',
+  fontSize: 12,
+  lineHeight: 1.6,
+} as const
+
+function formatDateTime(value: string | null | undefined, fallback = 'No data yet') {
   if (!value) {
-    return 'Not enough data yet'
+    return fallback
   }
 
   const parsed = new Date(value)
 
   if (Number.isNaN(parsed.getTime())) {
-    return 'Not enough data yet'
+    return fallback
   }
 
   return parsed.toLocaleString()
 }
 
-function formatCount(value: number | null) {
-  if (value === null) {
-    return 'Not enough data yet'
+function formatCount(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
   }
 
   return new Intl.NumberFormat('en-US').format(value)
 }
 
-function formatLatency(value: number | null) {
-  if (value === null) {
-    return 'Not enough data yet'
+function formatLatency(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
   }
 
   return `${Math.round(value)} ms`
 }
 
-function formatRate(value: number | null) {
-  if (value === null) {
-    return 'Not enough data yet'
+function formatRate(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
   }
 
   return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
 }
 
-function formatDecimal(value: number | null) {
-  if (value === null) {
-    return 'Not enough data yet'
+function formatDecimal(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
   }
 
   return value >= 10 ? value.toFixed(1) : value.toFixed(2)
-}
-
-function formatSessionDuration(value: number | null) {
-  if (value === null) {
-    return 'Not enough data yet'
-  }
-
-  const totalSeconds = Math.max(Math.round(value / 1000), 0)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  const hours = Math.floor(minutes / 60)
-
-  if (hours > 0) {
-    const remainingMinutes = minutes % 60
-    return `${hours}h ${String(remainingMinutes).padStart(2, '0')}m`
-  }
-
-  if (minutes > 0) {
-    return `${minutes}m ${String(seconds).padStart(2, '0')}s`
-  }
-
-  return `${seconds}s`
-}
-
-function formatDurationCompact(value: number | null) {
-  if (value === null) {
-    return 'Not enough data yet'
-  }
-
-  const totalMinutes = Math.round(value / 60000)
-
-  if (totalMinutes < 60) {
-    return `${totalMinutes} min`
-  }
-
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-
-  if (hours < 24) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
-  }
-
-  const days = Math.floor(hours / 24)
-  const remainingHours = hours % 24
-  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`
 }
 
 function formatCategoryLabel(category: AdminClaimCategory) {
@@ -196,23 +174,35 @@ function formatCategoryLabel(category: AdminClaimCategory) {
   }
 }
 
-function shortenId(value: string | null) {
+function formatText(value: string | null | undefined, fallback = 'No data yet') {
   if (!value) {
-    return '—'
+    return fallback
+  }
+
+  const trimmed = value.trim()
+  return trimmed ? trimmed : fallback
+}
+
+function shortenId(value: string | null | undefined) {
+  if (!value) {
+    return 'No data yet'
   }
 
   return value.length <= 14 ? value : `${value.slice(0, 6)}...${value.slice(-4)}`
 }
 
-function getStatusBadgeClass(status: ExecutiveSnapshot['status']) {
-  switch (status) {
-    case 'healthy':
-      return 'dam-admin-badge'
-    case 'watch':
-      return 'dam-admin-badge dam-admin-badge--warning'
-    default:
-      return 'dam-admin-badge dam-admin-badge--danger'
+function computeRateFromCounts(numerator: number | null | undefined, denominator: number | null | undefined) {
+  if (
+    numerator === null ||
+    numerator === undefined ||
+    denominator === null ||
+    denominator === undefined ||
+    denominator <= 0
+  ) {
+    return null
   }
+
+  return numerator / denominator
 }
 
 function getStatusLabel(status: ExecutiveSnapshot['status']) {
@@ -226,7 +216,18 @@ function getStatusLabel(status: ExecutiveSnapshot['status']) {
   }
 }
 
-function getRecommendationBadgeClass(priority: OperatorRecommendation['priority']) {
+function getStatusBadgeClass(status: ExecutiveSnapshot['status']) {
+  switch (status) {
+    case 'healthy':
+      return 'dam-admin-badge'
+    case 'watch':
+      return 'dam-admin-badge dam-admin-badge--warning'
+    default:
+      return 'dam-admin-badge dam-admin-badge--danger'
+  }
+}
+
+function getPriorityBadgeClass(priority: OperatorRecommendation['priority']) {
   switch (priority) {
     case 'high':
       return 'dam-admin-badge dam-admin-badge--danger'
@@ -237,7 +238,29 @@ function getRecommendationBadgeClass(priority: OperatorRecommendation['priority'
   }
 }
 
-function getConfidenceBadgeStyle(confidence: number) {
+function getTrackingBadgeClass(status: AdminFunnelStage['status']) {
+  switch (status) {
+    case 'tracked':
+      return 'dam-admin-badge'
+    case 'manual':
+      return 'dam-admin-badge dam-admin-badge--warning'
+    default:
+      return 'dam-admin-badge dam-admin-badge--danger'
+  }
+}
+
+function getTrackingLabel(stage: AdminFunnelStage) {
+  switch (stage.status) {
+    case 'tracked':
+      return 'Tracked'
+    case 'manual':
+      return stage.manualBaseline ? 'Manual baseline' : 'Manual'
+    default:
+      return 'Not tracked yet'
+  }
+}
+
+function getConfidenceBadgeStyle(confidence: number): CSSProperties {
   if (confidence < 60) {
     return {
       borderColor: 'rgba(214, 38, 38, 0.58)',
@@ -261,7 +284,7 @@ function getConfidenceBadgeStyle(confidence: number) {
   }
 }
 
-function getRiskBadgeStyle(riskLabel: string) {
+function getRiskBadgeStyle(riskLabel: string): CSSProperties {
   const normalized = riskLabel.toLowerCase()
 
   if (normalized.includes('high') || normalized.includes('severe')) {
@@ -287,36 +310,50 @@ function getRiskBadgeStyle(riskLabel: string) {
   }
 }
 
-function getClaimRowStyle(claim: AdminClaimRecord) {
-  const highRisk = claim.riskLabel.toLowerCase().includes('high') || claim.riskLabel.toLowerCase().includes('severe')
-  const lowConfidence = claim.confidence < 60
-  const highLatency = claim.latencyMs >= 8000
+function getClaimRowStyle(claim: AdminClaimRecord): CSSProperties | undefined {
+  const risk = claim.riskLabel.toLowerCase()
 
-  if (highRisk) {
+  if (risk.includes('high') || risk.includes('severe')) {
     return {
-      background: 'rgba(214, 38, 38, 0.09)',
-    } satisfies CSSProperties
+      background: 'rgba(214, 38, 38, 0.08)',
+    }
   }
 
-  if (lowConfidence) {
+  if (claim.confidence < 60) {
     return {
-      background: 'rgba(214, 38, 38, 0.05)',
-    } satisfies CSSProperties
+      background: 'rgba(214, 38, 38, 0.04)',
+    }
   }
 
-  if (highLatency) {
-    return {
-      background: 'rgba(214, 38, 38, 0.035)',
-    } satisfies CSSProperties
-  }
-
-  if (claim.attributed) {
+  if (claim.latencyMs >= 8000) {
     return {
       background: 'rgba(255, 255, 255, 0.02)',
-    } satisfies CSSProperties
+    }
   }
 
   return undefined
+}
+
+function getTrafficBucketLabel(value: string, fallback: string) {
+  if (!value || value === 'unattributed') {
+    return fallback
+  }
+
+  if (value === 'not set') {
+    return 'Not set'
+  }
+
+  return value
+}
+
+function renderAttribution(claim: AdminClaimRecord) {
+  if (!claim.attributed) {
+    return 'Unattributed'
+  }
+
+  const source = claim.utmSource ?? claim.referrer ?? 'Direct / tracked'
+  const campaign = claim.utmCampaign ?? 'Not set'
+  return `${source} / ${campaign}`
 }
 
 function SectionHeading({
@@ -330,7 +367,7 @@ function SectionHeading({
   eyebrow: string
   title: string
   description: string
-  badge?: string
+  badge?: ReactNode
 }) {
   return (
     <div className="dam-admin-section-heading" id={id}>
@@ -340,7 +377,7 @@ function SectionHeading({
       </p>
       <div className="dam-admin-section-heading__title-row">
         <h2>{title}</h2>
-        {badge ? <span className="dam-admin-badge">{badge}</span> : null}
+        {badge ? badge : null}
       </div>
       <p>{description}</p>
     </div>
@@ -367,193 +404,64 @@ function MetricCard({
   )
 }
 
-function RecommendationCard({
-  recommendation,
-  compact = false,
-}: {
-  recommendation: OperatorRecommendation
-  compact?: boolean
-}) {
-  return (
-    <article
-      className="dam-admin-subcard"
-      style={{
-        padding: compact ? 14 : 16,
-        borderColor:
-          recommendation.priority === 'high'
-            ? 'rgba(214, 38, 38, 0.38)'
-            : recommendation.priority === 'medium'
-              ? 'rgba(214, 38, 38, 0.2)'
-              : undefined,
-      }}
-    >
-      <div className="dam-admin-inline-meta" style={{ marginBottom: 12 }}>
-        <span className={getRecommendationBadgeClass(recommendation.priority)}>
-          {recommendation.priority}
-        </span>
-      </div>
-      <h3>{recommendation.title}</h3>
-      <p>{recommendation.detail}</p>
-    </article>
-  )
-}
-
-function CollapsibleSection({
+function SummaryList({
   title,
   description,
-  rowCount,
-  defaultExpanded = false,
   children,
 }: {
   title: string
   description: string
-  rowCount?: number
-  defaultExpanded?: boolean
   children: ReactNode
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
-
   return (
-    <section className="dam-admin-subcard">
-      <button
-        type="button"
-        onClick={() => setExpanded((current) => !current)}
-        aria-expanded={expanded}
-        style={collapsibleButtonStyle}
-      >
-        <div className="dam-admin-collapsible__copy">
-          <h3>{title}</h3>
-          <p>{description}</p>
-        </div>
-        <div className="dam-admin-inline-meta" style={{ justifyContent: 'flex-end', flexShrink: 0 }}>
-          {typeof rowCount === 'number' ? (
-            <span className="dam-admin-header-pill">{formatCount(rowCount)} rows</span>
-          ) : null}
-          <span className="dam-admin-icon-button" aria-hidden="true">
-            {expanded ? '-' : '+'}
-          </span>
-        </div>
-      </button>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateRows: expanded ? '1fr' : '0fr',
-          transition: 'grid-template-rows 180ms ease',
-          marginTop: expanded ? 14 : 0,
-        }}
-      >
-        <div style={{ overflow: 'hidden' }}>{children}</div>
+    <article className="dam-admin-subcard" style={subtlePanelStyle}>
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
       </div>
-    </section>
+      {children}
+    </article>
   )
 }
 
-function ClaimFlags({ claim }: { claim: AdminClaimRecord }) {
-  const flags: Array<{ label: string; style?: CSSProperties }> = []
-
-  if (claim.attributed) {
-    flags.push({ label: 'Attributed' })
-  }
-
-  if (claim.confidence < 60) {
-    flags.push({ label: 'Low confidence', style: getConfidenceBadgeStyle(claim.confidence) })
-  }
-
-  if (claim.latencyMs >= 8000) {
-    flags.push({
-      label: 'Slow',
-      style: {
-        borderColor: 'rgba(214, 38, 38, 0.32)',
-        background: 'rgba(214, 38, 38, 0.07)',
-        color: '#e7bcbc',
-      },
-    })
-  }
-
-  if (claim.riskLabel.toLowerCase().includes('high') || claim.riskLabel.toLowerCase().includes('severe')) {
-    flags.push({ label: 'High risk', style: getRiskBadgeStyle(claim.riskLabel) })
-  }
-
-  if (!flags.length) {
-    return null
-  }
-
+function EmptyTableRow({ colSpan, copy }: { colSpan: number; copy: string }) {
   return (
-    <div className="dam-admin-inline-meta" style={{ marginTop: 8 }}>
-      {flags.map((flag) => (
-        <span key={flag.label} className="dam-admin-row-badge" style={flag.style}>
-          {flag.label}
-        </span>
-      ))}
-    </div>
+    <tr>
+      <td colSpan={colSpan} className="dam-admin-table__empty">
+        {copy}
+      </td>
+    </tr>
   )
 }
 
-function ClaimsTable({
-  claims,
-}: {
-  claims: AdminClaimRecord[]
-}) {
+function FunnelTable({ stages }: { stages: AdminFunnelStage[] }) {
   return (
     <div className="dam-admin-table-shell">
-      <table className="dam-admin-table">
+      <table className="dam-admin-table dam-admin-table--compact">
         <thead>
           <tr>
-            {[
-              'Created',
-              'Claim',
-              'Verdict',
-              'Confidence',
-              'Risk',
-              'Category',
-              'Latency',
-              'Sources',
-              'Evidence quality',
-              'UTM source',
-              'UTM campaign',
-              'Session',
-            ].map((label) => (
-              <th key={label}>{label}</th>
-            ))}
+            <th>Stage</th>
+            <th>Count</th>
+            <th>Tracking</th>
+            <th>Source</th>
+            <th>Conversion From Previous</th>
           </tr>
         </thead>
         <tbody>
-          {claims.length ? (
-            claims.map((claim, index) => (
-              <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`} style={getClaimRowStyle(claim)}>
-                <td>{formatDateTime(claim.createdAt)}</td>
+          {stages.length ? (
+            stages.map((stage) => (
+              <tr key={stage.key}>
+                <td>{stage.label}</td>
+                <td>{formatCount(stage.count, 'Not tracked yet')}</td>
                 <td>
-                  <div style={claimTextStyle}>{claim.claimText || 'No claim text logged.'}</div>
-                  <ClaimFlags claim={claim} />
+                  <span className={getTrackingBadgeClass(stage.status)}>{getTrackingLabel(stage)}</span>
                 </td>
-                <td>
-                  <span className="dam-admin-row-badge">{claim.verdict}</span>
-                </td>
-                <td>
-                  <span className="dam-admin-row-badge" style={getConfidenceBadgeStyle(claim.confidence)}>
-                    {claim.confidence}
-                  </span>
-                </td>
-                <td>
-                  <span className="dam-admin-row-badge" style={getRiskBadgeStyle(claim.riskLabel)}>
-                    {claim.riskLabel}
-                  </span>
-                </td>
-                <td>{formatCategoryLabel(claim.category)}</td>
-                <td>{formatLatency(claim.latencyMs)}</td>
-                <td>{formatCount(claim.sourceCount)}</td>
-                <td>{claim.evidenceQuality ?? 'unknown'}</td>
-                <td>{claim.utmSource ?? (claim.attributed ? 'direct / tracked' : 'No attributed claims yet')}</td>
-                <td>{claim.utmCampaign ?? (claim.attributed ? 'not set' : '—')}</td>
-                <td>{shortenId(claim.sessionId)}</td>
+                <td>{stage.sourceLabel}</td>
+                <td>{formatRate(stage.conversionFromPrevious, 'Not tracked yet')}</td>
               </tr>
             ))
           ) : (
-            <tr>
-              <td colSpan={12} className="dam-admin-table__empty">
-                Not enough data yet.
-              </td>
-            </tr>
+            <EmptyTableRow colSpan={5} copy="No data yet." />
           )}
         </tbody>
       </table>
@@ -561,58 +469,42 @@ function ClaimsTable({
   )
 }
 
-function TrafficSourceTable({
-  rows,
-}: {
-  rows: AdminTrafficSourceRecord[]
-}) {
+function TrafficSourcesTable({ rows }: { rows: AdminTrafficSourceRecord[] }) {
   return (
     <div className="dam-admin-table-shell">
-      <table className="dam-admin-table dam-admin-table--compact">
+      <table className="dam-admin-table">
         <thead>
           <tr>
-            {[
-              'Source',
-              'Medium',
-              'Campaign',
-              'Claim submissions',
-              'Unique sessions',
-              'Unique visitors',
-              'Tracked events',
-              'CTA clicks',
-              'Email captures',
-              'Claims / session',
-              'Latest claim',
-              'Interpretation',
-            ].map((label) => (
-              <th key={label}>{label}</th>
-            ))}
+            <th>Source</th>
+            <th>Medium</th>
+            <th>Campaign</th>
+            <th>Sessions</th>
+            <th>Claims</th>
+            <th>Claims / Session</th>
+            <th>Email Captures</th>
+            <th>Emails / Claim</th>
+            <th>Latest Claim</th>
+            <th>Read</th>
           </tr>
         </thead>
         <tbody>
           {rows.length ? (
             rows.map((row) => (
               <tr key={`${row.source}-${row.medium}-${row.campaign}`}>
-                <td>{row.source}</td>
-                <td>{row.medium}</td>
-                <td>{row.campaign}</td>
-                <td>{formatCount(row.claimSubmissions)}</td>
+                <td>{getTrafficBucketLabel(row.source, 'Unattributed')}</td>
+                <td>{row.source === 'unattributed' ? 'Unattributed' : getTrafficBucketLabel(row.medium, 'None')}</td>
+                <td>{row.source === 'unattributed' ? 'Unattributed bucket' : getTrafficBucketLabel(row.campaign, 'Not set')}</td>
                 <td>{formatCount(row.uniqueSessions)}</td>
-                <td>{formatCount(row.uniqueVisitors)}</td>
-                <td>{formatCount(row.eventCount)}</td>
-                <td>{formatCount(row.ctaClicks)}</td>
-                <td>{formatCount(row.emailCaptures)}</td>
+                <td>{formatCount(row.claimSubmissions)}</td>
                 <td>{formatDecimal(row.claimsPerSession)}</td>
+                <td>{formatCount(row.emailCaptures)}</td>
+                <td>{formatRate(computeRateFromCounts(row.emailCaptures, row.claimSubmissions), 'Not tracked yet')}</td>
                 <td>{formatDateTime(row.latestClaimAt)}</td>
                 <td>{row.interpretation}</td>
               </tr>
             ))
           ) : (
-            <tr>
-              <td colSpan={12} className="dam-admin-table__empty">
-                No attributed claims yet.
-              </td>
-            </tr>
+            <EmptyTableRow colSpan={10} copy="No data yet." />
           )}
         </tbody>
       </table>
@@ -620,29 +512,21 @@ function TrafficSourceTable({
   )
 }
 
-function HighIntentSessionsTable({
-  retention,
-}: {
-  retention: RetentionIntelligence
-}) {
+function HighIntentSessionsTable({ retention }: { retention: RetentionIntelligence }) {
   return (
     <div className="dam-admin-table-shell">
       <table className="dam-admin-table dam-admin-table--compact">
         <thead>
           <tr>
-            {[
-              'Session',
-              'Visitor',
-              'Claims',
-              'Source',
-              'Campaign',
-              'First seen',
-              'Last seen',
-              'Returning',
-              'Email captured',
-            ].map((label) => (
-              <th key={label}>{label}</th>
-            ))}
+            <th>Session</th>
+            <th>Visitor</th>
+            <th>Claims</th>
+            <th>Source</th>
+            <th>Campaign</th>
+            <th>First Seen</th>
+            <th>Last Seen</th>
+            <th>Returning</th>
+            <th>Email Captured</th>
           </tr>
         </thead>
         <tbody>
@@ -652,20 +536,16 @@ function HighIntentSessionsTable({
                 <td>{shortenId(session.sessionId)}</td>
                 <td>{shortenId(session.visitorId)}</td>
                 <td>{formatCount(session.claimCount)}</td>
-                <td>{session.source ?? 'Not enough data yet'}</td>
-                <td>{session.campaign ?? 'Not enough data yet'}</td>
+                <td>{formatText(session.source, 'Unattributed')}</td>
+                <td>{formatText(session.campaign, 'Not set')}</td>
                 <td>{formatDateTime(session.firstSeenAt)}</td>
                 <td>{formatDateTime(session.lastSeenAt)}</td>
                 <td>{session.isReturning ? 'Yes' : 'No'}</td>
-                <td>{session.emailCaptured ? 'Yes' : 'Not linkable yet'}</td>
+                <td>{session.emailCaptured ? 'Yes' : 'No'}</td>
               </tr>
             ))
           ) : (
-            <tr>
-              <td colSpan={9} className="dam-admin-table__empty">
-                No repeat sessions yet.
-              </td>
-            </tr>
+            <EmptyTableRow colSpan={9} copy="No data yet." />
           )}
         </tbody>
       </table>
@@ -673,56 +553,47 @@ function HighIntentSessionsTable({
   )
 }
 
-function CategoryTable({
-  categoryIntelligence,
-}: {
-  categoryIntelligence: CategoryIntelligence
-}) {
+function CategoriesTable({ categoryIntelligence }: { categoryIntelligence: CategoryIntelligence }) {
   return (
     <div className="dam-admin-table-shell">
-      <table className="dam-admin-table dam-admin-table--compact">
+      <table className="dam-admin-table">
         <thead>
           <tr>
-            {[
-              'Category',
-              'Count',
-              'Share',
-              'Avg confidence',
-              'Avg latency',
-              'Avg source count',
-              'Top source',
-              'Top campaign',
-              'Latest claim',
-            ].map((label) => (
-              <th key={label}>{label}</th>
-            ))}
+            <th>Category</th>
+            <th>Count</th>
+            <th>Share</th>
+            <th>Avg Confidence</th>
+            <th>Avg Latency</th>
+            <th>Avg Sources</th>
+            <th>Top Source / Campaign</th>
+            <th>Latest Example</th>
           </tr>
         </thead>
         <tbody>
           {categoryIntelligence.categoryBreakdown.length ? (
             categoryIntelligence.categoryBreakdown.map((row) => (
               <tr key={row.category}>
-                <td>
-                  <span className="dam-admin-row-badge">{formatCategoryLabel(row.category)}</span>
-                </td>
+                <td>{formatCategoryLabel(row.category)}</td>
                 <td>{formatCount(row.count)}</td>
                 <td>{formatRate(row.percentage)}</td>
                 <td>{row.averageConfidence.toFixed(1)}</td>
                 <td>{formatLatency(row.averageLatencyMs)}</td>
                 <td>{formatDecimal(row.averageSourceCount)}</td>
-                <td>{row.topSource ?? 'Not enough data yet'}</td>
-                <td>{row.topCampaign ?? 'Not enough data yet'}</td>
                 <td>
-                  <div style={claimTextStyle}>{row.latestClaimText ?? 'Not enough data yet'}</div>
+                  {row.topSource || row.topCampaign
+                    ? `${formatText(row.topSource, 'Unattributed')} / ${formatText(row.topCampaign, 'Not set')}`
+                    : 'Unattributed'}
+                </td>
+                <td>
+                  <div style={metricListStyle}>
+                    <div style={claimTextClampStyle}>{formatText(row.latestClaimText)}</div>
+                    <span>{formatDateTime(row.latestClaimAt)}</span>
+                  </div>
                 </td>
               </tr>
             ))
           ) : (
-            <tr>
-              <td colSpan={9} className="dam-admin-table__empty">
-                No category data yet.
-              </td>
-            </tr>
+            <EmptyTableRow colSpan={8} copy="No data yet." />
           )}
         </tbody>
       </table>
@@ -730,37 +601,61 @@ function CategoryTable({
   )
 }
 
-function EmailSourceTable({
-  emailCaptureIntelligence,
+function ClaimsTable({
+  claims,
+  includeSession = false,
 }: {
-  emailCaptureIntelligence: EmailCaptureIntelligence
+  claims: AdminClaimRecord[]
+  includeSession?: boolean
 }) {
   return (
     <div className="dam-admin-table-shell">
-      <table className="dam-admin-table dam-admin-table--compact">
+      <table className="dam-admin-table">
         <thead>
           <tr>
-            {['Source', 'Medium', 'Campaign', 'Email captures'].map((label) => (
-              <th key={label}>{label}</th>
-            ))}
+            <th>Created</th>
+            <th>Claim</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+            <th>Risk / Category</th>
+            <th>Latency</th>
+            <th>Sources</th>
+            <th>Attribution</th>
+            {includeSession ? <th>Session</th> : null}
           </tr>
         </thead>
         <tbody>
-          {emailCaptureIntelligence.sourceBreakdown.length ? (
-            emailCaptureIntelligence.sourceBreakdown.map((row) => (
-              <tr key={`${row.source}-${row.medium}-${row.campaign}`}>
-                <td>{row.source}</td>
-                <td>{row.medium}</td>
-                <td>{row.campaign}</td>
-                <td>{formatCount(row.emailCaptures)}</td>
+          {claims.length ? (
+            claims.map((claim, index) => (
+              <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`} style={getClaimRowStyle(claim)}>
+                <td>{formatDateTime(claim.createdAt)}</td>
+                <td>
+                  <div style={claimTextClampStyle}>{formatText(claim.claimText, 'No claim text logged.')}</div>
+                </td>
+                <td>
+                  <span className="dam-admin-row-badge">{formatText(claim.verdict, 'Unknown')}</span>
+                </td>
+                <td>
+                  <span className="dam-admin-row-badge" style={getConfidenceBadgeStyle(claim.confidence)}>
+                    {claim.confidence}
+                  </span>
+                </td>
+                <td>
+                  <div style={metricListStyle}>
+                    <span className="dam-admin-row-badge" style={getRiskBadgeStyle(claim.riskLabel)}>
+                      {claim.riskLabel}
+                    </span>
+                    <span>{formatCategoryLabel(claim.category)}</span>
+                  </div>
+                </td>
+                <td>{formatLatency(claim.latencyMs)}</td>
+                <td>{formatCount(claim.sourceCount, 'No data yet')}</td>
+                <td>{renderAttribution(claim)}</td>
+                {includeSession ? <td>{shortenId(claim.sessionId)}</td> : null}
               </tr>
             ))
           ) : (
-            <tr>
-              <td colSpan={4} className="dam-admin-table__empty">
-                {emailCaptureIntelligence.note}
-              </td>
-            </tr>
+            <EmptyTableRow colSpan={includeSession ? 9 : 8} copy="No data yet." />
           )}
         </tbody>
       </table>
@@ -768,39 +663,23 @@ function EmailSourceTable({
   )
 }
 
-function CompactList({
-  title,
-  description,
-  rows,
-  emptyMessage,
-}: {
-  title: string
-  description: string
-  rows: Array<{ key: string; title: string; meta?: string; trailing?: string }>
-  emptyMessage: string
-}) {
+function RecommendationList({ recommendations }: { recommendations: OperatorRecommendation[] }) {
+  if (!recommendations.length) {
+    return <div className="dam-admin-placeholder">No data yet.</div>
+  }
+
   return (
-    <article className="dam-admin-subcard">
-      <h3>{title}</h3>
-      <p>{description}</p>
-      <div className="dam-admin-mini-claims" style={{ marginTop: 16 }}>
-        {rows.length ? (
-          rows.map((row) => (
-            <div key={row.key} className="dam-admin-mini-claims__row">
-              <strong>{row.title}</strong>
-              {row.meta ? <span>{row.meta}</span> : null}
-              {row.trailing ? (
-                <div className="dam-admin-mini-claims__footer">
-                  <span>{row.trailing}</span>
-                </div>
-              ) : null}
-            </div>
-          ))
-        ) : (
-          <div className="dam-admin-placeholder">{emptyMessage}</div>
-        )}
-      </div>
-    </article>
+    <div style={recommendationListStyle}>
+      {recommendations.map((recommendation) => (
+        <article key={`${recommendation.priority}-${recommendation.title}`} className="dam-admin-subcard">
+          <div className="dam-admin-inline-meta" style={{ marginBottom: 12 }}>
+            <span className={getPriorityBadgeClass(recommendation.priority)}>{recommendation.priority}</span>
+          </div>
+          <h3>{recommendation.title}</h3>
+          <p>{recommendation.detail}</p>
+        </article>
+      ))}
+    </div>
   )
 }
 
@@ -843,7 +722,10 @@ export default function AdminPage() {
   const loadMetrics = useCallback(
     async (
       password: string,
-      options?: { persist?: boolean; showLoadingState?: boolean }
+      options?: {
+        persist?: boolean
+        showLoadingState?: boolean
+      }
     ) => {
       if (options?.showLoadingState !== false) {
         setState((current) => ({
@@ -978,11 +860,11 @@ export default function AdminPage() {
                   <span aria-hidden="true" />
                   Founder dashboard
                 </p>
-                <h1>Private DAM analytics</h1>
+                <h1>DAM admin command center</h1>
                 <p>
-                  This command center stays read-only. Enter the admin password to load live
-                  traffic, retention, category, and operational health signals from the existing
-                  admin API.
+                  Read-only operational visibility for claims, traffic, retention, and system
+                  health. Enter the admin password to load live metrics from the existing admin
+                  API.
                 </p>
               </div>
 
@@ -1022,183 +904,156 @@ export default function AdminPage() {
   }
 
   const executive = metrics.executiveSnapshot
-  const sources = metrics.trafficSourceIntelligence
   const funnel = metrics.funnelIntelligence
+  const sources = metrics.trafficSourceIntelligence
   const retention = metrics.retentionIntelligence
   const categories = metrics.categoryIntelligence
   const health = metrics.operationalHealth
   const emails = metrics.emailCaptureIntelligence
   const recommendations = metrics.operatorRecommendations
   const lastUpdatedLabel = formatDateTime(metrics.generatedAt)
-  const topRecommendations = recommendations.slice(0, 3)
 
   const executiveCards = [
     {
       label: 'Total claims',
       value: formatCount(executive.totalClaims),
-      note: 'All logged analyzer responses',
+      note: 'All logged analyzer claim rows',
       emphasize: false,
     },
     {
-      label: 'Claims today',
-      value: formatCount(executive.claimsToday),
-      note: 'Rows created since local midnight',
-      emphasize: executive.claimsToday === 0,
-    },
-    {
-      label: 'Unique sessions',
-      value: formatCount(executive.uniqueSessions),
-      note: 'Sessions seen across claims and events',
+      label: 'Total sessions',
+      value: formatCount(retention.uniqueSessions),
+      note: 'Unique sessions seen across logs',
       emphasize: false,
     },
     {
-      label: 'Returning session rate',
-      value: formatRate(executive.returningSessionRate),
-      note: 'Best quick retention read',
-      emphasize:
-        executive.returningSessionRate !== null && executive.returningSessionRate < 0.15,
-    },
-    {
-      label: 'Repeat-claim sessions',
-      value: formatCount(executive.repeatClaimSessions),
-      note: 'Sessions with repeated claims across visits',
-      emphasize: false,
+      label: 'Returning sessions',
+      value: formatCount(retention.returningSessions),
+      note: formatRate(retention.returningSessionRate, 'No data yet'),
+      emphasize: retention.returningSessionRate !== null && retention.returningSessionRate < 0.15,
     },
     {
       label: 'Email captures',
       value: formatCount(executive.emailCaptures),
-      note: 'Tracked beta signups',
+      note: emails.linkable ? emails.note : 'Tracked beta signups',
       emphasize: false,
     },
     {
-      label: 'Claim -> Email',
-      value: formatRate(executive.claimToEmailConversionRate),
-      note: 'Email captures divided by total claims',
-      emphasize:
-        executive.claimToEmailConversionRate !== null &&
-        executive.totalClaims >= 5 &&
-        executive.claimToEmailConversionRate < 0.15,
+      label: 'Average latency',
+      value: formatLatency(health.averageLatencyMs),
+      note: `P95 ${formatLatency(health.p95LatencyMs)}`,
+      emphasize: health.averageLatencyMs >= 7000,
     },
     {
-      label: 'Avg latency',
-      value: formatLatency(executive.averageLatencyMs),
-      note: 'Mean backend response latency',
-      emphasize: executive.averageLatencyMs >= 7000,
-    },
-    {
-      label: 'P95 latency',
-      value: formatLatency(executive.p95LatencyMs),
-      note: 'Tail latency if enough data exists',
-      emphasize: (executive.p95LatencyMs ?? 0) >= 10000,
-    },
-    {
-      label: 'Attributed claims',
-      value: formatCount(executive.attributedClaims),
-      note: 'Claims with traffic context logged',
+      label: 'Latest claim time',
+      value: formatDateTime(executive.lastClaimAt),
+      note: 'Most recent claim log timestamp',
       emphasize: false,
     },
     {
-      label: 'Unattributed claims',
-      value: formatCount(executive.unattributedClaims),
-      note: 'Old NULL rows are included here',
-      emphasize: executive.totalClaims > 0 && executive.unattributedClaims > 0,
-    },
-  ]
-
-  const sourceCards = [
-    {
-      label: 'Best source by claims',
-      value: sources.bestSourceByClaims?.label ?? 'No attributed claims yet',
-      note: sources.bestSourceByClaims
-        ? `${formatCount(sources.bestSourceByClaims.claimSubmissions)} claim submissions`
-        : 'Not enough data yet',
-    },
-    {
-      label: 'Best source by claims / session',
-      value: sources.bestSourceByClaimsPerSession?.label ?? 'Not enough data yet',
-      note: sources.bestSourceByClaimsPerSession
-        ? `${formatDecimal(sources.bestSourceByClaimsPerSession.claimsPerSession)} claims per session`
-        : 'Not enough data yet',
-    },
-    {
-      label: 'Best campaign by claims',
-      value: sources.bestCampaignByClaimSubmissions?.campaign ?? 'Not enough data yet',
-      note: sources.bestCampaignByClaimSubmissions
-        ? `${formatCount(sources.bestCampaignByClaimSubmissions.claimSubmissions)} claim submissions`
-        : 'Not enough data yet',
-    },
-    {
-      label: 'Unattributed claims',
-      value: formatCount(sources.unattributedClaims),
-      note: 'Use tracked links consistently to shrink this',
+      label: 'System status',
+      value: getStatusLabel(executive.status),
+      note: `Updated ${lastUpdatedLabel}`,
+      emphasize: executive.status !== 'healthy',
     },
   ]
 
   const retentionCards = [
-    { label: 'Unique sessions', value: formatCount(retention.uniqueSessions), note: 'All known sessions' },
-    { label: 'First-time sessions', value: formatCount(retention.firstTimeSessions), note: 'No clear return signal yet' },
-    { label: 'Returning sessions', value: formatCount(retention.returningSessions), note: 'Sessions with a return signal' },
-    { label: 'Returning rate', value: formatRate(retention.returningSessionRate), note: 'Returning sessions / unique sessions' },
-    { label: 'Repeat-claim sessions', value: formatCount(retention.repeatClaimSessions), note: 'Repeated claims across visits' },
-    { label: 'Sessions with 2+ claims', value: formatCount(retention.sessionsWithTwoPlusClaims), note: 'Raw depth inside the session' },
-    { label: 'Sessions with 3+ claims', value: formatCount(retention.sessionsWithThreePlusClaims), note: 'Higher-intent session depth' },
-    { label: 'Multi-day users', value: formatCount(retention.multiDayUsers), note: 'Activity spanning multiple dates' },
-    { label: 'Avg claims / session', value: formatDecimal(retention.averageClaimsPerSession), note: 'Total claims / unique sessions' },
-    { label: 'Avg time / session', value: formatSessionDuration(retention.averageTimePerSessionMs), note: 'Active duration estimate' },
-    { label: 'Avg time between sessions', value: formatDurationCompact(retention.averageTimeBetweenSessionsMs), note: 'Gap between return visits' },
-  ]
-
-  const healthCards = [
-    { label: 'Avg latency', value: formatLatency(health.averageLatencyMs), note: 'Mean response time', emphasize: health.averageLatencyMs >= 7000 },
-    { label: 'Median latency', value: formatLatency(health.medianLatencyMs), note: 'Typical latency' },
-    { label: 'P95 latency', value: formatLatency(health.p95LatencyMs), note: 'Tail latency', emphasize: (health.p95LatencyMs ?? 0) >= 10000 },
-    { label: 'Max latency', value: formatLatency(health.maxLatencyMs), note: 'Worst recent latency', emphasize: (health.maxLatencyMs ?? 0) >= 12000 },
-    { label: 'Claims over 8s', value: formatCount(health.claimsOver8s), note: 'Slow claims needing review' },
-    { label: 'Claims over 12s', value: formatCount(health.claimsOver12s), note: 'Very slow claims' },
-    { label: 'Avg source count', value: formatDecimal(health.averageSourceCount), note: 'Average retrieved evidence count' },
-    { label: 'Claims with zero sources', value: formatCount(health.claimsWithZeroSources), note: 'Evidence retrieval failed or empty' },
-    { label: 'Low-confidence claims', value: formatCount(health.lowConfidenceClaimsCount), note: 'Confidence under 60' },
-    { label: 'Last claim timestamp', value: formatDateTime(health.lastClaimAt), note: 'Latest logged claim' },
-    { label: 'Last event timestamp', value: formatDateTime(health.lastEventAt), note: 'Latest telemetry event' },
+    {
+      label: 'First-time sessions',
+      value: formatCount(retention.firstTimeSessions),
+      note: 'Sessions without a return signal yet',
+    },
+    {
+      label: 'Returning sessions',
+      value: formatCount(retention.returningSessions),
+      note: 'Sessions with repeat-use evidence',
+    },
+    {
+      label: 'Returning session rate',
+      value: formatRate(retention.returningSessionRate),
+      note: 'Returning sessions divided by total sessions',
+    },
+    {
+      label: 'Repeat-claim sessions',
+      value: formatCount(retention.repeatClaimSessions),
+      note: 'Sessions with repeat claims across visits',
+    },
+    {
+      label: 'Claims per session',
+      value: formatDecimal(retention.averageClaimsPerSession),
+      note: 'Average claim depth per session',
+    },
   ]
 
   const categoryCards = [
     {
       label: 'Most tested category',
-      value: categories.mostTestedCategory ? formatCategoryLabel(categories.mostTestedCategory.category) : 'Not enough data yet',
-      note: categories.mostTestedCategory ? `${formatRate(categories.mostTestedCategory.percentage)} of all claims` : 'Not enough data yet',
-    },
-    {
-      label: 'Highest latency category',
-      value: categories.highestLatencyCategory ? formatCategoryLabel(categories.highestLatencyCategory.category) : 'Not enough data yet',
-      note: categories.highestLatencyCategory ? formatLatency(categories.highestLatencyCategory.averageLatencyMs) : 'Not enough data yet',
+      value: categories.mostTestedCategory
+        ? formatCategoryLabel(categories.mostTestedCategory.category)
+        : 'No data yet',
+      note: categories.mostTestedCategory
+        ? `${formatRate(categories.mostTestedCategory.percentage)} of claims`
+        : 'No category rows yet',
     },
     {
       label: 'Lowest confidence category',
-      value: categories.lowestConfidenceCategory ? formatCategoryLabel(categories.lowestConfidenceCategory.category) : 'Not enough data yet',
-      note: categories.lowestConfidenceCategory ? categories.lowestConfidenceCategory.averageConfidence.toFixed(1) : 'Not enough data yet',
+      value: categories.lowestConfidenceCategory
+        ? formatCategoryLabel(categories.lowestConfidenceCategory.category)
+        : 'No data yet',
+      note: categories.lowestConfidenceCategory
+        ? categories.lowestConfidenceCategory.averageConfidence.toFixed(1)
+        : 'No category rows yet',
     },
     {
-      label: 'Strongest attributed category',
-      value: categories.highestSourceCampaignCategory ? formatCategoryLabel(categories.highestSourceCampaignCategory.category) : 'Not enough data yet',
-      note: categories.highestSourceCampaignCategory && categories.highestSourceCampaignCategory.topSource
-        ? `${categories.highestSourceCampaignCategory.topSource} / ${categories.highestSourceCampaignCategory.topCampaign ?? 'not set'}`
-        : 'Not enough data yet',
+      label: 'Highest latency category',
+      value: categories.highestLatencyCategory
+        ? formatCategoryLabel(categories.highestLatencyCategory.category)
+        : 'No data yet',
+      note: categories.highestLatencyCategory
+        ? formatLatency(categories.highestLatencyCategory.averageLatencyMs)
+        : 'No category rows yet',
     },
   ]
 
-  const sourceRowsForList = sources.topReferrers.map((row) => ({
-    key: row.referrer,
-    title: row.referrer,
-    trailing: `${formatCount(row.sessionCount)} sessions`,
-  }))
-
-  const maskedEmailRows = emails.latestMaskedEmails.map((row) => ({
-    key: `${row.maskedEmail}-${row.createdAt ?? 'unknown'}`,
-    title: row.maskedEmail,
-    meta: row.source && row.campaign ? `${row.source} / ${row.campaign}` : emails.note,
-    trailing: formatDateTime(row.createdAt),
-  }))
+  const healthCards = [
+    {
+      label: 'Average latency',
+      value: formatLatency(health.averageLatencyMs),
+      note: 'Mean claim latency',
+      emphasize: health.averageLatencyMs >= 7000,
+    },
+    {
+      label: 'Median latency',
+      value: formatLatency(health.medianLatencyMs),
+      note: 'Typical claim latency',
+      emphasize: false,
+    },
+    {
+      label: 'P95 latency',
+      value: formatLatency(health.p95LatencyMs),
+      note: 'Tail latency',
+      emphasize: (health.p95LatencyMs ?? 0) >= 10000,
+    },
+    {
+      label: 'Average source count',
+      value: formatDecimal(health.averageSourceCount),
+      note: 'Average evidence count per claim',
+      emphasize: false,
+    },
+    {
+      label: 'Claims with zero sources',
+      value: formatCount(health.claimsWithZeroSources),
+      note: 'Evidence retrieval returned nothing',
+      emphasize: health.claimsWithZeroSources > 0,
+    },
+    {
+      label: 'Low-confidence claims',
+      value: formatCount(health.lowConfidenceClaimsCount),
+      note: 'Confidence under 60',
+      emphasize: health.lowConfidenceClaimsCount > 0,
+    },
+  ]
 
   return (
     <main className="dam-shell" style={shellStyle}>
@@ -1246,18 +1101,18 @@ export default function AdminPage() {
       </div>
 
       <div style={contentWrapStyle}>
-        <nav style={jumpNavStyle} aria-label="Admin sections">
+        <nav style={navStyle} aria-label="Admin sections">
           {[
-            ['overview', 'Overview'],
-            ['sources', 'Sources'],
+            ['executive', 'Executive'],
             ['funnel', 'Funnel'],
+            ['sources', 'Traffic Sources'],
             ['retention', 'Retention'],
-            ['categories', 'Categories'],
-            ['health', 'Health'],
-            ['claims', 'Claims'],
+            ['categories', 'Claim Categories'],
+            ['health', 'Operational Health'],
+            ['claims', 'Recent Claims'],
             ['recommendations', 'Recommendations'],
           ].map(([href, label]) => (
-            <a key={href} href={`#${href}`} style={anchorLinkStyle}>
+            <a key={href} href={`#${href}`} style={navLinkStyle}>
               {label}
             </a>
           ))}
@@ -1271,8 +1126,8 @@ export default function AdminPage() {
             </p>
             <h1>DAM founder command center</h1>
             <p>
-              Read-only visibility into acquisition, funnel health, retention, category patterns,
-              and backend reliability using the existing Supabase logs only.
+              Read-only operational view across claims, acquisition, retention, and system health.
+              This dashboard uses the existing admin metrics API and existing Supabase logs only.
             </p>
           </div>
           <div className="dam-admin-header-card__actions">
@@ -1290,28 +1145,26 @@ export default function AdminPage() {
 
         {metrics.error?.code === 'misconfigured' ? (
           <div className="dam-admin-alert dam-admin-alert--warning">
-            Admin metrics are not configured. Check the Supabase admin environment variables
-            before trusting any summary on this page.
+            Admin metrics are not configured. Check the existing Supabase admin environment
+            variables before trusting this dashboard.
           </div>
+        ) : null}
+
+        {metrics.error && metrics.error.code !== 'misconfigured' ? (
+          <div className="dam-admin-alert">{metrics.error.message}</div>
         ) : null}
 
         {state.errorMessage ? <div className="dam-admin-alert">{state.errorMessage}</div> : null}
 
         <section className="dam-admin-card dam-admin-section">
           <SectionHeading
-            id="overview"
-            eyebrow="Executive command strip"
-            title="Executive command strip"
-            description="This is the compact operator layer: what is growing, what is stuck, and whether the backend is healthy enough to act on growth signals."
-            badge={getStatusLabel(executive.status)}
+            id="executive"
+            eyebrow="Executive snapshot"
+            title="Executive Snapshot"
+            description="The fastest read on usage volume, system state, and whether the product is creating repeat behavior."
+            badge={<span className={getStatusBadgeClass(executive.status)}>{getStatusLabel(executive.status)}</span>}
           />
-          <section
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: 10,
-            }}
-          >
+          <section className="dam-admin-summary-grid">
             {executiveCards.map((card) => (
               <MetricCard
                 key={card.label}
@@ -1322,218 +1175,176 @@ export default function AdminPage() {
               />
             ))}
           </section>
-          <div className="dam-admin-section-stack">
-            <div className="dam-admin-section-heading__title-row">
-              <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.18 }}>Operator recommendations</h3>
-              <span className="dam-admin-badge">Top 3</span>
-            </div>
-            <div className="dam-admin-detail-grid">
-              {topRecommendations.map((recommendation) => (
-                <RecommendationCard
-                  key={`${recommendation.priority}-${recommendation.title}`}
-                  recommendation={recommendation}
-                  compact
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="dam-admin-card dam-admin-section">
-          <SectionHeading
-            id="sources"
-            eyebrow="Acquisition / source intelligence"
-            title="Traffic Source Intelligence"
-            description="Use this section to decide where quality traffic is actually coming from. Event counts here are tracked events, not exact visits."
-            badge={`${formatCount(sources.rows.length)} source rows`}
-          />
-
-          <section className="dam-admin-mini-grid">
-            {sourceCards.map((card) => (
-              <MetricCard key={card.label} label={card.label} value={card.value} note={card.note} />
-            ))}
-          </section>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(320px, 0.9fr)', gap: 16 }}>
-            <article className="dam-admin-subcard">
-              <h3>Source / campaign performance</h3>
-              <p>{sources.note}</p>
-              <div style={{ marginTop: 16 }}>
-                <TrafficSourceTable rows={sources.rows} />
-              </div>
-            </article>
-
-            <div className="dam-admin-section-stack">
-              <article className="dam-admin-subcard">
-                <h3>Email capture intelligence</h3>
-                <p>{emails.note}</p>
-                <section className="dam-admin-mini-grid" style={{ marginTop: 16 }}>
-                  <MetricCard label="Total emails" value={formatCount(emails.totalEmails)} note="All captured beta signups" />
-                  <MetricCard label="Emails today" value={formatCount(emails.emailsToday)} note="Captured since local midnight" />
-                  <MetricCard label="Emails last 7 days" value={formatCount(emails.emailsLast7Days)} note="Recent capture momentum" />
-                  <MetricCard label="Claim -> Email" value={formatRate(emails.claimToEmailConversionRate)} note="Do not fake source linkage here" />
-                </section>
-                <div style={{ marginTop: 16 }}>
-                  <EmailSourceTable emailCaptureIntelligence={emails} />
-                </div>
-              </article>
-
-              <CompactList
-                title="Latest captured emails"
-                description="Emails are masked by default."
-                rows={maskedEmailRows}
-                emptyMessage="Not enough data yet."
-              />
-
-              <CompactList
-                title="Top referrers"
-                description="A quick read on referral surfaces outside explicit UTM sources."
-                rows={sourceRowsForList}
-                emptyMessage="Not enough data yet."
-              />
-            </div>
-          </div>
         </section>
 
         <section className="dam-admin-card dam-admin-section">
           <SectionHeading
             id="funnel"
-            eyebrow="Funnel intelligence"
-            title="Funnel Intelligence"
-            description="Manual baseline support stays intact, but tracked sessions now surface higher in the dashboard."
-            badge={`${formatCount(funnel.stages.length)} stages`}
+            eyebrow="Acquisition to signup"
+            title="Funnel"
+            description="Manual reach baselines remain visible where tracking is not available, while tracked stages stay clearly labeled."
+            badge={<span className="dam-admin-badge">{formatCount(funnel.stages.length)} stages</span>}
           />
-
-          <section
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 10,
-            }}
-          >
-            {funnel.stages.map((stage) => (
-              <article key={stage.key} className="dam-admin-subcard" style={{ padding: 14 }}>
-                <div className="dam-admin-inline-meta" style={{ justifyContent: 'space-between' }}>
-                  <span className="dam-admin-badge">{stage.status === 'manual' ? 'Manual baseline' : stage.status === 'tracked' ? 'Tracked' : 'Not tracked yet'}</span>
-                  {stage.conversionFromPrevious !== null ? (
-                    <span className="dam-admin-header-pill">{formatRate(stage.conversionFromPrevious)}</span>
-                  ) : null}
-                </div>
-                <h3 style={{ marginTop: 12 }}>{stage.label}</h3>
-                <strong className="dam-admin-subcard__value">{formatCount(stage.count)}</strong>
-                <p>{stage.sourceLabel}</p>
-                <p style={{ marginTop: 10 }}>
-                  {stage.conversionFromPrevious !== null
-                    ? `Conversion from previous stage: ${formatRate(stage.conversionFromPrevious)}`
-                    : 'First stage or not enough data yet.'}
-                </p>
-              </article>
-            ))}
-          </section>
-
           <section className="dam-admin-mini-grid">
             <MetricCard
               label="Biggest drop-off"
-              value={funnel.biggestDropOff?.label ?? 'Not enough data yet'}
-              note={funnel.biggestDropOff ? formatRate(funnel.biggestDropOff.conversion) : 'Not enough data yet'}
+              value={funnel.biggestDropOff?.label ?? 'No data yet'}
+              note={formatRate(funnel.biggestDropOff?.conversion, 'No data yet')}
             />
             <MetricCard
               label="Strongest retained stage"
-              value={funnel.strongestRetainedStage?.label ?? 'Not enough data yet'}
-              note={funnel.strongestRetainedStage ? formatRate(funnel.strongestRetainedStage.conversion) : 'Not enough data yet'}
+              value={funnel.strongestRetainedStage?.label ?? 'No data yet'}
+              note={formatRate(funnel.strongestRetainedStage?.conversion, 'No data yet')}
             />
             <MetricCard
               label="Best source"
-              value={funnel.bestSource?.label ?? 'Not enough data yet'}
-              note={funnel.bestSource ? `${formatCount(funnel.bestSource.claimSubmissions)} claim submissions` : 'Not enough data yet'}
-            />
-            <MetricCard
-              label="Next recommended action"
-              value={funnel.nextRecommendedAction}
-              note="Automatic operator guidance from the current funnel shape"
+              value={funnel.bestSource?.label ?? 'No data yet'}
+              note={
+                funnel.bestSource
+                  ? `${formatCount(funnel.bestSource.claimSubmissions)} claim submissions`
+                  : 'No source winner yet'
+              }
             />
           </section>
+          <FunnelTable stages={funnel.stages} />
+          <SummaryList
+            title="Funnel read"
+            description="This recommendation comes directly from the current funnel shape, not a hard-coded playbook."
+          >
+            <p style={helperCopyStyle}>{funnel.nextRecommendedAction}</p>
+          </SummaryList>
+        </section>
+
+        <section className="dam-admin-card dam-admin-section">
+          <SectionHeading
+            id="sources"
+            eyebrow="Attribution and traffic quality"
+            title="Traffic Sources"
+            description="Source rows merge claim, event, and signup context where it exists. Old null-attribution rows stay visible as unattributed."
+            badge={<span className="dam-admin-badge">{formatCount(sources.rows.length)} rows</span>}
+          />
+          <section className="dam-admin-mini-grid">
+            <MetricCard
+              label="Best source by claims"
+              value={sources.bestSourceByClaims?.label ?? 'No data yet'}
+              note={
+                sources.bestSourceByClaims
+                  ? `${formatCount(sources.bestSourceByClaims.claimSubmissions)} claims`
+                  : sources.note
+              }
+            />
+            <MetricCard
+              label="Best source by claims / session"
+              value={sources.bestSourceByClaimsPerSession?.label ?? 'No data yet'}
+              note={
+                sources.bestSourceByClaimsPerSession
+                  ? `${formatDecimal(sources.bestSourceByClaimsPerSession.claimsPerSession)} claims per session`
+                  : sources.note
+              }
+            />
+            <MetricCard
+              label="Unattributed claims"
+              value={formatCount(sources.unattributedClaims)}
+              note="Rows without source context stay in the unattributed bucket"
+              emphasize={sources.unattributedClaims > 0}
+            />
+            <MetricCard
+              label="Email linkage"
+              value={emails.linkable ? 'Linked' : 'Not linked yet'}
+              note={emails.note}
+            />
+          </section>
+          <TrafficSourcesTable rows={sources.rows} />
         </section>
 
         <section className="dam-admin-card dam-admin-section">
           <SectionHeading
             id="retention"
-            eyebrow="Retention intelligence"
-            title="Retention Intelligence"
-            description="This merges returning-user and retention signals into one operational section."
-            badge={`${formatCount(retention.highIntentSessions.length)} high-intent sessions`}
+            eyebrow="Repeat behavior"
+            title="Retention"
+            description="These metrics show whether sessions are coming back and whether repeat claim behavior is emerging."
+            badge={<span className="dam-admin-badge">{formatCount(retention.highIntentSessions.length)} high-intent sessions</span>}
           />
-
           <section className="dam-admin-mini-grid">
             {retentionCards.map((card) => (
               <MetricCard key={card.label} label={card.label} value={card.value} note={card.note} />
             ))}
           </section>
-
-          <article className="dam-admin-subcard">
-            <h3>Automatic interpretation</h3>
-            <div className="dam-admin-analysis-list" style={{ marginTop: 14 }}>
-              {retention.interpretation.map((line) => (
-                <div key={line} className="dam-admin-placeholder">
-                  {line}
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="dam-admin-subcard">
-            <h3>High-intent sessions</h3>
-            <p>These are the most useful sessions to inspect when you want to understand repeat behavior and source quality.</p>
-            <div style={{ marginTop: 16 }}>
-              <HighIntentSessionsTable retention={retention} />
-            </div>
-          </article>
+          <section style={compactGridStyle}>
+            <SummaryList
+              title="Automatic interpretation"
+              description="These lines come from current metrics only."
+            >
+              <div className="dam-admin-analysis-list">
+                {retention.interpretation.length ? (
+                  retention.interpretation.map((line) => (
+                    <div key={line} className="dam-admin-placeholder">
+                      {line}
+                    </div>
+                  ))
+                ) : (
+                  <div className="dam-admin-placeholder">No data yet.</div>
+                )}
+              </div>
+            </SummaryList>
+            <SummaryList
+              title="Supporting metrics"
+              description="Additional depth behind the top-line retention read."
+            >
+              <div style={metricListStyle}>
+                <p style={helperCopyStyle}>
+                  Sessions with 2+ claims: {formatCount(retention.sessionsWithTwoPlusClaims)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Sessions with 3+ claims: {formatCount(retention.sessionsWithThreePlusClaims)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Multi-day users: {formatCount(retention.multiDayUsers)}
+                </p>
+                <p style={helperCopyStyle}>
+                  Avg time per session: {formatLatency(retention.averageTimePerSessionMs, 'No data yet')}
+                </p>
+                <p style={helperCopyStyle}>
+                  Avg gap between sessions:{' '}
+                  {retention.averageTimeBetweenSessionsMs !== null
+                    ? formatLatency(retention.averageTimeBetweenSessionsMs)
+                    : 'No data yet'}
+                </p>
+              </div>
+            </SummaryList>
+          </section>
+          <SummaryList
+            title="High-intent sessions"
+            description="Useful sessions to inspect when you want to understand repeat behavior, source quality, and whether signups come from high-intent traffic."
+          >
+            <HighIntentSessionsTable retention={retention} />
+          </SummaryList>
         </section>
 
         <section className="dam-admin-card dam-admin-section">
           <SectionHeading
             id="categories"
-            eyebrow="Claim category intelligence"
-            title="Claim Category Intelligence"
-            description="Category derivation stays analytics-only. Nothing here feeds back into DAM claim analysis behavior."
-            badge={`${formatCount(categories.categoryBreakdown.length)} categories`}
+            eyebrow="Usage mix"
+            title="Claim Categories"
+            description="Category derivation remains analytics-only. Nothing in this section changes analyzer behavior."
+            badge={<span className="dam-admin-badge">{formatCount(categories.categoryBreakdown.length)} categories</span>}
           />
-
           <section className="dam-admin-mini-grid">
             {categoryCards.map((card) => (
               <MetricCard key={card.label} label={card.label} value={card.value} note={card.note} />
             ))}
           </section>
-
-          <article className="dam-admin-subcard">
-            <h3>Automatic interpretation</h3>
-            <div className="dam-admin-analysis-list" style={{ marginTop: 14 }}>
-              {categories.interpretation.map((line) => (
-                <div key={line} className="dam-admin-placeholder">
-                  {line}
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="dam-admin-subcard">
-            <h3>Category breakdown</h3>
-            <p>Use this to decide whether demand is scam-heavy, curiosity-heavy, or skewing into lower-confidence claim classes.</p>
-            <div style={{ marginTop: 16 }}>
-              <CategoryTable categoryIntelligence={categories} />
-            </div>
-          </article>
+          <CategoriesTable categoryIntelligence={categories} />
         </section>
 
         <section className="dam-admin-card dam-admin-section">
           <SectionHeading
             id="health"
-            eyebrow="Reliability / backend health"
+            eyebrow="Reliability and evidence quality"
             title="Operational Health"
-            description="Use this to judge whether latency, evidence retrieval quality, or low-confidence output is the main reliability problem."
-            badge={`${formatCount(health.slowestClaims.length)} slow-claim rows`}
+            description="Use this section to judge whether latency, evidence coverage, or weak claim quality is the main operational problem."
+            badge={<span className="dam-admin-badge">{formatCount(health.slowestClaims.length)} slowest claims</span>}
           />
-
           <section className="dam-admin-mini-grid">
             {healthCards.map((card) => (
               <MetricCard
@@ -1545,70 +1356,57 @@ export default function AdminPage() {
               />
             ))}
           </section>
-
-          <div className="dam-admin-section-stack">
-            <CollapsibleSection
-              title="Slowest claims"
-              description="Inspect tail latency first when the command strip shows backend pressure."
-              rowCount={health.slowestClaims.length}
-              defaultExpanded
+          <section style={compactGridStyle}>
+            <SummaryList
+              title="Health diagnostics"
+              description="Counts that already exist in the current metrics response."
             >
-              <ClaimsTable claims={health.slowestClaims} />
-            </CollapsibleSection>
-
-            <CollapsibleSection
-              title="Low-confidence claims"
-              description="Use this when quality looks weaker than growth."
-              rowCount={health.lowConfidenceClaims.length}
+              <div style={metricListStyle}>
+                <p style={helperCopyStyle}>Claims over 8s: {formatCount(health.claimsOver8s)}</p>
+                <p style={helperCopyStyle}>Claims over 12s: {formatCount(health.claimsOver12s)}</p>
+                <p style={helperCopyStyle}>Latest claim: {formatDateTime(health.lastClaimAt)}</p>
+                <p style={helperCopyStyle}>Latest event: {formatDateTime(health.lastEventAt)}</p>
+              </div>
+            </SummaryList>
+            <SummaryList
+              title="Unavailable diagnostics"
+              description="These counts are not exposed by the current metrics API, so the UI does not invent them."
             >
-              <ClaimsTable claims={health.lowConfidenceClaims} />
-            </CollapsibleSection>
-
-            <CollapsibleSection
-              title="High-risk claims"
-              description="Recent claims with high or severe risk labels."
-              rowCount={health.highRiskClaims.length}
-            >
-              <ClaimsTable claims={health.highRiskClaims} />
-            </CollapsibleSection>
-
-            <CollapsibleSection
-              title="Claims with zero / low sources"
-              description="Evidence-sparse claims usually need retrieval or query-quality inspection."
-              rowCount={health.claimsWithLowSources.length}
-            >
-              <ClaimsTable claims={health.claimsWithLowSources} />
-            </CollapsibleSection>
-          </div>
+              <ul style={healthUnavailableListStyle}>
+                <li>Error counts: Not tracked yet</li>
+                <li>Fallback counts: Not tracked yet</li>
+                <li>Malformed output counts: Not tracked yet</li>
+              </ul>
+            </SummaryList>
+          </section>
+          <SummaryList
+            title="Slowest claims"
+            description="Tail latency first. These rows show the slowest claim requests currently visible to the metrics service."
+          >
+            <ClaimsTable claims={health.slowestClaims} includeSession />
+          </SummaryList>
         </section>
 
         <section className="dam-admin-card dam-admin-section">
           <SectionHeading
             id="claims"
-            eyebrow="Recent claims / debug tables"
+            eyebrow="Recent claim logs"
             title="Recent Claims"
-            description="The latest claim rows stay near the bottom so they support decisions instead of leading the page."
-            badge={`${formatCount(metrics.recentClaims.length)} recent rows`}
+            description="The latest claim rows, with attribution and session context where available."
+            badge={<span className="dam-admin-badge">{formatCount(metrics.recentClaims.length)} rows</span>}
           />
-          <ClaimsTable claims={metrics.recentClaims} />
+          <ClaimsTable claims={metrics.recentClaims} includeSession />
         </section>
 
         <section className="dam-admin-card dam-admin-section">
           <SectionHeading
             id="recommendations"
-            eyebrow="Operator recommendations"
+            eyebrow="Operator guidance"
             title="Operator Recommendations"
-            description="These are the current suggested next moves based on the metrics above. They are derived reads, not hard-coded playbooks."
-            badge={`${formatCount(recommendations.length)} actions`}
+            description="Concise next actions derived from the current metrics only."
+            badge={<span className="dam-admin-badge">{formatCount(recommendations.length)} actions</span>}
           />
-          <div className="dam-admin-detail-grid">
-            {recommendations.map((recommendation) => (
-              <RecommendationCard
-                key={`${recommendation.priority}-${recommendation.title}`}
-                recommendation={recommendation}
-              />
-            ))}
-          </div>
+          <RecommendationList recommendations={recommendations} />
         </section>
       </div>
     </main>
