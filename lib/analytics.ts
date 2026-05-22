@@ -91,19 +91,44 @@ export type DamAttributionPayload = {
   current_path?: string
 }
 
+function readStoredDamSessionId() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  try {
+    const sessionStorageId = window.sessionStorage.getItem(DAM_SESSION_STORAGE_KEY)?.trim() ?? ''
+
+    if (sessionStorageId) {
+      return sessionStorageId
+    }
+
+    const legacyLocalStorageId = window.localStorage.getItem(DAM_SESSION_STORAGE_KEY)?.trim() ?? ''
+
+    if (legacyLocalStorageId) {
+      window.sessionStorage.setItem(DAM_SESSION_STORAGE_KEY, legacyLocalStorageId)
+      window.localStorage.removeItem(DAM_SESSION_STORAGE_KEY)
+      return legacyLocalStorageId
+    }
+  } catch {}
+
+  return ''
+}
+
 export function getOrCreateDamSessionId() {
   if (typeof window === 'undefined') {
     return ''
   }
 
   try {
-    const existingSessionId = window.localStorage.getItem(DAM_SESSION_STORAGE_KEY)
+    const existingSessionId = readStoredDamSessionId()
+
     if (existingSessionId) {
       return existingSessionId
     }
 
     const nextSessionId = crypto.randomUUID()
-    window.localStorage.setItem(DAM_SESSION_STORAGE_KEY, nextSessionId)
+    window.sessionStorage.setItem(DAM_SESSION_STORAGE_KEY, nextSessionId)
     return nextSessionId
   } catch {
     return crypto.randomUUID()
@@ -267,7 +292,7 @@ export function getDamSessionSignalMetadata(
   const nowIso = new Date().toISOString()
 
   try {
-    const storedSessionId = window.localStorage.getItem(DAM_SESSION_STORAGE_KEY)?.trim() ?? ''
+    const storedSessionId = readStoredDamSessionId()
     const existingFirstSeenAt =
       window.localStorage.getItem(DAM_SESSION_FIRST_SEEN_AT_STORAGE_KEY)?.trim() ?? ''
     const existingLastSeenAt =

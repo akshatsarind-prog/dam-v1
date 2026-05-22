@@ -13,6 +13,7 @@ import type {
   AdminLifetimeBehaviorIntelligence,
   AdminLifetimeGrowthIntelligence,
   AdminLifetimeIntelligence,
+  AdminLifetimeDataCoverage,
   AdminLifetimeReliabilityIntelligence,
   AdminLifetimeSnapshot,
   AdminLifetimeStage,
@@ -446,6 +447,21 @@ const emptyLifetimeIntelligence: AdminLifetimeIntelligence = {
     biggestAnalyticsBlindSpot: 'Not enough data yet.',
     biggestOperationalRisk: 'Not enough data yet.',
     strongestCurrentSignal: 'Not enough data yet.',
+  },
+  dataCoverage: {
+    trackedVisitors: null,
+    trackedSessions: 0,
+    trackedPageViewEvents: 0,
+    trackedAppOpenEvents: 0,
+    eventRowsWithVisitorId: 0,
+    eventRowsWithDeviceType: 0,
+    eventRowsWithReferrer: 0,
+    eventRowsWithLandingPath: 0,
+    eventRowsWithAnyUtm: 0,
+    claimRowsWithVisitorId: 0,
+    claimRowsWithAttribution: 0,
+    deviceSplitSource: 'Supabase logged events only',
+    mismatchSummary: 'Not enough data yet.',
   },
   timeline: {
     milestones: [],
@@ -3116,9 +3132,35 @@ function computeLifetimeIntelligence(input: {
   const pageViewCount = input.eventRows.filter((row) =>
     PAGE_VIEW_EVENT_NAMES.has(readString(row.event_name) as 'page_view' | 'campaign_page_view')
   ).length
+  const appOpenCount = input.eventRows.filter((row) => readString(row.event_name) === 'app_open_click').length
   const totalClaims = input.normalizedClaims.length
   const totalEmails = input.betaRowsAvailable ? input.betaUsers.length : 0
   const deviceSplit = computeDeviceSplit(sessionAggregates)
+  const eventRowsWithVisitorId = input.eventRows.filter((row) =>
+    Boolean(readOptionalString(readMetadata(row).visitor_id))
+  ).length
+  const eventRowsWithDeviceType = input.eventRows.filter((row) =>
+    Boolean(readOptionalString(readMetadata(row).device_type))
+  ).length
+  const eventRowsWithReferrer = input.eventRows.filter((row) =>
+    Boolean(readOptionalString(readMetadata(row).referrer))
+  ).length
+  const eventRowsWithLandingPath = input.eventRows.filter((row) =>
+    Boolean(readOptionalString(readMetadata(row).landing_path))
+  ).length
+  const eventRowsWithAnyUtm = input.eventRows.filter((row) => {
+    const metadata = readMetadata(row)
+    return Boolean(
+      readOptionalString(metadata.utm_source) ||
+        readOptionalString(metadata.utm_medium) ||
+        readOptionalString(metadata.utm_campaign) ||
+        readOptionalString(metadata.utm_content) ||
+        readOptionalString(metadata.utm_term) ||
+        readOptionalString(metadata.gclid)
+    )
+  }).length
+  const claimRowsWithVisitorId = input.normalizedClaims.filter((claim) => Boolean(claim.visitorId)).length
+  const claimRowsWithAttribution = input.normalizedClaims.filter((claim) => claim.attributed).length
   const earliestTimestamps = [
     ...input.normalizedClaims
       .map((claim) => (claim.createdAt ? Date.parse(claim.createdAt) : NaN))
@@ -3494,6 +3536,25 @@ function computeLifetimeIntelligence(input: {
           : 'Not enough data yet.',
   } satisfies AdminLifetimeStrategicRecommendations
 
+  const dataCoverage = {
+    trackedVisitors: visitors.size > 0 ? visitors.size : null,
+    trackedSessions: sessionAggregates.length,
+    trackedPageViewEvents: pageViewCount,
+    trackedAppOpenEvents: appOpenCount,
+    eventRowsWithVisitorId,
+    eventRowsWithDeviceType,
+    eventRowsWithReferrer,
+    eventRowsWithLandingPath,
+    eventRowsWithAnyUtm,
+    claimRowsWithVisitorId,
+    claimRowsWithAttribution,
+    deviceSplitSource: 'Supabase logged events only',
+    mismatchSummary:
+      eventRowsWithVisitorId === 0
+        ? 'Supabase telemetry currently has no visitor_id coverage, so lifetime visitor counts represent tracked rows only.'
+        : `Supabase lifetime visitors count distinct visitor_id values only. ${eventRowsWithVisitorId} of ${input.eventRows.length} event rows currently carry visitor_id, so this dashboard reflects tracked telemetry coverage rather than full-site traffic.`,
+  } satisfies AdminLifetimeDataCoverage
+
   const milestones = computeTimelineMilestones({
     normalizedClaims: input.normalizedClaims,
     sessionAggregates,
@@ -3510,6 +3571,7 @@ function computeLifetimeIntelligence(input: {
     trustProduct,
     reliability,
     strategy,
+    dataCoverage,
     timeline: {
       milestones,
       hasEnoughHistoricalData: timelinePoints.length >= 3 || totalClaims >= 10,

@@ -436,6 +436,22 @@ export type AdminLifetimeStrategicRecommendations = {
   strongestCurrentSignal: string
 }
 
+export type AdminLifetimeDataCoverage = {
+  trackedVisitors: number | null
+  trackedSessions: number
+  trackedPageViewEvents: number
+  trackedAppOpenEvents: number
+  eventRowsWithVisitorId: number
+  eventRowsWithDeviceType: number
+  eventRowsWithReferrer: number
+  eventRowsWithLandingPath: number
+  eventRowsWithAnyUtm: number
+  claimRowsWithVisitorId: number
+  claimRowsWithAttribution: number
+  deviceSplitSource: string
+  mismatchSummary: string
+}
+
 export type AdminLifetimeTimeline = {
   milestones: AdminTimelineMilestone[]
   hasEnoughHistoricalData: boolean
@@ -448,6 +464,7 @@ export type AdminLifetimeIntelligence = {
   trustProduct: AdminLifetimeTrustProductIntelligence
   reliability: AdminLifetimeReliabilityIntelligence
   strategy: AdminLifetimeStrategicRecommendations
+  dataCoverage: AdminLifetimeDataCoverage
   timeline: AdminLifetimeTimeline
 }
 

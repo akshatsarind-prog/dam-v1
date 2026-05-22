@@ -83,8 +83,21 @@ function getDamSessionId() {
   }
 
   try {
-    const sessionId = window.localStorage.getItem(DAM_SESSION_STORAGE_KEY)?.trim()
-    return sessionId || undefined
+    const sessionStorageId = window.sessionStorage.getItem(DAM_SESSION_STORAGE_KEY)?.trim()
+
+    if (sessionStorageId) {
+      return sessionStorageId
+    }
+
+    const legacyLocalStorageId = window.localStorage.getItem(DAM_SESSION_STORAGE_KEY)?.trim()
+
+    if (legacyLocalStorageId) {
+      window.sessionStorage.setItem(DAM_SESSION_STORAGE_KEY, legacyLocalStorageId)
+      window.localStorage.removeItem(DAM_SESSION_STORAGE_KEY)
+      return legacyLocalStorageId
+    }
+
+    return undefined
   } catch {
     return undefined
   }
