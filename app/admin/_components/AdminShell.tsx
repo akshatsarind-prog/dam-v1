@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import DamBrandMark from '@/components/brand/DamBrandMark'
 import type {
@@ -38,6 +39,7 @@ type AdminMetricsGateProps = {
   description: string
   homeHref?: string
   showHomeLink?: boolean
+  showPageIntro?: boolean
   loginEyebrow?: string
   render: (metrics: AdminMetricsResponse, state: AdminMetricsGateRenderState) => ReactNode
 }
@@ -113,12 +115,6 @@ const healthUnavailableListStyle = {
   color: 'var(--muted)',
   fontSize: 12,
   lineHeight: 1.6,
-} as const
-
-const adminHomeCardGridStyle = {
-  display: 'grid',
-  gap: 16,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
 } as const
 
 export const adminSectionLinks: AdminSectionLink[] = [
@@ -426,9 +422,12 @@ export function AdminMetricsGate({
   description,
   homeHref = '/admin',
   showHomeLink = true,
+  showPageIntro = false,
   loginEyebrow = 'Founder dashboard',
   render,
 }: AdminMetricsGateProps) {
+  const pathname = usePathname()
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [state, setState] = useState<DashboardState>(() => {
     if (typeof window !== 'undefined') {
       const savedPassword = window.sessionStorage.getItem(SESSION_STORAGE_KEY)
@@ -545,6 +544,37 @@ export function AdminMetricsGate({
     }
   }, [loadMetrics, state.metrics, state.password, state.status])
 
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isMenuOpen])
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return
+    }
+
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [isMenuOpen])
+
   function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -578,21 +608,19 @@ export function AdminMetricsGate({
   if (!showDashboard || !state.metrics) {
     return (
       <main className="dam-shell" style={shellStyle}>
+        <AdminShellStyles />
         <div style={headerWrapStyle}>
-          <header
-            className="dam-header"
-            style={{
-              height: 'auto',
-              minHeight: 72,
-              padding: '14px 0',
-              gap: 16,
-              flexWrap: 'wrap',
-            }}
-          >
-            <Link className="dam-mark" href="/" aria-label="Return to DAM home">
-              <DamBrandMark collapseTextOnNarrow />
+          <header className="dam-admin-shell-header dam-admin-shell-header--locked">
+            <div className="dam-admin-shell-header__spacer" />
+            <Link className="dam-admin-shell-brand" href="/" aria-label="Return to DAM home">
+              <span className="dam-admin-shell-brand__halo" />
+              <DamBrandMark label="" />
+              <div className="dam-admin-shell-brand__copy">
+                <strong>DAM</strong>
+                <span>Private admin</span>
+              </div>
             </Link>
-            <span className="dam-admin-header-pill">Private admin</span>
+            <span className="dam-admin-shell-status">Private admin</span>
           </header>
         </div>
 
@@ -647,56 +675,53 @@ export function AdminMetricsGate({
 
   return (
     <main className="dam-shell" style={shellStyle}>
+      <AdminShellStyles />
       <div style={headerWrapStyle}>
-        <header
-          className="dam-header"
-          style={{
-            height: 'auto',
-            minHeight: 72,
-            padding: '14px 0',
-            gap: 16,
-            flexWrap: 'wrap',
-          }}
-        >
-          <Link className="dam-mark" href="/" aria-label="Return to DAM home">
-            <DamBrandMark collapseTextOnNarrow />
-          </Link>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-              justifyContent: 'flex-end',
-            }}
+        <header className="dam-admin-shell-header">
+          <button
+            type="button"
+            className="dam-admin-menu-trigger"
+            aria-label={isMenuOpen ? 'Close admin navigation' : 'Open admin navigation'}
+            aria-expanded={isMenuOpen}
+            aria-controls="dam-admin-navigation"
+            onClick={() => setIsMenuOpen((current) => !current)}
           >
-            <span className="dam-admin-header-pill">Private admin</span>
-            {showHomeLink ? (
-              <Link href={homeHref} className="dam-admin-action-button">
-                Admin Home
-              </Link>
-            ) : null}
-            <Link href="/admin/lifetime" className="dam-admin-action-button">
-              Lifetime
-            </Link>
-            <button
-              type="button"
-              onClick={() =>
-                void loadMetrics(state.password, {
-                  persist: false,
-                })
-              }
-              className="dam-admin-action-button"
-              disabled={state.status === 'loading'}
-            >
-              {state.status === 'loading' ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button type="button" onClick={handleLogout} className="dam-admin-action-button">
-              Logout
-            </button>
-          </div>
+            <span />
+            <span />
+            <span />
+          </button>
+
+          <Link className="dam-admin-shell-brand" href={homeHref} aria-label="Open DAM admin home">
+            <span className="dam-admin-shell-brand__halo" />
+            <DamBrandMark label="" />
+            <div className="dam-admin-shell-brand__copy">
+              <strong>DAM</strong>
+              <span>Private founder operating system</span>
+            </div>
+          </Link>
+
+          <span className="dam-admin-shell-status">Private admin</span>
         </header>
       </div>
+
+      <AdminNavigationDrawer
+        isOpen={isMenuOpen}
+        pathname={pathname}
+        homeHref={homeHref}
+        showHomeLink={showHomeLink}
+        generatedAt={metrics.generatedAt}
+        isRefreshing={state.status === 'loading'}
+        onClose={() => setIsMenuOpen(false)}
+        onRefresh={() =>
+          void loadMetrics(state.password, {
+            persist: false,
+          })
+        }
+        onLogout={() => {
+          setIsMenuOpen(false)
+          handleLogout()
+        }}
+      />
 
       <div style={contentWrapStyle}>
         {metrics.error?.code === 'misconfigured' ? (
@@ -711,6 +736,17 @@ export function AdminMetricsGate({
         ) : null}
 
         {state.errorMessage ? <div className="dam-admin-alert">{state.errorMessage}</div> : null}
+
+        {showPageIntro ? (
+          <section className="dam-admin-page-intro">
+            <p className="dam-admin-page-intro__eyebrow">Private founder operating system</p>
+            <h1>{title}</h1>
+            <p>{description}</p>
+            <span className="dam-admin-page-intro__meta">
+              Private admin · Updated {formatDateTime(metrics.generatedAt)}
+            </span>
+          </section>
+        ) : null}
 
         {render(metrics, {
           isRefreshing: state.status === 'loading',
@@ -728,47 +764,567 @@ export function AdminMetricsGate({
 
 export function AdminHomeCardGrid({ generatedAt }: { generatedAt: string }) {
   return (
-    <>
-      <section className="dam-admin-header-card">
-        <div className="dam-admin-header-card__copy">
-          <p className="system-label" style={{ marginBottom: 10 }}>
-            <span aria-hidden="true" />
-            Private admin
-          </p>
-          <h1>DAM admin home</h1>
-          <p>
-            Minimal navigation hub for the DAM admin surfaces. Choose a section to inspect its own
-            metrics page.
-          </p>
-        </div>
-        <div className="dam-admin-header-card__actions">
-          <div className="dam-admin-inline-meta">
-            <span className="dam-admin-header-pill">Updated {formatDateTime(generatedAt)}</span>
-          </div>
-        </div>
-      </section>
+    <section className="dam-admin-lobby" aria-label="DAM admin home">
+      <div className="dam-admin-lobby__brand">
+        <DamBrandMark label="" />
+      </div>
+      <p className="dam-admin-lobby__eyebrow">Private admin</p>
+      <h1>DAM</h1>
+      <p className="dam-admin-lobby__description">Private founder operating system</p>
+      <span className="dam-admin-lobby__meta">Private admin · Updated {formatDateTime(generatedAt)}</span>
+    </section>
+  )
+}
 
-      <section className="dam-admin-card dam-admin-section">
-        <SectionHeading
-          id="hub"
-          eyebrow="Section navigation"
-          title="Admin Sections"
-          description="Each route loads its own slice of the existing admin metrics response. No long-scrolling all-in-one dashboard remains on this page."
-        />
-        <div style={adminHomeCardGridStyle}>
-          {adminSectionLinks.map((section) => (
-            <Link key={section.href} href={section.href} className="dam-admin-subcard">
-              <p className="system-label" style={{ marginBottom: 10 }}>
-                <span aria-hidden="true" />
-                {section.eyebrow}
-              </p>
-              <h3>{section.title}</h3>
-              <p>{section.description}</p>
-            </Link>
-          ))}
+function AdminNavigationDrawer({
+  isOpen,
+  pathname,
+  homeHref,
+  showHomeLink,
+  generatedAt,
+  isRefreshing,
+  onClose,
+  onRefresh,
+  onLogout,
+}: {
+  isOpen: boolean
+  pathname: string
+  homeHref: string
+  showHomeLink: boolean
+  generatedAt: string
+  isRefreshing: boolean
+  onClose: () => void
+  onRefresh: () => void
+  onLogout: () => void
+}) {
+  return (
+    <>
+      <div
+        className={`dam-admin-menu-overlay${isOpen ? ' dam-admin-menu-overlay--open' : ''}`}
+        aria-hidden={isOpen ? 'false' : 'true'}
+        onClick={onClose}
+      />
+      <aside
+        id="dam-admin-navigation"
+        className={`dam-admin-menu-drawer${isOpen ? ' dam-admin-menu-drawer--open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Admin navigation"
+      >
+        <div className="dam-admin-menu-drawer__header">
+          <div>
+            <p className="dam-admin-menu-drawer__eyebrow">Navigation</p>
+            <h2>DAM admin</h2>
+          </div>
+          <button
+            type="button"
+            className="dam-admin-menu-close"
+            onClick={onClose}
+            aria-label="Close admin navigation"
+          >
+            <span />
+            <span />
+          </button>
         </div>
-      </section>
+
+        <div className="dam-admin-menu-drawer__meta">
+          <span>Private admin</span>
+          <span>Updated {formatDateTime(generatedAt)}</span>
+        </div>
+
+        <nav className="dam-admin-menu-nav" aria-label="Admin sections">
+          {showHomeLink ? (
+            <Link
+              href={homeHref}
+              onClick={onClose}
+              className="dam-admin-menu-link"
+              data-active={pathname === homeHref}
+            >
+              <div>
+                <strong>Admin Home</strong>
+                <span>Centered control lobby</span>
+              </div>
+            </Link>
+          ) : null}
+
+          {adminSectionLinks.map((section) => {
+            const isActive =
+              pathname === section.href ||
+              (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
+
+            return (
+              <Link
+                key={section.href}
+                href={section.href}
+                onClick={onClose}
+                className="dam-admin-menu-link"
+                data-active={isActive}
+              >
+                <div>
+                  <strong>{section.title}</strong>
+                  <span>{section.description}</span>
+                </div>
+              </Link>
+            )
+          })}
+        </nav>
+
+        <div className="dam-admin-menu-actions">
+          <button type="button" className="dam-admin-menu-action" onClick={onRefresh}>
+            {isRefreshing ? 'Refreshing metrics...' : 'Refresh metrics'}
+          </button>
+          <button type="button" className="dam-admin-menu-action dam-admin-menu-action--danger" onClick={onLogout}>
+            Logout
+          </button>
+        </div>
+      </aside>
     </>
+  )
+}
+
+function AdminShellStyles() {
+  return (
+    <style jsx global>{`
+      .dam-admin-shell-header {
+        display: grid;
+        grid-template-columns: minmax(72px, 1fr) auto minmax(72px, 1fr);
+        align-items: center;
+        min-height: 82px;
+        padding: 8px 0;
+        gap: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .dam-admin-shell-header--locked {
+        grid-template-columns: minmax(32px, 1fr) auto minmax(32px, 1fr);
+      }
+
+      .dam-admin-shell-header__spacer {
+        min-height: 44px;
+      }
+
+      .dam-admin-shell-brand {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-self: center;
+        gap: 14px;
+        padding: 14px 20px;
+        border: 1px solid rgba(165, 188, 230, 0.18);
+        border-radius: 999px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+          rgba(5, 9, 15, 0.86);
+        box-shadow:
+          0 18px 60px rgba(0, 0, 0, 0.34),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+
+      .dam-admin-shell-brand__halo {
+        position: absolute;
+        inset: 1px;
+        border-radius: inherit;
+        background: radial-gradient(circle at top, rgba(126, 156, 234, 0.18), transparent 56%);
+        pointer-events: none;
+      }
+
+      .dam-admin-shell-brand .dam-brand-mark__icon-shell {
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+      }
+
+      .dam-admin-shell-brand__copy {
+        position: relative;
+        display: grid;
+        gap: 3px;
+      }
+
+      .dam-admin-shell-brand__copy strong {
+        font-size: 14px;
+        letter-spacing: 0.22em;
+        line-height: 1;
+        text-transform: uppercase;
+      }
+
+      .dam-admin-shell-brand__copy span {
+        color: rgba(226, 234, 250, 0.66);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        line-height: 1.3;
+        text-transform: uppercase;
+      }
+
+      .dam-admin-menu-trigger,
+      .dam-admin-shell-status,
+      .dam-admin-menu-close,
+      .dam-admin-menu-action {
+        border: 1px solid rgba(165, 188, 230, 0.16);
+        background: rgba(8, 12, 19, 0.82);
+        color: #f4f8ff;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
+      }
+
+      .dam-admin-menu-trigger,
+      .dam-admin-menu-close {
+        width: 48px;
+        height: 48px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 16px;
+        justify-self: start;
+        cursor: pointer;
+        transition:
+          transform 180ms ease,
+          border-color 180ms ease,
+          background-color 180ms ease;
+      }
+
+      .dam-admin-menu-trigger:hover,
+      .dam-admin-menu-close:hover,
+      .dam-admin-menu-action:hover,
+      .dam-admin-menu-link:hover {
+        border-color: rgba(206, 221, 255, 0.26);
+        background: rgba(14, 21, 34, 0.96);
+      }
+
+      .dam-admin-menu-trigger span {
+        position: absolute;
+        width: 18px;
+        height: 1.5px;
+        background: currentColor;
+        border-radius: 999px;
+      }
+
+      .dam-admin-menu-trigger span:nth-child(1) {
+        transform: translateY(-6px);
+      }
+
+      .dam-admin-menu-trigger span:nth-child(2) {
+        transform: translateY(0);
+      }
+
+      .dam-admin-menu-trigger span:nth-child(3) {
+        transform: translateY(6px);
+      }
+
+      .dam-admin-menu-close {
+        justify-self: end;
+        position: relative;
+      }
+
+      .dam-admin-menu-close span {
+        position: absolute;
+        width: 18px;
+        height: 1.5px;
+        background: currentColor;
+        border-radius: 999px;
+      }
+
+      .dam-admin-menu-close span:first-child {
+        transform: rotate(45deg);
+      }
+
+      .dam-admin-menu-close span:last-child {
+        transform: rotate(-45deg);
+      }
+
+      .dam-admin-shell-status {
+        justify-self: end;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 14px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(231, 238, 252, 0.78);
+      }
+
+      .dam-admin-menu-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1200;
+        background: rgba(2, 4, 8, 0.24);
+        backdrop-filter: blur(16px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 220ms ease;
+      }
+
+      .dam-admin-menu-overlay--open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .dam-admin-menu-drawer {
+        position: fixed;
+        top: 18px;
+        left: 18px;
+        bottom: 18px;
+        z-index: 1201;
+        width: min(420px, calc(100vw - 36px));
+        display: grid;
+        align-content: start;
+        gap: 18px;
+        padding: 22px;
+        border: 1px solid rgba(165, 188, 230, 0.18);
+        border-radius: 28px;
+        background:
+          linear-gradient(180deg, rgba(15, 24, 36, 0.97), rgba(7, 11, 17, 0.98)),
+          rgba(6, 10, 15, 0.98);
+        box-shadow: 0 36px 120px rgba(0, 0, 0, 0.42);
+        transform: translateX(-108%);
+        opacity: 0;
+        transition:
+          transform 240ms ease,
+          opacity 240ms ease;
+        overflow-y: auto;
+      }
+
+      .dam-admin-menu-drawer--open {
+        transform: translateX(0);
+        opacity: 1;
+      }
+
+      .dam-admin-menu-drawer__header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .dam-admin-menu-drawer__eyebrow {
+        margin: 0 0 6px;
+        color: rgba(165, 182, 214, 0.72);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .dam-admin-menu-drawer__header h2 {
+        margin: 0;
+        font-size: clamp(24px, 4vw, 32px);
+        line-height: 1.04;
+      }
+
+      .dam-admin-menu-drawer__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: rgba(221, 230, 246, 0.64);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .dam-admin-menu-nav {
+        display: grid;
+        gap: 10px;
+      }
+
+      .dam-admin-menu-link {
+        display: grid;
+        gap: 6px;
+        padding: 16px 18px;
+        border: 1px solid rgba(165, 188, 230, 0.12);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        transition:
+          transform 180ms ease,
+          border-color 180ms ease,
+          background-color 180ms ease;
+      }
+
+      .dam-admin-menu-link[data-active='true'] {
+        border-color: rgba(216, 228, 255, 0.28);
+        background:
+          linear-gradient(180deg, rgba(124, 152, 214, 0.16), rgba(124, 152, 214, 0.04)),
+          rgba(255, 255, 255, 0.04);
+      }
+
+      .dam-admin-menu-link strong {
+        display: block;
+        margin: 0 0 4px;
+        font-size: 15px;
+        letter-spacing: 0.02em;
+      }
+
+      .dam-admin-menu-link span {
+        color: rgba(221, 230, 246, 0.64);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .dam-admin-menu-actions {
+        display: grid;
+        gap: 10px;
+        margin-top: 6px;
+      }
+
+      .dam-admin-menu-action {
+        min-height: 48px;
+        padding: 0 16px;
+        border-radius: 16px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+          transform 180ms ease,
+          border-color 180ms ease,
+          background-color 180ms ease;
+      }
+
+      .dam-admin-menu-action--danger {
+        color: #ffd4d4;
+        border-color: rgba(190, 92, 92, 0.24);
+      }
+
+      .dam-admin-page-intro,
+      .dam-admin-lobby {
+        display: grid;
+        justify-items: center;
+        text-align: center;
+        gap: 14px;
+        padding: 38px min(8vw, 68px);
+        border: 1px solid rgba(165, 188, 230, 0.14);
+        border-radius: 28px;
+        background:
+          radial-gradient(circle at top, rgba(115, 141, 206, 0.14), transparent 44%),
+          linear-gradient(180deg, rgba(16, 24, 36, 0.88), rgba(8, 12, 18, 0.94));
+        box-shadow: 0 28px 100px rgba(0, 0, 0, 0.3);
+      }
+
+      .dam-admin-page-intro {
+        justify-items: start;
+        text-align: left;
+        gap: 10px;
+      }
+
+      .dam-admin-page-intro__eyebrow,
+      .dam-admin-lobby__eyebrow {
+        margin: 0;
+        color: rgba(184, 198, 228, 0.72);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      .dam-admin-page-intro h1,
+      .dam-admin-lobby h1 {
+        margin: 0;
+        font-size: clamp(40px, 6vw, 66px);
+        line-height: 0.98;
+        letter-spacing: -0.05em;
+      }
+
+      .dam-admin-page-intro p,
+      .dam-admin-lobby__description {
+        margin: 0;
+        max-width: 48rem;
+        color: rgba(224, 232, 246, 0.72);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+
+      .dam-admin-page-intro__meta,
+      .dam-admin-lobby__meta {
+        color: rgba(189, 200, 224, 0.58);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+
+      .dam-admin-lobby {
+        min-height: min(58svh, 620px);
+        align-content: center;
+      }
+
+      .dam-admin-lobby__brand {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 112px;
+        height: 112px;
+        border: 1px solid rgba(165, 188, 230, 0.18);
+        border-radius: 30px;
+        background:
+          radial-gradient(circle at top, rgba(133, 160, 226, 0.28), transparent 55%),
+          rgba(8, 12, 18, 0.92);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 28px 80px rgba(0, 0, 0, 0.34);
+      }
+
+      .dam-admin-lobby__brand .dam-brand-mark__icon-shell {
+        width: 54px;
+        height: 54px;
+        flex: 0 0 54px;
+      }
+
+      @media (max-width: 960px) {
+        .dam-admin-shell-header,
+        .dam-admin-shell-header--locked {
+          grid-template-columns: auto 1fr auto;
+        }
+
+        .dam-admin-shell-brand {
+          gap: 12px;
+          padding: 12px 16px;
+          justify-self: center;
+        }
+
+        .dam-admin-shell-brand__copy span {
+          display: none;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .dam-admin-shell-header {
+          gap: 12px;
+        }
+
+        .dam-admin-shell-brand {
+          padding: 12px 14px;
+        }
+
+        .dam-admin-shell-brand__copy strong {
+          letter-spacing: 0.16em;
+        }
+
+        .dam-admin-shell-status {
+          min-height: 40px;
+          padding: 0 10px;
+          font-size: 10px;
+          letter-spacing: 0.12em;
+        }
+
+        .dam-admin-menu-drawer {
+          top: 12px;
+          left: 12px;
+          right: 12px;
+          bottom: 12px;
+          width: auto;
+          padding: 18px;
+          border-radius: 24px;
+        }
+
+        .dam-admin-page-intro,
+        .dam-admin-lobby {
+          padding: 30px 20px;
+        }
+
+        .dam-admin-page-intro {
+          justify-items: center;
+          text-align: center;
+        }
+      }
+    `}</style>
   )
 }
 
