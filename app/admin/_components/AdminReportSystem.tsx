@@ -8,7 +8,7 @@ import {
   useState,
   type FormEvent,
 } from 'react'
-import DamBrandMark from '@/components/brand/DamBrandMark'
+import AdminBrand from './AdminBrand'
 import type { AdminMetricsResponse } from '@/lib/admin/adminMetricsTypes'
 import {
   buildAdminBranchReport,
@@ -138,7 +138,17 @@ function Menu({
         aria-label="Admin navigation"
       >
         <div className="dam-report-menu__head">
-          <p>Private founder operating system</p>
+          <div className="dam-report-menu__brand">
+            <span className="dam-report-menu__brand-icon">
+              <AdminBrand variant="icon" sizes="40px" />
+            </span>
+            <div>
+              <span className="dam-report-menu__brand-wordmark">
+                <AdminBrand variant="wordmark" sizes="140px" />
+              </span>
+              <p>Private founder operating system</p>
+            </div>
+          </div>
           <button
             type="button"
             className="dam-report-menu__close"
@@ -396,6 +406,14 @@ function ReportBody({ report }: { report: BranchReport }) {
         <NarrativeBlock title="Recommended action" items={report.recommendedAction} />
       </section>
 
+      {report.supplementalPanels?.length ? (
+        <section className="dam-report-detail-grid">
+          {report.supplementalPanels.map((panel) => (
+            <NarrativeBlock key={panel.title} title={panel.title} items={panel.items} />
+          ))}
+        </section>
+      ) : null}
+
       {report.tables.map((table) => (
         <section key={table.title} className="dam-report-data-section">
           <div className="dam-report-section-head">
@@ -455,12 +473,11 @@ function LandingPage({ metrics }: { metrics: AdminMetricsResponse }) {
   return (
     <div className="dam-report-stack">
       <section className="dam-report-hero">
-        <div className="dam-report-hero__brand-mark">
-          <DamBrandMark label="" />
+        <div className="dam-report-hero__lockup">
+          <AdminBrand variant="lockup" priority sizes="(max-width: 768px) 88vw, 620px" />
         </div>
-        <p className="dam-report-overline dam-report-overline--hero">Defence Against Misinformation</p>
-        <h1>DAM</h1>
-        <p className="dam-report-hero__subtitle">Defence Against Misinformation</p>
+        <p className="dam-report-overline dam-report-overline--hero">Founder admin</p>
+        <h1 className="dam-report-hero__title">Defence Against Misinformation</h1>
         <p className="dam-report-hero__secondary">Private founder operating system</p>
         <Link href="/admin/report" className="dam-report-anchor-link">
           Open admin report
@@ -485,6 +502,9 @@ function AdminIndexPage({ metrics }: { metrics: AdminMetricsResponse }) {
   return (
     <div className="dam-report-stack">
       <section className="dam-report-page-head">
+        <span className="dam-report-page-head__brand">
+          <AdminBrand variant="wordmark" priority sizes="(max-width: 768px) 240px, 320px" />
+        </span>
         <p className="dam-report-overline">Admin Report</p>
         <h1>DAM admin report</h1>
         <p>Serious internal reporting across execution, demand, growth quality, and system health.</p>
@@ -508,6 +528,9 @@ function LifetimeIndexPage({ metrics }: { metrics: AdminMetricsResponse }) {
   return (
     <div className="dam-report-stack">
       <section className="dam-report-page-head">
+        <span className="dam-report-page-head__brand">
+          <AdminBrand variant="wordmark" priority sizes="(max-width: 768px) 240px, 320px" />
+        </span>
         <p className="dam-report-overline">Lifetime Report</p>
         <h1>DAM lifetime report</h1>
         <p>Lifetime founder intelligence across growth, behavior, product trust, coverage, and operating history.</p>
@@ -541,6 +564,9 @@ function BranchPage({
   return (
     <div className="dam-report-stack">
       <section className="dam-report-page-head dam-report-page-head--branch">
+        <span className="dam-report-page-head__brand dam-report-page-head__brand--branch">
+          <AdminBrand variant="wordmark" sizes="(max-width: 768px) 220px, 280px" />
+        </span>
         <div className="dam-report-page-head__copy">
           <p className="dam-report-overline">{family === 'admin' ? 'Admin branch' : 'Lifetime branch'}</p>
           <h1>{report.title}</h1>
@@ -781,10 +807,12 @@ export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
 
         <Link href="/admin" className="dam-report-brand" aria-label="Open DAM admin home">
           <span className="dam-report-brand__icon">
-            <DamBrandMark label="" />
+            <AdminBrand variant="icon" sizes="30px" />
           </span>
           <div>
-            <strong>DAM</strong>
+            <span className="dam-report-brand__wordmark">
+              <AdminBrand variant="wordmark" sizes="140px" />
+            </span>
             <span>Private founder operating system</span>
           </div>
         </Link>
@@ -809,10 +837,10 @@ export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
         <section className="dam-report-auth">
           <div className="dam-report-auth__card">
             <div className="dam-report-auth__brand">
-              <span className="dam-report-auth__icon">
-                <DamBrandMark label="" />
+              <span className="dam-report-auth__lockup">
+                <AdminBrand variant="lockup" priority sizes="(max-width: 768px) 220px, 280px" />
               </span>
-              <h1>DAM</h1>
+              <h1>Defence Against Misinformation</h1>
               <p>Private founder operating system</p>
             </div>
 
@@ -876,8 +904,7 @@ function ReportSystemStyles() {
       .dam-report-shell h1,
       .dam-report-shell h2,
       .dam-report-shell h3,
-      .dam-report-shell h4,
-      .dam-report-brand strong {
+      .dam-report-shell h4 {
         font-family:
           "Iowan Old Style",
           "Palatino Linotype",
@@ -959,9 +986,9 @@ function ReportSystemStyles() {
           inset 0 1px 0 rgba(255, 255, 255, 0.06);
       }
 
-      .dam-report-brand .dam-brand-mark__icon-shell {
-        width: 22px;
-        height: 22px;
+      .dam-report-brand__icon {
+        width: 30px;
+        flex: 0 0 30px;
       }
 
       .dam-report-brand div {
@@ -969,12 +996,12 @@ function ReportSystemStyles() {
         gap: 4px;
       }
 
-      .dam-report-brand strong {
-        font-size: 26px;
-        line-height: 0.95;
+      .dam-report-brand__wordmark {
+        display: block;
+        width: clamp(90px, 14vw, 132px);
       }
 
-      .dam-report-brand span {
+      .dam-report-brand div > span:last-child {
         color: rgba(240, 240, 236, 0.62);
         font-size: 12px;
       }
@@ -1033,6 +1060,23 @@ function ReportSystemStyles() {
         align-items: center;
         justify-content: space-between;
         gap: 16px;
+      }
+
+      .dam-report-menu__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .dam-report-menu__brand-icon {
+        width: 40px;
+        flex: 0 0 40px;
+      }
+
+      .dam-report-menu__brand-wordmark {
+        display: block;
+        width: 132px;
+        margin-bottom: 8px;
       }
 
       .dam-report-menu__head p {
@@ -1119,14 +1163,11 @@ function ReportSystemStyles() {
         text-align: center;
       }
 
-      .dam-report-auth__brand .dam-brand-mark__icon-shell,
-      .dam-report-hero__brand-mark .dam-brand-mark__icon-shell {
-        width: 28px;
-        height: 28px;
+      .dam-report-auth__lockup {
+        width: min(280px, 72vw);
       }
 
       .dam-report-auth__brand h1,
-      .dam-report-hero h1,
       .dam-report-page-head h1 {
         margin: 0;
         font-size: clamp(40px, 6vw, 70px);
@@ -1218,6 +1259,19 @@ function ReportSystemStyles() {
         gap: 10px;
       }
 
+      .dam-report-hero__lockup {
+        width: min(620px, 88vw);
+      }
+
+      .dam-report-page-head__brand {
+        display: block;
+        width: clamp(170px, 26vw, 320px);
+      }
+
+      .dam-report-page-head__brand--branch {
+        width: clamp(160px, 22vw, 260px);
+      }
+
       .dam-report-overline {
         color: rgba(240, 240, 236, 0.52);
         font-size: 11px;
@@ -1226,14 +1280,14 @@ function ReportSystemStyles() {
       }
 
       .dam-report-overline--hero {
-        margin-top: 18px;
+        margin-top: 12px;
       }
 
-      .dam-report-hero__subtitle {
+      .dam-report-hero__title {
         margin: 0;
         color: rgba(248, 248, 245, 0.94);
-        font-size: 22px;
-        line-height: 1.3;
+        font-size: clamp(30px, 5vw, 52px);
+        line-height: 1.02;
       }
 
       .dam-report-hero__secondary {

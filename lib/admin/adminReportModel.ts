@@ -22,6 +22,11 @@ export type ReportTable = {
   emptyCopy: string
 }
 
+export type ReportPanel = {
+  title: string
+  items: string[]
+}
+
 export type BranchReport = {
   slug: string
   href: string
@@ -38,6 +43,7 @@ export type BranchReport = {
   currentRisk: string[]
   recommendedAction: string[]
   tables: ReportTable[]
+  supplementalPanels?: ReportPanel[]
   summaryData: {
     branch: string
     family: 'admin' | 'lifetime'
@@ -51,6 +57,7 @@ export type BranchReport = {
     currentRisk: string[]
     recommendedAction: string[]
     tables: ReportTable[]
+    supplementalPanels?: ReportPanel[]
   }
 }
 
@@ -325,6 +332,7 @@ function makeReport(input: Omit<BranchReport, 'summaryData'>): BranchReport {
       currentRisk: input.currentRisk,
       recommendedAction: input.recommendedAction,
       tables: input.tables,
+      supplementalPanels: input.supplementalPanels,
     },
   }
 }
@@ -487,69 +495,93 @@ export function buildAdminBranchReport(
       const status =
         funnel.stages.length === 0
           ? { statusLabel: 'Partial', statusTone: 'muted' as const }
-          : biggestDropOff !== null && biggestDropOff < 0.2
-            ? { statusLabel: 'Leak', statusTone: 'warning' as const }
-            : { statusLabel: 'Tracked', statusTone: 'good' as const }
+          : !funnel.hasComparableConversionChain
+            ? { statusLabel: 'Not comparable', statusTone: 'warning' as const }
+            : biggestDropOff !== null && biggestDropOff < 0.2
+              ? { statusLabel: 'Leak', statusTone: 'warning' as const }
+              : { statusLabel: 'Tracked', statusTone: 'good' as const }
 
       return makeReport({
         slug,
         href: `/admin/report/${slug}`,
         title: 'Funnel',
-        definition: 'Progress from traffic to app opens, claim submissions, and email capture.',
+        definition: 'Honest stage reporting across manual reach, Supabase traffic instrumentation, sessions, claims, and email capture.',
         family: 'admin',
         ...status,
         lastUpdated,
-        dataSourceBadges: ['Supabase tracked', 'Derived', 'Manual baseline'],
+        dataSourceBadges: ['Manual baseline', 'Supabase tracked', 'Derived', 'Partial coverage'],
         keyMetrics: [
           { label: 'Tracked stages', value: formatCount(funnel.stages.length) },
           {
-            label: 'Biggest drop-off',
+            label: 'Biggest comparable drop-off',
             value: funnel.biggestDropOff?.label ?? 'No data yet',
-            note: formatRate(funnel.biggestDropOff?.conversion),
+            note: formatRate(funnel.biggestDropOff?.conversion, 'Not comparable'),
             tone: biggestDropOff !== null && biggestDropOff < 0.2 ? 'warning' : 'neutral',
           },
           {
-            label: 'Strongest stage',
+            label: 'Strongest comparable stage',
             value: funnel.strongestRetainedStage?.label ?? 'No data yet',
-            note: formatRate(funnel.strongestRetainedStage?.conversion),
+            note: formatRate(funnel.strongestRetainedStage?.conversion, 'Not comparable'),
           },
           {
-            label: 'Best source',
-            value: funnel.bestSource?.label ?? 'No data yet',
-            note: funnel.bestSource
-              ? `${formatCount(funnel.bestSource.claimSubmissions)} claim submissions`
-              : 'No source winner yet',
+            label: 'Best attributed source',
+            value: funnel.bestAttributedSource?.label ?? 'Best attributed source unavailable',
+            note: funnel.bestAttributedSource
+              ? `${formatCount(funnel.bestAttributedSource.claimSubmissions)} attributed claims`
+              : 'Attribution coverage gap',
+          },
+          {
+            label: 'Attribution coverage',
+            value: formatRate(funnel.attributionCoverageRate, 'No data yet'),
+            note:
+              funnel.attributionCoverageRate !== null && funnel.attributionCoverageRate < 0.8
+                ? 'Use tracked links consistently before scaling distribution.'
+                : 'Attribution coverage is usable inside current product telemetry.',
           },
         ],
         interpretation: [
           funnel.nextRecommendedAction,
-          funnel.stages.some((stage) => stage.manualBaseline)
-            ? 'Parts of the funnel still depend on manual baselines, so channel-level precision is limited.'
-            : 'The funnel is primarily tracked rather than manually estimated.',
-          funnel.biggestDropOff
-            ? `${funnel.biggestDropOff.label} is the largest visible conversion break in the current flow.`
-            : 'There is not enough tracked stage depth to identify a dominant drop-off yet.',
+          funnel.hasComparableConversionChain
+            ? funnel.biggestDropOff
+              ? `${funnel.biggestDropOff.label} is the largest comparable conversion break in the current flow.`
+              : 'There is not enough comparable stage depth to identify a dominant drop-off yet.'
+            : 'The funnel cannot be interpreted as a clean conversion chain yet because stage scopes are not fully comparable.',
+          funnel.bestAttributedSource
+            ? `${funnel.bestAttributedSource.label} is the cleanest attributed source currently visible in product telemetry.`
+            : 'No attributed source is strong enough to treat as a distribution winner yet.',
         ],
         dataQuality: [
-          `${formatCount(funnel.stages.filter((stage) => stage.status === 'tracked').length)} stages are directly tracked.`,
-          `${formatCount(funnel.stages.filter((stage) => stage.manualBaseline).length)} stages currently rely on manual baselines.`,
-          funnel.stages.some((stage) => stage.status === 'not_tracked')
-            ? 'At least one funnel stage is not tracked yet.'
-            : 'Every exposed funnel stage has some tracked or manual coverage.',
+          funnel.dataQualityNote,
+          `${formatCount(funnel.stages.filter((stage) => stage.status === 'tracked').length)} stages are directly tracked within Supabase telemetry.`,
+          funnel.stages.some((stage) => !stage.isComparableToPrevious)
+            ? 'At least one stage-to-stage conversion is intentionally marked not comparable or not reliable.'
+            : 'Every displayed conversion is comparable inside the current funnel scope.',
         ],
         currentRisk: [
-          biggestDropOff !== null && biggestDropOff < 0.2
-            ? 'A major funnel leak exists before users reach the deeper operating loop.'
-            : 'No catastrophic funnel break is visible from the current stages.',
-          funnel.bestSource === null
-            ? 'There is no reliable source winner yet.'
-            : 'A source winner exists, but it still depends on the current attribution quality.',
+          !funnel.hasComparableConversionChain
+            ? 'Traffic and product telemetry are not aligned enough to support confident growth recommendations.'
+            : biggestDropOff !== null && biggestDropOff < 0.2
+              ? 'A comparable funnel leak exists before users reach the deeper operating loop.'
+              : 'No catastrophic comparable funnel break is visible from the current stages.',
+          funnel.bestAttributedSource === null
+            ? 'There is no reliable attributed source winner yet.'
+            : 'A best attributed source exists, but it still depends on current attribution coverage.',
         ],
         recommendedAction: [funnel.nextRecommendedAction],
+        supplementalPanels: [
+          {
+            title: 'What can be trusted',
+            items: funnel.trustNotes,
+          },
+          {
+            title: 'What cannot be trusted yet',
+            items: funnel.limitations,
+          },
+        ],
         tables: [
           {
             title: 'Stage Detail',
-            columns: ['Stage', 'Count', 'Status', 'Source', 'Conversion from previous'],
+            columns: ['Stage', 'Count', 'Status', 'Source badge', 'Conversion from previous', 'Comparability'],
             rows: funnel.stages.map((stage) => [
               stage.label,
               formatCount(stage.count),
@@ -561,7 +593,10 @@ export function buildAdminBranchReport(
                   ? 'Tracked'
                   : 'Not tracked yet',
               stage.sourceLabel,
-              formatRate(stage.conversionFromPrevious),
+              formatRate(stage.conversionFromPrevious, stage.comparabilityLabel),
+              stage.comparabilityReason
+                ? `${stage.comparabilityLabel}: ${stage.comparabilityReason}`
+                : stage.comparabilityLabel,
             ]),
             emptyCopy: 'No funnel stages yet.',
           },
@@ -571,10 +606,7 @@ export function buildAdminBranchReport(
 
     case 'traffic-sources': {
       const sources = metrics.trafficSourceIntelligence
-      const unattributedRate =
-        metrics.executiveSnapshot.totalClaims > 0
-          ? sources.unattributedClaims / metrics.executiveSnapshot.totalClaims
-          : null
+      const unattributedRate = sources.attributionCoverageRate !== null ? 1 - sources.attributionCoverageRate : null
       const status =
         !sources.available
           ? { statusLabel: 'Partial', statusTone: 'muted' as const }
@@ -594,16 +626,23 @@ export function buildAdminBranchReport(
         keyMetrics: [
           { label: 'Source rows', value: formatCount(sources.rows.length) },
           {
-            label: 'Best source by claims',
-            value: sources.bestSourceByClaims?.label ?? 'No data yet',
-            note: sources.bestSourceByClaims
-              ? `${formatCount(sources.bestSourceByClaims.claimSubmissions)} claims`
-              : sources.note,
+            label: 'Best attributed source by claims',
+            value: sources.bestAttributedSourceByClaims?.label ?? 'Best attributed source unavailable',
+            note: sources.bestAttributedSourceByClaims
+              ? `${formatCount(sources.bestAttributedSourceByClaims.claimSubmissions)} attributed claims`
+              : 'Attribution coverage gap',
           },
           {
-            label: 'Best source by claims/session',
-            value: sources.bestSourceByClaimsPerSession?.label ?? 'No data yet',
-            note: formatDecimal(sources.bestSourceByClaimsPerSession?.claimsPerSession),
+            label: 'Best attributed source by claims/session',
+            value:
+              sources.bestAttributedSourceByClaimsPerSession?.label ??
+              'Best attributed source unavailable',
+            note: formatDecimal(sources.bestAttributedSourceByClaimsPerSession?.claimsPerSession),
+          },
+          {
+            label: 'Attributed claims',
+            value: formatCount(sources.attributedClaims),
+            note: formatRate(sources.attributionCoverageRate),
           },
           {
             label: 'Unattributed claims',
@@ -614,9 +653,9 @@ export function buildAdminBranchReport(
         ],
         interpretation: [
           sources.note,
-          sources.bestSourceByClaims
-            ? `${sources.bestSourceByClaims.label} is the cleanest claim-volume source right now.`
-            : 'No source has enough clear signal to be called a winner.',
+          sources.bestAttributedSourceByClaims
+            ? `${sources.bestAttributedSourceByClaims.label} is the cleanest attributed claim-volume source right now.`
+            : 'No attributed source has enough clear signal to be called a winner.',
           sources.topReferrers.length > 0
             ? `${sources.topReferrers[0].referrer} is the top recorded referrer in the current telemetry.`
             : 'No referrer leadership is visible yet.',
@@ -641,12 +680,38 @@ export function buildAdminBranchReport(
                 .slice(0, 3)
                 .map((item) => item.title)
             : ['No source-specific action is available yet.'],
+        supplementalPanels: [
+          {
+            title: 'What can be trusted',
+            items: [
+              'Claim submissions, email captures, and returning sessions come from Supabase product telemetry.',
+              'Attributed source rows are usable only where attribution was actually carried into logged rows.',
+            ],
+          },
+          {
+            title: 'What cannot be trusted yet',
+            items: [
+              'Unattributed claims are not a winning distribution channel.',
+              'Low attribution coverage means traffic decisions should stay conservative until tracked links are used consistently.',
+            ],
+          },
+        ],
         tables: [
           {
             title: 'Source Performance',
             columns: ['Source / medium', 'Campaign', 'Claims', 'Sessions', 'Claims/session', 'Interpretation'],
             rows: buildTrafficRows(sources.rows),
             emptyCopy: 'No traffic source rows yet.',
+          },
+          {
+            title: 'Attribution Coverage',
+            columns: ['Signal', 'Value'],
+            rows: [
+              ['Attributed claims', formatCount(sources.attributedClaims)],
+              ['Unattributed claims', formatCount(sources.unattributedClaims)],
+              ['Attribution coverage rate', formatRate(sources.attributionCoverageRate)],
+            ],
+            emptyCopy: 'No attribution coverage rows yet.',
           },
           {
             title: 'Top Referrers',
@@ -1530,7 +1595,7 @@ export function buildLifetimeBranchReport(
 
     case 'data-coverage': {
       const status =
-        lifetime.dataCoverage.eventRowsWithVisitorId === 0
+        !lifetime.dataCoverage.vercelConnected || lifetime.dataCoverage.eventRowsWithVisitorId === 0
           ? { statusLabel: 'Coverage gap', statusTone: 'warning' as const }
           : { statusLabel: 'Partial', statusTone: 'muted' as const }
 
@@ -1544,19 +1609,36 @@ export function buildLifetimeBranchReport(
         lastUpdated,
         dataSourceBadges: ['Supabase tracked', 'Partial coverage', 'Vercel Analytics'],
         keyMetrics: [
+          { label: 'Vercel connected', value: lifetime.dataCoverage.vercelConnected ? 'Yes' : 'No' },
+          {
+            label: 'Traffic truth',
+            value: lifetime.dataCoverage.vercelConnected ? 'Split systems' : 'Vercel unavailable',
+            note: lifetime.dataCoverage.trafficTruthStatus,
+          },
           { label: 'Tracked visitors', value: formatCount(lifetime.dataCoverage.trackedVisitors, 'Unavailable') },
           { label: 'Tracked sessions', value: formatCount(lifetime.dataCoverage.trackedSessions) },
-          { label: 'Tracked page views', value: formatCount(lifetime.dataCoverage.trackedPageViewEvents) },
-          { label: 'Tracked app opens', value: formatCount(lifetime.dataCoverage.trackedAppOpenEvents) },
-          { label: 'Event rows with visitor_id', value: formatCount(lifetime.dataCoverage.eventRowsWithVisitorId) },
-          { label: 'Claim rows with attribution', value: formatCount(lifetime.dataCoverage.claimRowsWithAttribution) },
+          {
+            label: 'Vercel visitors',
+            value: metrics.vercelAnalytics.visitors === null ? 'Unavailable' : formatCount(metrics.vercelAnalytics.visitors),
+          },
+          {
+            label: 'Vercel page views',
+            value: metrics.vercelAnalytics.pageViews === null ? 'Unavailable' : formatCount(metrics.vercelAnalytics.pageViews),
+          },
+          {
+            label: 'Attribution coverage',
+            value: formatRate(lifetime.dataCoverage.attributionCoverageRate, 'Unavailable'),
+          },
         ],
         interpretation: [
           lifetime.dataCoverage.mismatchSummary,
-          'Supabase telemetry is the current source of truth for this admin system.',
-          'Vercel web analytics is installed in the app but not connected as a server-side aggregate feed here.',
+          'Supabase telemetry is the source of truth for product usage and attribution inside this admin.',
+          metrics.vercelAnalytics.connected
+            ? 'Vercel aggregate traffic is available separately from Supabase product telemetry.'
+            : `Vercel aggregate traffic is unavailable: ${formatText(lifetime.dataCoverage.vercelUnavailableReason)}.`,
         ],
         dataQuality: [
+          lifetime.dataCoverage.trafficTruthStatus,
           `Event rows with referrer: ${formatCount(lifetime.dataCoverage.eventRowsWithReferrer)}.`,
           `Event rows with landing path: ${formatCount(lifetime.dataCoverage.eventRowsWithLandingPath)}.`,
           `Event rows with any UTM metadata: ${formatCount(lifetime.dataCoverage.eventRowsWithAnyUtm)}.`,
@@ -1565,28 +1647,54 @@ export function buildLifetimeBranchReport(
           lifetime.dataCoverage.eventRowsWithVisitorId === 0
             ? 'Visitor-level analysis is fundamentally limited because visitor_id coverage is missing.'
             : 'Visitor-level analysis is only as strong as current visitor_id coverage.',
-          'Vercel aggregate visitors and page views are unavailable until a server-side integration is added.',
+          metrics.vercelAnalytics.connected
+            ? 'Vercel and Supabase should be compared as different systems, not forced to match.'
+            : 'Vercel aggregate visitors and page views are unavailable, so traffic truth is incomplete.',
         ],
         recommendedAction: [
           lifetime.strategy.biggestAnalyticsBlindSpot,
           'Improve visitor_id and attribution coverage before over-trusting growth conclusions.',
+        ],
+        supplementalPanels: [
+          {
+            title: 'What can be trusted',
+            items: [
+              'Supabase tracked sessions, claims, email captures, latency, and returning sessions measure product telemetry.',
+              'Vercel traffic, when available, measures aggregate site traffic rather than claim-level product behavior.',
+            ],
+          },
+          {
+            title: 'What cannot be trusted yet',
+            items: [
+              'Supabase tracked visitors should not be presented as a replacement for Vercel aggregate visitors.',
+              metrics.vercelAnalytics.connected
+                ? 'The two systems use different scopes and should not be expected to match exactly.'
+                : `Vercel traffic remains unavailable: ${formatText(lifetime.dataCoverage.vercelUnavailableReason)}.`,
+            ],
+          },
         ],
         tables: [
           {
             title: 'Coverage Detail',
             columns: ['Signal', 'Value'],
             rows: [
+              ['Vercel connected', lifetime.dataCoverage.vercelConnected ? 'Yes' : 'No'],
+              ['Vercel visitors', metrics.vercelAnalytics.visitors === null ? 'Unavailable' : formatCount(metrics.vercelAnalytics.visitors)],
+              ['Vercel page views', metrics.vercelAnalytics.pageViews === null ? 'Unavailable' : formatCount(metrics.vercelAnalytics.pageViews)],
+              ['Vercel bounce rate', metrics.vercelAnalytics.bounceRate === null ? 'Unavailable' : formatRate(metrics.vercelAnalytics.bounceRate)],
               ['Tracked visitors', formatCount(lifetime.dataCoverage.trackedVisitors, 'Unavailable')],
               ['Tracked sessions', formatCount(lifetime.dataCoverage.trackedSessions)],
               ['Tracked page_view events', formatCount(lifetime.dataCoverage.trackedPageViewEvents)],
               ['Tracked app_open events', formatCount(lifetime.dataCoverage.trackedAppOpenEvents)],
-              ['Event rows with visitor_id', formatCount(lifetime.dataCoverage.eventRowsWithVisitorId)],
-              ['Event rows with device_type', formatCount(lifetime.dataCoverage.eventRowsWithDeviceType)],
+              ['Event rows with visitor_id / total', `${formatCount(lifetime.dataCoverage.eventRowsWithVisitorId)} / ${formatCount(lifetime.dataCoverage.eventRowsTotal)}`],
+              ['Event rows with device_type / total', `${formatCount(lifetime.dataCoverage.eventRowsWithDeviceType)} / ${formatCount(lifetime.dataCoverage.eventRowsTotal)}`],
               ['Event rows with referrer', formatCount(lifetime.dataCoverage.eventRowsWithReferrer)],
               ['Event rows with landing path', formatCount(lifetime.dataCoverage.eventRowsWithLandingPath)],
               ['Event rows with any UTM', formatCount(lifetime.dataCoverage.eventRowsWithAnyUtm)],
-              ['Claim rows with visitor_id', formatCount(lifetime.dataCoverage.claimRowsWithVisitorId)],
-              ['Claim rows with attribution', formatCount(lifetime.dataCoverage.claimRowsWithAttribution)],
+              ['Claim rows with visitor_id / total', `${formatCount(lifetime.dataCoverage.claimRowsWithVisitorId)} / ${formatCount(lifetime.dataCoverage.claimRowsTotal)}`],
+              ['Claim rows with attribution / total', `${formatCount(lifetime.dataCoverage.claimRowsWithAttribution)} / ${formatCount(lifetime.dataCoverage.claimRowsTotal)}`],
+              ['Attribution coverage rate', formatRate(lifetime.dataCoverage.attributionCoverageRate)],
+              ['Traffic truth status', lifetime.dataCoverage.trafficTruthStatus],
             ],
             emptyCopy: 'No coverage rows yet.',
           },
@@ -1595,47 +1703,71 @@ export function buildLifetimeBranchReport(
     }
 
     case 'vercel-traffic': {
+      const vercel = metrics.vercelAnalytics
+
       return makeReport({
         slug,
         href: `/admin/lifetime/${slug}`,
         title: 'Vercel Traffic',
-        definition: 'Aggregate Vercel traffic coverage status and the current server-side analytics gap.',
+        definition: 'Real Vercel aggregate traffic if available, or an exact unavailable state if the server-side connection is not working.',
         family: 'lifetime',
-        statusLabel: 'Unavailable',
-        statusTone: 'muted',
+        statusLabel: vercel.connected ? 'Connected' : 'Unavailable',
+        statusTone: vercel.connected ? 'good' : 'warning',
         lastUpdated,
         dataSourceBadges: ['Vercel Analytics', 'Partial coverage'],
         keyMetrics: [
-          { label: 'Vercel aggregate visitors', value: 'Unavailable' },
-          { label: 'Vercel page views', value: 'Unavailable' },
-          { label: 'Vercel top pages', value: 'Unavailable' },
-          { label: 'Server-side Vercel API feed', value: 'Not connected' },
+          { label: 'Server-side Vercel API feed', value: vercel.connected ? 'Connected' : 'Unavailable' },
+          { label: 'Visitors', value: vercel.visitors === null ? 'Unavailable' : formatCount(vercel.visitors) },
+          { label: 'Page views', value: vercel.pageViews === null ? 'Unavailable' : formatCount(vercel.pageViews) },
+          { label: 'Bounce rate', value: vercel.bounceRate === null ? 'Unavailable' : formatRate(vercel.bounceRate) },
         ],
         interpretation: [
-          'The app has Vercel Analytics installed client-side, but this admin system does not fetch Vercel aggregate traffic server-side.',
+          vercel.connected
+            ? 'Vercel aggregate traffic is being returned directly from the server-side Vercel integration.'
+            : `Vercel aggregate traffic is unavailable: ${formatText(vercel.unavailableReason)}.`,
           'No Vercel traffic numbers are fabricated in this branch.',
         ],
         dataQuality: [
           'Supabase page_view events still exist elsewhere in admin metrics, but they are not equivalent to Vercel aggregate traffic.',
-          'A server-side Vercel integration is required before this branch can show trustworthy aggregate numbers.',
+          vercel.connected
+            ? `Date range: ${vercel.dateRangeLabel}.`
+            : 'The server-side Vercel connection is not returning aggregate visitor/page-view metrics.',
         ],
         currentRisk: [
-          'Founders cannot currently compare Supabase telemetry against Vercel aggregate traffic from inside this admin.',
+          vercel.connected
+            ? 'Vercel and Supabase should still be read as different measurement systems.'
+            : 'Founders cannot currently compare Supabase telemetry against Vercel aggregate traffic from inside this admin.',
         ],
         recommendedAction: [
-          'Connect a secure server-side Vercel analytics source before treating traffic totals as complete.',
+          vercel.connected
+            ? 'Use Vercel for traffic truth and Supabase for product telemetry, without forcing the systems to match.'
+            : 'Fix the secure server-side Vercel connection before treating traffic totals as complete.',
         ],
         tables: [
           {
             title: 'Current Coverage',
             columns: ['Signal', 'Status', 'Note'],
             rows: [
-              ['Vercel visitors', 'Unavailable', 'Not connected to the current admin metrics service'],
-              ['Vercel page views', 'Unavailable', 'Not connected to the current admin metrics service'],
-              ['Vercel paths/pages', 'Unavailable', 'Not connected to the current admin metrics service'],
+              ['Project linked', vercel.projectLinked ? 'Yes' : 'No', vercel.hasWebAnalytics ? 'Web Analytics enabled on project' : 'Web Analytics not enabled on project'],
+              ['Vercel visitors', vercel.visitors === null ? 'Unavailable' : formatCount(vercel.visitors), vercel.unavailableReason ?? 'Live Vercel aggregate visitor count'],
+              ['Vercel page views', vercel.pageViews === null ? 'Unavailable' : formatCount(vercel.pageViews), vercel.unavailableReason ?? 'Live Vercel aggregate page-view count'],
+              ['Vercel bounce rate', vercel.bounceRate === null ? 'Unavailable' : formatRate(vercel.bounceRate), vercel.unavailableReason ?? 'Live Vercel aggregate bounce rate'],
               ['Supabase page_view events', formatCount(lifetime.dataCoverage.trackedPageViewEvents), 'Available elsewhere as tracked events, not Vercel aggregate traffic'],
             ],
             emptyCopy: 'No Vercel coverage rows yet.',
+          },
+          {
+            title: 'Vercel Breakdown',
+            columns: ['Dimension', 'Value', 'Share'],
+            rows:
+              vercel.topPages.length > 0
+                ? vercel.topPages.map((row) => [row.label, formatCount(row.value), formatRate(row.percentage)])
+                : [
+                    ['Top pages', 'Unavailable', formatText(vercel.unavailableReason)],
+                    ['Top referrers', 'Unavailable', formatText(vercel.unavailableReason)],
+                    ['Countries / devices', 'Unavailable', formatText(vercel.unavailableReason)],
+                  ],
+            emptyCopy: 'No Vercel breakdown rows yet.',
           },
         ],
       })

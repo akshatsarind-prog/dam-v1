@@ -7,6 +7,7 @@ import type {
   AdminCategoryBreakdownRecord,
   AdminDeviceSplit,
   AdminFunnelStage,
+  AdminFunnelStageScope,
   AdminFlowSummary,
   AdminGrowthSignals,
   AdminKeywordSignal,
@@ -30,6 +31,7 @@ import type {
   AdminTimelinePoint,
   AdminTrendSignal,
   AdminValueShare,
+  AdminVercelAnalyticsSnapshot,
   CampaignPerformance,
   CategoryIntelligence,
   AdminDailySnapshot,
@@ -44,6 +46,7 @@ import type {
   TrafficSourceIntelligence,
   VerdictBreakdown,
 } from '@/lib/admin/adminMetricsTypes'
+import { getVercelAnalyticsSnapshot } from '@/lib/admin/vercelAnalyticsService'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
 const CLAIM_LOGS_TABLE = 'dam_claim_logs'
@@ -52,8 +55,6 @@ const EVENTS_TABLE = 'dam_events'
 const CLAIM_TEXT_MAX_LENGTH = 280
 const AGGREGATION_BATCH_SIZE = 1000
 const MANUAL_DISTRIBUTED_BASELINE = 1000
-const MANUAL_LANDING_VISITORS_BASELINE = 200
-const MANUAL_APP_VISITORS_BASELINE = 61
 const RETURNING_SESSION_GAP_MS = 30 * 60 * 1000
 const PAGE_VIEW_EVENT_NAMES = new Set(['page_view', 'campaign_page_view'] as const)
 const CTA_EVENT_NAMES = new Set([
@@ -250,8 +251,11 @@ const emptyTrafficSourceIntelligence: TrafficSourceIntelligence = {
   bestSourceByClaims: null,
   bestSourceByClaimsPerSession: null,
   bestCampaignByClaimSubmissions: null,
+  bestAttributedSourceByClaims: null,
+  bestAttributedSourceByClaimsPerSession: null,
   attributedClaims: 0,
   unattributedClaims: 0,
+  attributionCoverageRate: null,
   topReferrers: [],
 }
 
@@ -260,6 +264,12 @@ const emptyFunnelIntelligence: FunnelIntelligence = {
   biggestDropOff: null,
   strongestRetainedStage: null,
   bestSource: null,
+  bestAttributedSource: null,
+  attributionCoverageRate: null,
+  dataQualityNote: 'Not enough data yet.',
+  trustNotes: [],
+  limitations: [],
+  hasComparableConversionChain: false,
   nextRecommendedAction: 'Not enough data yet.',
 }
 
@@ -453,13 +463,23 @@ const emptyLifetimeIntelligence: AdminLifetimeIntelligence = {
     trackedSessions: 0,
     trackedPageViewEvents: 0,
     trackedAppOpenEvents: 0,
+    eventRowsTotal: 0,
     eventRowsWithVisitorId: 0,
     eventRowsWithDeviceType: 0,
     eventRowsWithReferrer: 0,
     eventRowsWithLandingPath: 0,
     eventRowsWithAnyUtm: 0,
+    claimRowsTotal: 0,
     claimRowsWithVisitorId: 0,
     claimRowsWithAttribution: 0,
+    attributionCoverageRate: null,
+    vercelConnected: false,
+    vercelVisitorsAvailable: false,
+    vercelPageViewsAvailable: false,
+    vercelBounceRateAvailable: false,
+    vercelUnavailableReason: 'Vercel Analytics is not configured.',
+    trafficTruthStatus:
+      'Traffic truth is incomplete because Vercel aggregate analytics are unavailable and Supabase telemetry reflects product instrumentation only.',
     deviceSplitSource: 'Supabase logged events only',
     mismatchSummary: 'Not enough data yet.',
   },
@@ -467,6 +487,26 @@ const emptyLifetimeIntelligence: AdminLifetimeIntelligence = {
     milestones: [],
     hasEnoughHistoricalData: false,
   },
+}
+
+const emptyVercelAnalytics: AdminVercelAnalyticsSnapshot = {
+  configured: false,
+  connected: false,
+  projectLinked: false,
+  hasWebAnalytics: false,
+  hasData: false,
+  visitors: null,
+  pageViews: null,
+  bounceRate: null,
+  topPages: [],
+  topReferrers: [],
+  countries: [],
+  devices: [],
+  dateRangeLabel: 'Last 30 days',
+  since: null,
+  until: null,
+  unavailableReason: 'Vercel Analytics is not configured.',
+  sourceLabel: 'Vercel Analytics REST API',
 }
 
 const emptyMetrics: AdminMetricsResponse = {
@@ -484,6 +524,7 @@ const emptyMetrics: AdminMetricsResponse = {
   recentClaims: [],
   operatorRecommendations: [],
   automationIntelligence: emptyAutomationIntelligence,
+  vercelAnalytics: emptyVercelAnalytics,
   lifetimeIntelligence: emptyLifetimeIntelligence,
   error: null,
 }
@@ -1286,12 +1327,24 @@ function buildSessionContext(
 
 function computeCampaignPerformance(
   rows: AdminTrafficSourceRecord[],
-  mode: 'claims' | 'claims_per_session'
+  mode: 'claims' | 'claims_per_session',
+  options?: {
+    includeUnattributed?: boolean
+  }
 ) {
+  const scopedRows = options?.includeUnattributed
+    ? rows
+    : rows.filter(
+        (row) =>
+          row.source !== 'unattributed' &&
+          row.medium !== 'unattributed' &&
+          row.campaign !== 'unattributed'
+      )
+
   const eligibleRows =
     mode === 'claims'
-      ? rows.filter((row) => row.claimSubmissions > 0)
-      : rows.filter(
+      ? scopedRows.filter((row) => row.claimSubmissions > 0)
+      : scopedRows.filter(
           (row) => row.claimSubmissions > 0 && row.claimsPerSession !== null && row.uniqueSessions > 0
         )
 
@@ -1468,7 +1521,9 @@ export function groupByTrafficSource(
       const claimsPerSession =
         uniqueSessions > 0 ? Number((aggregate.claimSubmissions / uniqueSessions).toFixed(2)) : null
       const interpretation =
-        aggregate.claimSubmissions > 0 && claimsPerSession !== null && claimsPerSession >= 1.5
+        aggregate.source === 'unattributed' && aggregate.claimSubmissions > 0
+          ? 'Attribution coverage gap'
+          : aggregate.claimSubmissions > 0 && claimsPerSession !== null && claimsPerSession >= 1.5
           ? 'High-intent traffic'
           : aggregate.claimSubmissions > 0 && aggregate.eventCount > 0
             ? 'Traffic is producing claims'
@@ -1504,8 +1559,14 @@ function buildFunnelStage(input: {
   status: AdminFunnelStage['status']
   manualBaseline: boolean
   sourceLabel: string
+  scope: AdminFunnelStageScope
   previousCount: number | null
+  isComparableToPrevious?: boolean
+  comparabilityReason?: string | null
 }) {
+  const isComparableToPrevious =
+    input.isComparableToPrevious ?? (input.count !== null && input.previousCount !== null)
+
   return {
     key: input.key,
     label: input.label,
@@ -1513,70 +1574,81 @@ function buildFunnelStage(input: {
     status: input.status,
     manualBaseline: input.manualBaseline,
     sourceLabel: input.sourceLabel,
+    scope: input.scope,
     conversionFromPrevious:
-      input.count !== null && input.previousCount !== null && input.previousCount > 0
+      isComparableToPrevious && input.count !== null && input.previousCount !== null && input.previousCount > 0
         ? input.count / input.previousCount
         : null,
+    isComparableToPrevious,
+    comparabilityLabel: isComparableToPrevious
+      ? 'Comparable'
+      : input.count === null || input.previousCount === null || input.previousCount <= 0
+        ? 'Not reliable'
+        : 'Not comparable',
+    comparabilityReason:
+      input.comparabilityReason ??
+      (isComparableToPrevious
+        ? null
+        : input.count === null || input.previousCount === null || input.previousCount <= 0
+          ? 'Previous stage is unavailable or zero, so conversion is not reliable.'
+          : 'Previous stage uses a different tracking scope, so conversion is not comparable.'),
   } satisfies AdminFunnelStage
 }
 
 export function computeFunnelMetrics(input: {
   totalClaims: number
   pageViewSessions: number
-  appOpenSessions: number
+  trackedSessions: number
   emailCaptures: number | null
   betaRowsAvailable: boolean
-  bestSource: CampaignPerformance | null
+  bestAttributedSource: CampaignPerformance | null
+  attributionCoverageRate: number | null
 }) {
   const distributedStage = buildFunnelStage({
     key: 'distributed',
-    label: 'Reached / Distributed',
+    label: 'Manual reach',
     count: MANUAL_DISTRIBUTED_BASELINE,
     status: 'manual',
     manualBaseline: true,
     sourceLabel: 'Manual baseline',
+    scope: 'manual_baseline',
     previousCount: null,
+    isComparableToPrevious: false,
+    comparabilityReason: 'Manual reach is a baseline, not a tracked upstream stage.',
   })
 
-  const landingStage = input.pageViewSessions > 0
-    ? buildFunnelStage({
-        key: 'landing_visitors',
-        label: 'Landing visitors',
-        count: input.pageViewSessions,
-        status: 'tracked',
-        manualBaseline: false,
-        sourceLabel: 'Tracked sessions',
-        previousCount: distributedStage.count,
-      })
-    : buildFunnelStage({
-        key: 'landing_visitors',
-        label: 'Landing visitors',
-        count: MANUAL_LANDING_VISITORS_BASELINE,
-        status: 'manual',
-        manualBaseline: true,
-        sourceLabel: 'Manual baseline',
-        previousCount: distributedStage.count,
-      })
+  const landingStage = buildFunnelStage({
+    key: 'landing_page_views',
+    label: 'Tracked landing/page_view events',
+    count: input.pageViewSessions > 0 ? input.pageViewSessions : null,
+    status: input.pageViewSessions > 0 ? 'tracked' : 'not_tracked',
+    manualBaseline: false,
+    sourceLabel: 'Supabase page_view events',
+    scope: 'supabase_page_views',
+    previousCount: distributedStage.count,
+    isComparableToPrevious: false,
+    comparabilityReason:
+      'Landing visitors are Supabase-tracked only and may exclude Vercel page traffic, direct visits, and partially attributed sessions.',
+  })
 
-  const appStage = input.appOpenSessions > 0
-    ? buildFunnelStage({
-        key: 'app_visitors',
-        label: 'App visitors / sessions',
-        count: input.appOpenSessions,
-        status: 'tracked',
-        manualBaseline: false,
-        sourceLabel: 'Tracked sessions',
-        previousCount: landingStage.count,
-      })
-    : buildFunnelStage({
-        key: 'app_visitors',
-        label: 'App visitors / sessions',
-        count: MANUAL_APP_VISITORS_BASELINE,
-        status: 'manual',
-        manualBaseline: true,
-        sourceLabel: 'Manual baseline',
-        previousCount: landingStage.count,
-      })
+  const sessionStage = buildFunnelStage({
+    key: 'supabase_sessions',
+    label: 'Supabase tracked sessions',
+    count: input.trackedSessions > 0 ? input.trackedSessions : null,
+    status: input.trackedSessions > 0 ? 'tracked' : 'not_tracked',
+    manualBaseline: false,
+    sourceLabel: 'Supabase session telemetry',
+    scope: 'supabase_sessions',
+    previousCount: landingStage.count,
+    isComparableToPrevious:
+      input.pageViewSessions > 0 && input.trackedSessions > 0
+        ? input.trackedSessions <= input.pageViewSessions
+        : false,
+    comparabilityReason:
+      input.pageViewSessions > 0 && input.trackedSessions > input.pageViewSessions
+        ? 'Supabase tracked sessions can exceed tracked landing/page_view events because these stages cover different instrumentation scopes.'
+        : 'Landing and session scopes are only comparable when session coverage does not exceed tracked landing/page_view coverage.',
+  })
 
   const claimStage = buildFunnelStage({
     key: 'claim_submissions',
@@ -1584,33 +1656,44 @@ export function computeFunnelMetrics(input: {
     count: input.totalClaims,
     status: 'tracked',
     manualBaseline: false,
-    sourceLabel: 'Tracked claims',
-    previousCount: appStage.count,
+    sourceLabel: 'Supabase claim logs',
+    scope: 'supabase_claims',
+    previousCount: sessionStage.count,
+    isComparableToPrevious:
+      sessionStage.count !== null && input.totalClaims <= sessionStage.count,
+    comparabilityReason:
+      sessionStage.count !== null && input.totalClaims > sessionStage.count
+        ? 'Claim submissions exceed tracked sessions, so this conversion is not reliable.'
+        : null,
   })
 
   const emailStage = input.betaRowsAvailable
     ? buildFunnelStage({
         key: 'email_captures',
-        label: 'Email captures / signups',
+        label: 'Email captures',
         count: input.emailCaptures ?? 0,
         status: 'tracked',
         manualBaseline: false,
-        sourceLabel: 'Tracked signups',
+        sourceLabel: 'Supabase beta users',
+        scope: 'supabase_signups',
         previousCount: claimStage.count,
       })
     : buildFunnelStage({
         key: 'email_captures',
-        label: 'Email captures / signups',
+        label: 'Email captures',
         count: null,
         status: 'not_tracked',
         manualBaseline: false,
-        sourceLabel: 'Not tracked yet',
+        sourceLabel: 'Unavailable',
+        scope: 'unavailable',
         previousCount: claimStage.count,
+        isComparableToPrevious: false,
+        comparabilityReason: 'Email capture tracking is unavailable from the current dataset.',
       })
 
-  const stages = [distributedStage, landingStage, appStage, claimStage, emailStage]
+  const stages = [distributedStage, landingStage, sessionStage, claimStage, emailStage]
   const comparableStages = stages
-    .filter((stage) => stage.conversionFromPrevious !== null)
+    .filter((stage) => stage.isComparableToPrevious && stage.conversionFromPrevious !== null)
     .map((stage) => ({
       label: `${stage.label} from previous stage`,
       conversion: stage.conversionFromPrevious,
@@ -1625,21 +1708,40 @@ export function computeFunnelMetrics(input: {
     : null
 
   const nextRecommendedAction =
-    biggestDropOff?.label.includes('App visitors')
-      ? 'Reduce friction between opening the app and submitting the first claim.'
-      : biggestDropOff?.label.includes('Landing visitors')
-        ? 'Tighten the landing message and CTA handoff before pushing more reach.'
+    !comparableStages.length
+      ? 'The funnel cannot be interpreted as a clean conversion chain yet because traffic scope and product telemetry are not fully aligned. Improve attribution coverage before making channel decisions.'
+      : biggestDropOff?.label.includes('Supabase tracked sessions')
+        ? 'Tighten the handoff between tracked landing activity and product sessions before scaling traffic.'
+        : biggestDropOff?.label.includes('Claim submissions')
+          ? 'Reduce friction between tracked sessions and the first claim submission.'
         : biggestDropOff?.label.includes('Email captures')
           ? 'Improve the email capture timing or copy after results are shown.'
-          : input.bestSource
-            ? `Keep an eye on ${input.bestSource.label} while the funnel stays stable.`
-            : 'Not enough data yet.'
+          : input.bestAttributedSource
+            ? `Keep watching ${input.bestAttributedSource.label} only after traffic scope remains stable.`
+            : 'Use tracked links consistently before scaling distribution.'
 
   return {
     stages,
     biggestDropOff,
     strongestRetainedStage,
-    bestSource: input.bestSource,
+    bestSource: input.bestAttributedSource,
+    bestAttributedSource: input.bestAttributedSource,
+    attributionCoverageRate: input.attributionCoverageRate,
+    dataQualityNote:
+      'Landing visitors are Supabase-tracked only and may exclude Vercel page traffic, direct visits, and partially attributed sessions.',
+    trustNotes: [
+      'Manual reach is a baseline only, not a tracked traffic metric.',
+      'Supabase tracked sessions, claims, and email captures are product telemetry and can be trusted within that scope.',
+      'Tracked landing/page_view events are Supabase-only and are not equivalent to Vercel aggregate traffic.',
+    ],
+    limitations: [
+      'Do not interpret this as a clean traffic-to-product conversion chain unless stages are explicitly marked comparable.',
+      input.attributionCoverageRate !== null && input.attributionCoverageRate < 0.8
+        ? 'Attribution coverage is low enough that source-level funnel interpretation is still unsafe.'
+        : 'Attribution coverage is usable, but traffic scope still differs between Supabase and Vercel.',
+      'Impossible conversion percentages are suppressed and shown as not comparable or not reliable.',
+    ],
+    hasComparableConversionChain: comparableStages.length > 0,
     nextRecommendedAction,
   } satisfies FunnelIntelligence
 }
@@ -2189,13 +2291,15 @@ export function computeOperatorRecommendations(input: {
   }
 
   if (
-    input.executiveSnapshot.totalClaims > 0 &&
-    input.executiveSnapshot.unattributedClaims / input.executiveSnapshot.totalClaims >= 0.2
+    input.trafficSourceIntelligence.attributionCoverageRate !== null &&
+    input.trafficSourceIntelligence.attributionCoverageRate < 0.8
   ) {
     recommendations.push({
       priority: 'high',
-      title: 'Use tracked links more consistently',
-      detail: 'A meaningful share of claims still arrive without logged attribution.',
+      title: 'Use tracked links consistently before scaling distribution',
+      detail: `Attribution coverage is only ${(
+        input.trafficSourceIntelligence.attributionCoverageRate * 100
+      ).toFixed(1)}%, so channel decisions are still unreliable.`,
     })
   }
 
@@ -2261,8 +2365,9 @@ export function computeOperatorRecommendations(input: {
   }
 
   if (
-    input.funnelIntelligence.biggestDropOff?.label.includes('App visitors') ||
-    input.funnelIntelligence.biggestDropOff?.label.includes('Claim submissions')
+    input.funnelIntelligence.hasComparableConversionChain &&
+    (input.funnelIntelligence.biggestDropOff?.label.includes('Supabase tracked sessions') ||
+      input.funnelIntelligence.biggestDropOff?.label.includes('Claim submissions'))
   ) {
     recommendations.push({
       priority: 'high',
@@ -2276,7 +2381,7 @@ export function computeOperatorRecommendations(input: {
       priority: 'low',
       title: 'Keep monitoring the strongest attributed source',
       detail:
-        input.trafficSourceIntelligence.bestSourceByClaims?.label ??
+        input.trafficSourceIntelligence.bestAttributedSourceByClaims?.label ??
         'The current metrics do not show a single urgent operator action.',
     })
   }
@@ -2339,14 +2444,14 @@ function computeAutomationRecommendations(input: {
   const bestSourceByClaimsPerSession = input.trafficSourceIntelligence.bestSourceByClaimsPerSession
 
   if (
-    input.growthSignals.unattributedTrafficPercentage !== null &&
-    input.growthSignals.unattributedTrafficPercentage >= 0.2
+    input.trafficSourceIntelligence.attributionCoverageRate !== null &&
+    input.trafficSourceIntelligence.attributionCoverageRate < 0.8
   ) {
     recommendations.push({
       priority: 'high',
-      title: 'Use tracked links more consistently',
-      detail: `Unattributed traffic is still ${(
-        input.growthSignals.unattributedTrafficPercentage * 100
+      title: 'Use tracked links consistently before scaling distribution',
+      detail: `Attribution coverage is only ${(
+        input.trafficSourceIntelligence.attributionCoverageRate * 100
       ).toFixed(1)}% of logged claim volume.`,
     })
   }
@@ -3116,6 +3221,7 @@ function computeLifetimeIntelligence(input: {
   operationalHealth: OperationalHealth
   emailCaptureIntelligence: EmailCaptureIntelligence
   operatorRecommendations: OperatorRecommendation[]
+  vercelAnalytics: AdminVercelAnalyticsSnapshot
 }) {
   const sessionAggregates = Array.from(input.sessionContext.sessionAggregates.values())
   const visitors = new Set(
@@ -3275,8 +3381,14 @@ function computeLifetimeIntelligence(input: {
     )
     .slice(0, 6)
 
-  const topAcquisitionChannels = input.trafficRows.slice(0, 6)
-  const bestConvertingSources = input.trafficRows
+  const attributedTrafficRows = input.trafficRows.filter(
+    (row) =>
+      row.source !== 'unattributed' &&
+      row.medium !== 'unattributed' &&
+      row.campaign !== 'unattributed'
+  )
+  const topAcquisitionChannels = attributedTrafficRows.slice(0, 6)
+  const bestConvertingSources = attributedTrafficRows
     .filter((row) => row.claimsPerSession !== null && row.uniqueSessions >= 2)
     .slice()
     .sort(
@@ -3285,7 +3397,7 @@ function computeLifetimeIntelligence(input: {
         right.claimSubmissions - left.claimSubmissions
     )
     .slice(0, 5)
-  const worstConvertingSources = input.trafficRows
+  const worstConvertingSources = attributedTrafficRows
     .filter((row) => row.uniqueSessions >= 2)
     .slice()
     .sort(
@@ -3456,7 +3568,9 @@ function computeLifetimeIntelligence(input: {
     emptyClaimRows,
     attributionFailures: input.trafficSourceIntelligence.unattributedClaims,
     operationalUptimeIndicator: deriveOperationalUptimeIndicator(timelinePoints),
-    vercelFunctionHealth: null,
+    vercelFunctionHealth: input.vercelAnalytics.connected
+      ? 'Connected'
+      : input.vercelAnalytics.unavailableReason,
     deploymentCount: null,
     currentReliabilityStatus: deriveReliabilityStatus({
       averageLatencyMs: input.operationalHealth.averageLatencyMs,
@@ -3541,13 +3655,24 @@ function computeLifetimeIntelligence(input: {
     trackedSessions: sessionAggregates.length,
     trackedPageViewEvents: pageViewCount,
     trackedAppOpenEvents: appOpenCount,
+    eventRowsTotal: input.eventRows.length,
     eventRowsWithVisitorId,
     eventRowsWithDeviceType,
     eventRowsWithReferrer,
     eventRowsWithLandingPath,
     eventRowsWithAnyUtm,
+    claimRowsTotal: input.normalizedClaims.length,
     claimRowsWithVisitorId,
     claimRowsWithAttribution,
+    attributionCoverageRate: input.trafficSourceIntelligence.attributionCoverageRate,
+    vercelConnected: input.vercelAnalytics.connected,
+    vercelVisitorsAvailable: input.vercelAnalytics.visitors !== null,
+    vercelPageViewsAvailable: input.vercelAnalytics.pageViews !== null,
+    vercelBounceRateAvailable: input.vercelAnalytics.bounceRate !== null,
+    vercelUnavailableReason: input.vercelAnalytics.unavailableReason,
+    trafficTruthStatus: input.vercelAnalytics.connected
+      ? 'Traffic truth is split between Vercel aggregate traffic and Supabase product telemetry. These systems should be compared, not forced to match.'
+      : 'Traffic truth is incomplete because Vercel aggregate analytics are unavailable and Supabase telemetry reflects product instrumentation only.',
     deviceSplitSource: 'Supabase logged events only',
     mismatchSummary:
       eventRowsWithVisitorId === 0
@@ -3632,10 +3757,11 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     })
   }
 
-  const [claimResult, eventResult, betaUserResult] = await Promise.all([
+  const [claimResult, eventResult, betaUserResult, vercelAnalytics] = await Promise.all([
     readAllRows<ClaimLogRow>(CLAIM_LOGS_TABLE),
     readAllRows<EventRow>(EVENTS_TABLE),
     readAllRows<BetaUserRow>(BETA_USERS_TABLE),
+    getVercelAnalyticsSnapshot(),
   ])
 
   if (!claimResult.available) {
@@ -3691,18 +3817,25 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     trafficRows,
     'claims_per_session'
   )
+  const attributedClaims = normalizedClaims.filter((claim) => claim.attributed).length
+  const unattributedClaims = normalizedClaims.filter((claim) => !claim.attributed).length
+  const attributionCoverageRate =
+    normalizedClaims.length > 0 ? attributedClaims / normalizedClaims.length : null
   const trafficSourceIntelligence = {
     available: trafficRows.length > 0,
     note:
       eventResult.available
-        ? 'Tracked events, not exact visitors. Unique visitors only count rows with logged visitor_id.'
+        ? 'Supabase product telemetry only. These rows are not Vercel aggregate visitors or page views. Unique visitors only count rows with logged visitor_id.'
         : 'Tracked events are not available yet. Claims and attribution rows still render.',
     rows: trafficRows,
     bestSourceByClaims,
     bestSourceByClaimsPerSession,
     bestCampaignByClaimSubmissions: bestSourceByClaims,
-    attributedClaims: normalizedClaims.filter((claim) => claim.attributed).length,
-    unattributedClaims: normalizedClaims.filter((claim) => !claim.attributed).length,
+    bestAttributedSourceByClaims: bestSourceByClaims,
+    bestAttributedSourceByClaimsPerSession: bestSourceByClaimsPerSession,
+    attributedClaims,
+    unattributedClaims,
+    attributionCoverageRate,
     topReferrers: sessionContext.topReferrers,
   } satisfies TrafficSourceIntelligence
 
@@ -3712,19 +3845,15 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
       .map((row) => readOptionalString(row.session_id))
       .filter((value): value is string => Boolean(value))
   ).size
-  const appOpenSessions = new Set(
-    eventResult.rows
-      .filter((row) => readString(row.event_name) === 'app_open_click')
-      .map((row) => readOptionalString(row.session_id))
-      .filter((value): value is string => Boolean(value))
-  ).size
+  const trackedSessions = sessionContext.sessionAggregates.size
   const funnelIntelligence = computeFunnelMetrics({
     totalClaims: normalizedClaims.length,
     pageViewSessions,
-    appOpenSessions,
+    trackedSessions,
     emailCaptures: betaUserResult.available ? betaUsers.length : null,
     betaRowsAvailable: betaUserResult.available,
-    bestSource: bestSourceByClaims,
+    bestAttributedSource: bestSourceByClaims,
+    attributionCoverageRate,
   })
   const retentionIntelligence = computeRetentionMetrics(normalizedClaims, sessionContext)
   const categoryIntelligence = computeCategoryIntelligence(normalizedClaims)
@@ -3778,6 +3907,7 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     operationalHealth,
     emailCaptureIntelligence,
     operatorRecommendations,
+    vercelAnalytics,
   })
 
   return buildMetricsResponse({
@@ -3802,6 +3932,7 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     recentClaims: normalizedClaims.slice(0, 20),
     operatorRecommendations,
     automationIntelligence,
+    vercelAnalytics,
     lifetimeIntelligence,
     error: null,
   })

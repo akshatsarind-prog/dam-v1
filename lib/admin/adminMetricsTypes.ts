@@ -97,12 +97,22 @@ export type TrafficSourceIntelligence = {
   bestSourceByClaims: CampaignPerformance | null
   bestSourceByClaimsPerSession: CampaignPerformance | null
   bestCampaignByClaimSubmissions: CampaignPerformance | null
+  bestAttributedSourceByClaims: CampaignPerformance | null
+  bestAttributedSourceByClaimsPerSession: CampaignPerformance | null
   attributedClaims: number
   unattributedClaims: number
+  attributionCoverageRate: number | null
   topReferrers: AdminReferrerRecord[]
 }
 
 export type AdminFunnelStageStatus = 'tracked' | 'manual' | 'not_tracked'
+export type AdminFunnelStageScope =
+  | 'manual_baseline'
+  | 'supabase_page_views'
+  | 'supabase_sessions'
+  | 'supabase_claims'
+  | 'supabase_signups'
+  | 'unavailable'
 
 export type AdminFunnelStage = {
   key: string
@@ -111,7 +121,11 @@ export type AdminFunnelStage = {
   status: AdminFunnelStageStatus
   manualBaseline: boolean
   sourceLabel: string
+  scope: AdminFunnelStageScope
   conversionFromPrevious: number | null
+  isComparableToPrevious: boolean
+  comparabilityLabel: string
+  comparabilityReason: string | null
 }
 
 export type FunnelStageInsight = {
@@ -124,6 +138,12 @@ export type FunnelIntelligence = {
   biggestDropOff: FunnelStageInsight | null
   strongestRetainedStage: FunnelStageInsight | null
   bestSource: CampaignPerformance | null
+  bestAttributedSource: CampaignPerformance | null
+  attributionCoverageRate: number | null
+  dataQualityNote: string
+  trustNotes: string[]
+  limitations: string[]
+  hasComparableConversionChain: boolean
   nextRecommendedAction: string
 }
 
@@ -346,6 +366,32 @@ export type AdminTimelineMilestone = {
   detail: string
 }
 
+export type AdminVercelAnalyticsBreakdown = {
+  label: string
+  value: number
+  percentage: number | null
+}
+
+export type AdminVercelAnalyticsSnapshot = {
+  configured: boolean
+  connected: boolean
+  projectLinked: boolean
+  hasWebAnalytics: boolean
+  hasData: boolean
+  visitors: number | null
+  pageViews: number | null
+  bounceRate: number | null
+  topPages: AdminVercelAnalyticsBreakdown[]
+  topReferrers: AdminVercelAnalyticsBreakdown[]
+  countries: AdminVercelAnalyticsBreakdown[]
+  devices: AdminVercelAnalyticsBreakdown[]
+  dateRangeLabel: string
+  since: string | null
+  until: string | null
+  unavailableReason: string | null
+  sourceLabel: string
+}
+
 export type AdminLifetimeSnapshot = {
   totalVisitors: number | null
   totalSessions: number
@@ -441,13 +487,22 @@ export type AdminLifetimeDataCoverage = {
   trackedSessions: number
   trackedPageViewEvents: number
   trackedAppOpenEvents: number
+  eventRowsTotal: number
   eventRowsWithVisitorId: number
   eventRowsWithDeviceType: number
   eventRowsWithReferrer: number
   eventRowsWithLandingPath: number
   eventRowsWithAnyUtm: number
+  claimRowsTotal: number
   claimRowsWithVisitorId: number
   claimRowsWithAttribution: number
+  attributionCoverageRate: number | null
+  vercelConnected: boolean
+  vercelVisitorsAvailable: boolean
+  vercelPageViewsAvailable: boolean
+  vercelBounceRateAvailable: boolean
+  vercelUnavailableReason: string | null
+  trafficTruthStatus: string
   deviceSplitSource: string
   mismatchSummary: string
 }
@@ -488,6 +543,7 @@ export type AdminMetricsResponse = {
   recentClaims: AdminClaimRecord[]
   operatorRecommendations: OperatorRecommendation[]
   automationIntelligence: AdminAutomationIntelligence
+  vercelAnalytics: AdminVercelAnalyticsSnapshot
   lifetimeIntelligence: AdminLifetimeIntelligence
   error: AdminApiError | null
 }

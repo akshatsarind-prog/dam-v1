@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
-import DamBrandMark from '@/components/brand/DamBrandMark'
+import AdminBrand from './AdminBrand'
 import type {
   AdminClaimCategory,
   AdminClaimRecord,
@@ -614,9 +614,13 @@ export function AdminMetricsGate({
             <div className="dam-admin-shell-header__spacer" />
             <Link className="dam-admin-shell-brand" href="/" aria-label="Return to DAM home">
               <span className="dam-admin-shell-brand__halo" />
-              <DamBrandMark label="" />
+              <span className="dam-admin-shell-brand__icon">
+                <AdminBrand variant="icon" sizes="28px" />
+              </span>
               <div className="dam-admin-shell-brand__copy">
-                <strong>DAM</strong>
+                <span className="dam-admin-shell-brand__wordmark">
+                  <AdminBrand variant="wordmark" sizes="120px" />
+                </span>
                 <span>Private admin</span>
               </div>
             </Link>
@@ -693,9 +697,13 @@ export function AdminMetricsGate({
 
           <Link className="dam-admin-shell-brand" href={homeHref} aria-label="Open DAM admin home">
             <span className="dam-admin-shell-brand__halo" />
-            <DamBrandMark label="" />
+            <span className="dam-admin-shell-brand__icon">
+              <AdminBrand variant="icon" sizes="28px" />
+            </span>
             <div className="dam-admin-shell-brand__copy">
-              <strong>DAM</strong>
+              <span className="dam-admin-shell-brand__wordmark">
+                <AdminBrand variant="wordmark" sizes="140px" />
+              </span>
               <span>Private founder operating system</span>
             </div>
           </Link>
@@ -766,10 +774,10 @@ export function AdminHomeCardGrid({ generatedAt }: { generatedAt: string }) {
   return (
     <section className="dam-admin-lobby" aria-label="DAM admin home">
       <div className="dam-admin-lobby__brand">
-        <DamBrandMark label="" />
+        <AdminBrand variant="lockup" priority sizes="(max-width: 768px) 240px, 340px" />
       </div>
-      <p className="dam-admin-lobby__eyebrow">Private admin</p>
-      <h1>DAM</h1>
+      <p className="dam-admin-lobby__eyebrow">Defence Against Misinformation</p>
+      <h1>Private founder operating system</h1>
       <p className="dam-admin-lobby__description">Private founder operating system</p>
       <span className="dam-admin-lobby__meta">Private admin · Updated {formatDateTime(generatedAt)}</span>
     </section>
@@ -812,9 +820,16 @@ function AdminNavigationDrawer({
         aria-label="Admin navigation"
       >
         <div className="dam-admin-menu-drawer__header">
-          <div>
-            <p className="dam-admin-menu-drawer__eyebrow">Navigation</p>
-            <h2>DAM admin</h2>
+          <div className="dam-admin-menu-drawer__brand">
+            <span className="dam-admin-menu-drawer__brand-mark">
+              <AdminBrand variant="icon" sizes="44px" />
+            </span>
+            <div>
+              <span className="dam-admin-menu-drawer__brand-wordmark">
+                <AdminBrand variant="wordmark" sizes="150px" />
+              </span>
+              <p className="dam-admin-menu-drawer__eyebrow">Navigation</p>
+            </div>
           </div>
           <button
             type="button"
@@ -929,9 +944,9 @@ function AdminShellStyles() {
         pointer-events: none;
       }
 
-      .dam-admin-shell-brand .dam-brand-mark__icon-shell {
+      .dam-admin-shell-brand__icon {
+        position: relative;
         width: 28px;
-        height: 28px;
         flex: 0 0 28px;
       }
 
@@ -941,14 +956,12 @@ function AdminShellStyles() {
         gap: 3px;
       }
 
-      .dam-admin-shell-brand__copy strong {
-        font-size: 14px;
-        letter-spacing: 0.22em;
-        line-height: 1;
-        text-transform: uppercase;
+      .dam-admin-shell-brand__wordmark {
+        display: block;
+        width: clamp(88px, 12vw, 128px);
       }
 
-      .dam-admin-shell-brand__copy span {
+      .dam-admin-shell-brand__copy span:last-child {
         color: rgba(226, 234, 250, 0.66);
         font-size: 11px;
         letter-spacing: 0.08em;
@@ -1099,19 +1112,30 @@ function AdminShellStyles() {
         gap: 12px;
       }
 
+      .dam-admin-menu-drawer__brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .dam-admin-menu-drawer__brand-mark {
+        width: 44px;
+        flex: 0 0 44px;
+      }
+
+      .dam-admin-menu-drawer__brand-wordmark {
+        display: block;
+        width: 148px;
+        margin-bottom: 8px;
+      }
+
       .dam-admin-menu-drawer__eyebrow {
-        margin: 0 0 6px;
+        margin: 0;
         color: rgba(165, 182, 214, 0.72);
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.18em;
         text-transform: uppercase;
-      }
-
-      .dam-admin-menu-drawer__header h2 {
-        margin: 0;
-        font-size: clamp(24px, 4vw, 32px);
-        line-height: 1.04;
       }
 
       .dam-admin-menu-drawer__meta {
@@ -1249,8 +1273,7 @@ function AdminShellStyles() {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 112px;
-        height: 112px;
+        width: min(340px, 82vw);
         border: 1px solid rgba(165, 188, 230, 0.18);
         border-radius: 30px;
         background:
@@ -1259,12 +1282,7 @@ function AdminShellStyles() {
         box-shadow:
           inset 0 1px 0 rgba(255, 255, 255, 0.08),
           0 28px 80px rgba(0, 0, 0, 0.34);
-      }
-
-      .dam-admin-lobby__brand .dam-brand-mark__icon-shell {
-        width: 54px;
-        height: 54px;
-        flex: 0 0 54px;
+        padding: 24px;
       }
 
       @media (max-width: 960px) {
@@ -1279,7 +1297,7 @@ function AdminShellStyles() {
           justify-self: center;
         }
 
-        .dam-admin-shell-brand__copy span {
+        .dam-admin-shell-brand__copy span:last-child {
           display: none;
         }
       }
@@ -1293,8 +1311,8 @@ function AdminShellStyles() {
           padding: 12px 14px;
         }
 
-        .dam-admin-shell-brand__copy strong {
-          letter-spacing: 0.16em;
+        .dam-admin-shell-brand__wordmark {
+          width: 96px;
         }
 
         .dam-admin-shell-status {

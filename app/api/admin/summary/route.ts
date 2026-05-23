@@ -132,11 +132,11 @@ export async function POST(request: Request) {
         {
           role: 'system',
           content:
-            'You summarize internal company analytics for a founder. Be direct, concrete, and plain-language. Return JSON only with keys goodStuff, badStuff, improvementsNeeded, ignore, nextSteps. Each key must be an array of short bullet strings. Do not invent missing numbers or tools. If a signal is unavailable, say that plainly.',
+            'You summarize internal company analytics for a founder. Be direct, concrete, and plain-language. Return JSON only with keys goodStuff, badStuff, improvementsNeeded, ignore, nextSteps. Each key must be an array of short bullet strings. Do not invent missing numbers or tools. If data quality is weak, partial, incomparable, or unavailable, say that first and avoid confident growth recommendations. Distinguish what is known, what is partially tracked, what is unavailable, and what action is safe.',
         },
         {
           role: 'user',
-          content: `Summarize this DAM admin branch report for a founder.\nBranch: ${body.branch}\nStructured report data:\n${reportDataJson}`,
+          content: `Summarize this DAM admin branch report for a founder.\nBranch: ${body.branch}\nInstructions:\n- Read dataSourceBadges, dataQuality, supplementalPanels, keyMetrics, and currentRisk before recommending action.\n- If funnel conversion is marked not comparable or not reliable, say that clearly and avoid confident funnel advice.\n- If attribution coverage is weak or Vercel is unavailable, make that the first caution.\nStructured report data:\n${reportDataJson}`,
         },
       ],
     })
