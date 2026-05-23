@@ -1,6 +1,8 @@
 import type {
   AdminClaimRecord,
   AdminMetricsResponse,
+  AdminVercelDiagnostics,
+  AdminVercelEndpointAttempt,
   AdminTrafficSourceRecord,
   AdminValueShare,
   OperatorRecommendation,
@@ -45,6 +47,11 @@ export type BranchReport = {
   recommendedAction: string[]
   tables: ReportTable[]
   supplementalPanels?: ReportPanel[]
+  diagnostics?: {
+    projectApiStatus: AdminVercelDiagnostics['projectApiStatus']
+    analyticsEndpointAttempts: AdminVercelEndpointAttempt[]
+    finalConclusion: string
+  }
   summaryData: {
     branch: string
     family: 'admin' | 'lifetime'
@@ -60,6 +67,11 @@ export type BranchReport = {
     recommendedAction: string[]
     tables: ReportTable[]
     supplementalPanels?: ReportPanel[]
+    diagnostics?: {
+      projectApiStatus: AdminVercelDiagnostics['projectApiStatus']
+      analyticsEndpointAttempts: AdminVercelEndpointAttempt[]
+      finalConclusion: string
+    }
   }
 }
 
@@ -366,6 +378,7 @@ function makeReport(input: Omit<BranchReport, 'summaryData'>): BranchReport {
       recommendedAction: input.recommendedAction,
       tables: input.tables,
       supplementalPanels: input.supplementalPanels,
+      diagnostics: input.diagnostics,
     },
   }
 }
@@ -1745,6 +1758,7 @@ export function buildLifetimeBranchReport(
         const unavailableExplanation =
           'Vercel Web Analytics is enabled, but aggregate traffic metrics are not currently available through the server-side admin connection.'
         const apiStatus = vercelApiStatusLabel(vercel.unavailableReason)
+        const diagnosticConclusion = vercel.diagnostics.finalConclusion
 
         return makeReport({
           slug,
@@ -1769,6 +1783,11 @@ export function buildLifetimeBranchReport(
               note: formatText(vercel.unavailableReason),
             },
             {
+              label: 'Project metadata',
+              value: vercel.diagnostics.projectApiStatus,
+              note: 'Official Vercel REST project endpoint',
+            },
+            {
               label: 'Supabase page_view events',
               value: supabasePageViews,
               note: 'Supabase tracked only, not Vercel aggregate traffic',
@@ -1782,6 +1801,7 @@ export function buildLifetimeBranchReport(
           interpretation: [
             unavailableExplanation,
             'Supabase page_view events still exist, but they should not be read as Vercel visitors, page views, or bounce rate.',
+            diagnosticConclusion,
           ],
           dataQuality: [
             formatText(vercel.unavailableReason),
@@ -1794,7 +1814,19 @@ export function buildLifetimeBranchReport(
             'Fix the secure server-side Vercel connection before using this branch for traffic decisions.',
           ],
           tables: [],
+          diagnostics: {
+            projectApiStatus: vercel.diagnostics.projectApiStatus,
+            analyticsEndpointAttempts: vercel.diagnostics.analyticsEndpointAttempts,
+            finalConclusion: diagnosticConclusion,
+          },
           supplementalPanels: [
+            {
+              title: 'Diagnostic result',
+              items: vercel.diagnostics.analyticsEndpointAttempts.map(
+                (attempt) =>
+                  `${attempt.label}: ${attempt.httpStatus === null ? 'n/a' : attempt.httpStatus} - ${attempt.safeErrorMessage}`
+              ),
+            },
             {
               title: 'Fix checklist',
               items: [

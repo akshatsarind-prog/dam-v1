@@ -507,6 +507,15 @@ const emptyVercelAnalytics: AdminVercelAnalyticsSnapshot = {
   until: null,
   unavailableReason: 'Vercel Analytics is not configured.',
   sourceLabel: 'Vercel Analytics REST API',
+  diagnostics: {
+    hasAccessToken: false,
+    hasProjectId: false,
+    hasTeamId: false,
+    projectLinked: false,
+    projectApiStatus: 'not_configured',
+    analyticsEndpointAttempts: [],
+    finalConclusion: 'Vercel Analytics is not configured.',
+  },
 }
 
 const emptyMetrics: AdminMetricsResponse = {

@@ -372,6 +372,31 @@ export type AdminVercelAnalyticsBreakdown = {
   percentage: number | null
 }
 
+export type AdminVercelEndpointAttempt = {
+  label: string
+  endpoint: string
+  httpStatus: number | null
+  classification:
+    | 'success'
+    | 'forbidden'
+    | 'not_found'
+    | 'not_configured'
+    | 'unsupported'
+    | 'error'
+    | 'skipped'
+  safeErrorMessage: string
+}
+
+export type AdminVercelDiagnostics = {
+  hasAccessToken: boolean
+  hasProjectId: boolean
+  hasTeamId: boolean
+  projectLinked: boolean
+  projectApiStatus: 'accessible' | 'forbidden' | 'not_found' | 'not_configured' | 'error'
+  analyticsEndpointAttempts: AdminVercelEndpointAttempt[]
+  finalConclusion: string
+}
+
 export type AdminVercelAnalyticsSnapshot = {
   configured: boolean
   connected: boolean
@@ -390,6 +415,7 @@ export type AdminVercelAnalyticsSnapshot = {
   until: string | null
   unavailableReason: string | null
   sourceLabel: string
+  diagnostics: AdminVercelDiagnostics
 }
 
 export type AdminLifetimeSnapshot = {
