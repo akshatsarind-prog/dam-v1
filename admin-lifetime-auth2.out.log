@@ -1,0 +1,8 @@
+
+> dam-v1@0.1.0 start
+> next start --port 3003
+
+▲ Next.js 16.2.4
+- Local:         http://localhost:3003
+- Network:       http://192.168.29.78:3003
+✓ Ready in 138ms

@@ -1,0 +1,9 @@
+codex-temp-password : The term 'codex-temp-password' is not recognized as the name of a cmdlet, function, script file, 
+or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and 
+try again.
+At line:1 char:21
++ $env:ADMIN_PASSWORD=codex-temp-password; npm run start -- --port 3003
++                     ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (codex-temp-password:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 

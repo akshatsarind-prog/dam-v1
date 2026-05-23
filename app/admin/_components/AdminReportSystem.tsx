@@ -180,7 +180,7 @@ function Menu({
               onRefresh()
             }}
           >
-            {isRefreshing ? 'Refreshing…' : 'Refresh'}
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           <button
             type="button"
@@ -473,15 +473,24 @@ function LandingPage({ metrics }: { metrics: AdminMetricsResponse }) {
   return (
     <div className="dam-report-stack">
       <section className="dam-report-hero">
-        <div className="dam-report-hero__lockup">
-          <AdminBrand variant="lockup" priority sizes="(max-width: 768px) 88vw, 620px" />
-        </div>
-        <p className="dam-report-overline dam-report-overline--hero">Founder admin</p>
-        <h1 className="dam-report-hero__title">Defence Against Misinformation</h1>
+        <span className="dam-report-hero__wordmark">
+          <AdminBrand variant="wordmark" priority sizes="(max-width: 768px) 220px, 280px" />
+        </span>
+        <p className="dam-report-overline dam-report-overline--hero">Internal console</p>
+        <h1 className="dam-report-hero__title">DAM Admin</h1>
         <p className="dam-report-hero__secondary">Private founder operating system</p>
-        <Link href="/admin/report" className="dam-report-anchor-link">
-          Open admin report
-        </Link>
+        <div className="dam-report-hero__actions">
+          <Link href="/admin/report" className="dam-report-button dam-report-button--primary">
+            Open Admin Report
+          </Link>
+          <Link href="/admin/lifetime" className="dam-report-button">
+            Open Lifetime Report
+          </Link>
+        </div>
+        <div className="dam-report-footnote dam-report-footnote--hero">
+          <span>Updated {formatDateTime(metrics.generatedAt)}.</span>
+          <span>Protected internal dashboard.</span>
+        </div>
       </section>
 
       <BranchTable
@@ -792,55 +801,14 @@ export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
     <main className="dam-shell dam-report-shell">
       <ReportSystemStyles />
 
-      <header className="dam-report-chrome">
-        <button
-          type="button"
-          className="dam-report-burger"
-          onClick={() => setIsMenuOpen((current) => !current)}
-          aria-expanded={isMenuOpen}
-          aria-label={isMenuOpen ? 'Close admin navigation' : 'Open admin navigation'}
-        >
-          <span />
-          <span />
-          <span />
-        </button>
-
-        <Link href="/admin" className="dam-report-brand" aria-label="Open DAM admin home">
-          <span className="dam-report-brand__icon">
-            <AdminBrand variant="icon" sizes="30px" />
-          </span>
-          <div>
-            <span className="dam-report-brand__wordmark">
-              <AdminBrand variant="wordmark" sizes="140px" />
-            </span>
-            <span>Private founder operating system</span>
-          </div>
-        </Link>
-
-        <div className="dam-report-chrome__meta">Private admin</div>
-      </header>
-
-      <Menu
-        pathname={pathname}
-        isOpen={isMenuOpen}
-        isRefreshing={state.status === 'loading'}
-        onClose={() => setIsMenuOpen(false)}
-        onRefresh={() =>
-          void loadMetrics(state.password, {
-            persist: false,
-          })
-        }
-        onLogout={handleLogout}
-      />
-
       {!showWorkspace || !state.metrics ? (
         <section className="dam-report-auth">
           <div className="dam-report-auth__card">
             <div className="dam-report-auth__brand">
               <span className="dam-report-auth__lockup">
-                <AdminBrand variant="lockup" priority sizes="(max-width: 768px) 220px, 280px" />
+                <AdminBrand variant="lockup" priority sizes="(max-width: 768px) 220px, 260px" />
               </span>
-              <h1>Defence Against Misinformation</h1>
+              <h1>Admin access</h1>
               <p>Private founder operating system</p>
             </div>
 
@@ -864,21 +832,65 @@ export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
                 className="dam-report-button dam-report-button--primary"
                 disabled={state.status === 'loading'}
               >
-                {state.status === 'loading' ? 'Checking access…' : 'Open admin'}
+                {state.status === 'loading' ? 'Checking access...' : 'Open admin'}
               </button>
             </form>
 
+            <p className="dam-report-auth__note">Protected internal dashboard</p>
             {state.errorMessage ? <p className="dam-report-error">{state.errorMessage}</p> : null}
           </div>
         </section>
       ) : (
-        <section className="dam-report-frame">
-          {state.metrics.error ? (
-            <div className="dam-report-error-banner">{state.metrics.error.message}</div>
-          ) : null}
-          {state.errorMessage ? <div className="dam-report-error-banner">{state.errorMessage}</div> : null}
-          <WorkspaceView mode={mode} password={state.password} metrics={state.metrics} />
-        </section>
+        <>
+          <header className="dam-report-chrome">
+            <button
+              type="button"
+              className="dam-report-burger"
+              onClick={() => setIsMenuOpen((current) => !current)}
+              aria-expanded={isMenuOpen}
+              aria-label={isMenuOpen ? 'Close admin navigation' : 'Open admin navigation'}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+
+            <Link href="/admin" className="dam-report-brand" aria-label="Open DAM admin home">
+              <span className="dam-report-brand__icon">
+                <AdminBrand variant="icon" sizes="28px" />
+              </span>
+              <div>
+                <span className="dam-report-brand__wordmark">
+                  <AdminBrand variant="wordmark" sizes="136px" />
+                </span>
+                <span>Private founder operating system</span>
+              </div>
+            </Link>
+
+            <div className="dam-report-chrome__meta">Private admin</div>
+          </header>
+
+          <Menu
+            pathname={pathname}
+            isOpen={isMenuOpen}
+            isRefreshing={state.status === 'loading'}
+            onClose={() => setIsMenuOpen(false)}
+            onRefresh={() =>
+              void loadMetrics(state.password, {
+                persist: false,
+              })
+            }
+            onLogout={handleLogout}
+          />
+
+          <section className="dam-report-frame">
+            {state.metrics.error ? (
+              <div className="dam-report-error-banner">{state.metrics.error.message}</div>
+            ) : null}
+            {state.errorMessage ? <div className="dam-report-error-banner">{state.errorMessage}</div> : null}
+            <WorkspaceView mode={mode} password={state.password} metrics={state.metrics} />
+          </section>
+        </>
       )}
     </main>
   )
@@ -889,12 +901,17 @@ function ReportSystemStyles() {
     <style jsx global>{`
       .dam-report-shell {
         min-height: 100svh;
-        padding-bottom: 52px;
+        padding: 16px 0 40px;
+        background:
+          radial-gradient(circle at top, rgba(37, 52, 78, 0.18), transparent 26%),
+          linear-gradient(180deg, #0a0d12 0%, #0b0f15 100%);
+        color: #edf2f8;
       }
 
       .dam-report-shell,
       .dam-report-shell * {
         font-family:
+          "SF Pro Display",
           "SF Pro Text",
           "Segoe UI",
           system-ui,
@@ -905,13 +922,9 @@ function ReportSystemStyles() {
       .dam-report-shell h2,
       .dam-report-shell h3,
       .dam-report-shell h4 {
-        font-family:
-          "Iowan Old Style",
-          "Palatino Linotype",
-          "Book Antiqua",
-          Georgia,
-          serif;
+        font-family: inherit;
         letter-spacing: -0.03em;
+        font-weight: 600;
       }
 
       .dam-report-overline,
@@ -932,90 +945,113 @@ function ReportSystemStyles() {
       .dam-report-chrome,
       .dam-report-frame,
       .dam-report-auth {
-        width: min(1220px, calc(100% - 36px));
+        width: min(1160px, calc(100% - 32px));
         position: relative;
         z-index: 1;
         margin: 0 auto;
       }
 
       .dam-report-chrome {
-        min-height: 86px;
+        min-height: 72px;
         display: grid;
-        grid-template-columns: 72px minmax(0, 1fr) 180px;
+        grid-template-columns: 52px minmax(0, 1fr) 132px;
         align-items: center;
-        gap: 16px;
+        gap: 14px;
+        padding: 0 4px;
       }
 
       .dam-report-burger,
       .dam-report-button,
       .dam-report-menu__link--button {
         cursor: pointer;
+        transition:
+          background-color 160ms ease,
+          border-color 160ms ease,
+          transform 160ms ease;
       }
 
       .dam-report-burger {
-        width: 48px;
-        height: 48px;
+        width: 42px;
+        height: 42px;
         display: inline-grid;
         align-content: center;
         gap: 5px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(12, 12, 14, 0.88);
+        border: 1px solid rgba(140, 157, 185, 0.18);
+        border-radius: 12px;
+        background: rgba(17, 23, 32, 0.9);
       }
 
       .dam-report-burger span,
       .dam-report-menu__close span {
         display: block;
         width: 18px;
-        height: 1px;
+        height: 1.5px;
         margin: 0 auto;
-        background: rgba(246, 246, 244, 0.92);
+        background: rgba(236, 242, 248, 0.9);
+      }
+
+      .dam-report-burger:hover,
+      .dam-report-button:hover,
+      .dam-report-menu__link:hover,
+      .dam-report-menu__close:hover {
+        border-color: rgba(170, 186, 214, 0.28);
+        background: rgba(24, 31, 43, 0.98);
       }
 
       .dam-report-brand {
         display: inline-flex;
         align-items: center;
         justify-self: center;
-        gap: 14px;
-        padding: 14px 20px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
-          rgba(9, 9, 11, 0.92);
-        box-shadow:
-          0 24px 80px rgba(0, 0, 0, 0.24),
-          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        gap: 12px;
+        min-height: 52px;
+        padding: 10px 16px;
+        border: 1px solid rgba(140, 157, 185, 0.16);
+        border-radius: 16px;
+        background: rgba(16, 22, 31, 0.88);
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
       }
 
       .dam-report-brand__icon {
-        width: 30px;
-        flex: 0 0 30px;
+        width: 26px;
+        flex: 0 0 26px;
       }
 
       .dam-report-brand div {
         display: grid;
-        gap: 4px;
+        gap: 3px;
       }
 
       .dam-report-brand__wordmark {
         display: block;
-        width: clamp(90px, 14vw, 132px);
+        width: clamp(94px, 13vw, 128px);
       }
 
       .dam-report-brand div > span:last-child {
-        color: rgba(240, 240, 236, 0.62);
-        font-size: 12px;
+        color: rgba(190, 202, 220, 0.68);
+        font-size: 11px;
+        line-height: 1.3;
       }
 
       .dam-report-chrome__meta {
         justify-self: end;
-        color: rgba(240, 240, 236, 0.5);
-        font-size: 12px;
+        min-height: 38px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border: 1px solid rgba(140, 157, 185, 0.14);
+        border-radius: 999px;
+        background: rgba(17, 23, 32, 0.86);
+        color: rgba(200, 212, 228, 0.72);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
       }
 
       .dam-report-menu-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.48);
+        background: rgba(4, 7, 11, 0.42);
+        backdrop-filter: blur(8px);
         opacity: 0;
         pointer-events: none;
         transition: opacity 180ms ease;
@@ -1029,17 +1065,16 @@ function ReportSystemStyles() {
 
       .dam-report-menu {
         position: fixed;
-        top: 22px;
-        left: 22px;
-        width: min(320px, calc(100vw - 44px));
+        top: 16px;
+        left: 16px;
+        width: min(300px, calc(100vw - 32px));
         display: grid;
-        gap: 20px;
-        padding: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background:
-          linear-gradient(180deg, rgba(20, 22, 25, 0.98), rgba(9, 10, 12, 0.98)),
-          rgba(9, 10, 12, 0.98);
-        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+        gap: 16px;
+        padding: 14px;
+        border: 1px solid rgba(140, 157, 185, 0.18);
+        border-radius: 18px;
+        background: rgba(15, 20, 28, 0.98);
+        box-shadow: 0 26px 80px rgba(0, 0, 0, 0.34);
         transform: translateY(-10px) scale(0.98);
         opacity: 0;
         pointer-events: none;
@@ -1059,7 +1094,7 @@ function ReportSystemStyles() {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
+        gap: 12px;
       }
 
       .dam-report-menu__brand {
@@ -1075,22 +1110,23 @@ function ReportSystemStyles() {
 
       .dam-report-menu__brand-wordmark {
         display: block;
-        width: 132px;
-        margin-bottom: 8px;
+        width: 122px;
+        margin-bottom: 6px;
       }
 
       .dam-report-menu__head p {
         margin: 0;
-        color: rgba(240, 240, 236, 0.58);
-        font-size: 12px;
-        line-height: 1.55;
+        color: rgba(188, 200, 217, 0.64);
+        font-size: 11px;
+        line-height: 1.45;
       }
 
       .dam-report-menu__close {
-        width: 42px;
-        height: 42px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: transparent;
+        width: 38px;
+        height: 38px;
+        border: 1px solid rgba(140, 157, 185, 0.16);
+        border-radius: 10px;
+        background: rgba(22, 28, 38, 0.9);
       }
 
       .dam-report-menu__close span:first-child {
@@ -1103,23 +1139,25 @@ function ReportSystemStyles() {
 
       .dam-report-menu__nav {
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
 
       .dam-report-menu__link {
-        min-height: 42px;
+        min-height: 40px;
         display: flex;
         align-items: center;
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(140, 157, 185, 0.12);
+        border-radius: 12px;
         background: rgba(255, 255, 255, 0.02);
-        color: rgba(248, 248, 245, 0.88);
-        padding: 0 14px;
+        color: rgba(240, 245, 250, 0.9);
+        padding: 0 12px;
         font-size: 13px;
+        text-decoration: none;
       }
 
       .dam-report-menu__link[data-active='true'] {
-        border-color: rgba(214, 38, 38, 0.36);
-        background: rgba(214, 38, 38, 0.09);
+        border-color: rgba(148, 164, 191, 0.32);
+        background: rgba(92, 113, 148, 0.16);
       }
 
       .dam-report-menu__link--button {
@@ -1128,9 +1166,11 @@ function ReportSystemStyles() {
       }
 
       .dam-report-auth {
-        min-height: calc(100svh - 86px);
+        width: min(100% - 24px, 520px);
+        min-height: calc(100svh - 32px);
         display: grid;
         place-items: center;
+        padding: 24px 0;
       }
 
       .dam-report-auth__card,
@@ -1140,38 +1180,45 @@ function ReportSystemStyles() {
       .dam-report-metric,
       .dam-report-table-section,
       .dam-report-data-section {
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background:
-          linear-gradient(180deg, rgba(16, 16, 18, 0.94), rgba(8, 8, 10, 0.98)),
-          rgba(10, 10, 12, 0.96);
+        border: 1px solid rgba(128, 146, 176, 0.14);
+        border-radius: 20px;
+        background: rgba(16, 22, 31, 0.92);
         box-shadow:
-          0 24px 90px rgba(0, 0, 0, 0.26),
+          0 18px 60px rgba(0, 0, 0, 0.2),
           inset 0 1px 0 rgba(255, 255, 255, 0.04);
       }
 
       .dam-report-auth__card {
-        width: min(420px, 100%);
+        width: min(480px, 100%);
         display: grid;
-        gap: 22px;
-        padding: 28px;
+        gap: 18px;
+        padding: 28px 28px 24px;
       }
 
       .dam-report-auth__brand {
         display: grid;
-        gap: 10px;
+        gap: 8px;
         justify-items: center;
         text-align: center;
       }
 
       .dam-report-auth__lockup {
-        width: min(280px, 72vw);
+        width: min(220px, 66vw);
       }
 
       .dam-report-auth__brand h1,
       .dam-report-page-head h1 {
         margin: 0;
-        font-size: clamp(40px, 6vw, 70px);
-        line-height: 0.92;
+        font-size: clamp(30px, 4.6vw, 40px);
+        line-height: 1.02;
+      }
+
+      .dam-report-auth__brand h1 {
+        font-size: clamp(28px, 5vw, 34px);
+      }
+
+      .dam-report-page-head--branch h1 {
+        font-size: clamp(32px, 4.2vw, 42px);
       }
 
       .dam-report-auth__brand p,
@@ -1183,50 +1230,67 @@ function ReportSystemStyles() {
       .dam-report-footnote,
       .dam-report-bullet-list li {
         margin: 0;
-        color: rgba(235, 235, 231, 0.68);
+        color: rgba(188, 200, 217, 0.74);
         font-size: 14px;
-        line-height: 1.62;
+        line-height: 1.58;
+      }
+
+      .dam-report-auth__note {
+        margin: -4px 0 0;
+        color: rgba(155, 171, 194, 0.64);
+        font-size: 12px;
+        text-align: center;
       }
 
       .dam-report-auth__form {
         display: grid;
-        gap: 12px;
+        gap: 10px;
       }
 
       .dam-report-auth__form label,
       .dam-report-search span {
-        color: rgba(240, 240, 236, 0.58);
+        color: rgba(166, 181, 204, 0.68);
         font-size: 11px;
-        letter-spacing: 0.16em;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
       }
 
       .dam-report-auth__form input,
       .dam-report-search input {
-        min-height: 44px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: #0a0a0c;
-        color: #f8f8f5;
+        min-height: 46px;
+        border: 1px solid rgba(128, 146, 176, 0.18);
+        border-radius: 12px;
+        background: rgba(8, 12, 18, 0.88);
+        color: #f4f7fb;
         padding: 0 14px;
         font: inherit;
+        outline: none;
+      }
+
+      .dam-report-auth__form input:focus,
+      .dam-report-search input:focus {
+        border-color: rgba(165, 182, 214, 0.44);
+        box-shadow: 0 0 0 3px rgba(92, 113, 148, 0.18);
       }
 
       .dam-report-button {
-        min-height: 44px;
+        min-height: 42px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(128, 146, 176, 0.18);
+        border-radius: 12px;
         background: rgba(255, 255, 255, 0.03);
-        color: #f8f8f5;
+        color: #edf2f8;
         padding: 0 16px;
         font-size: 13px;
+        text-decoration: none;
       }
 
       .dam-report-button--primary {
-        border-color: rgba(214, 38, 38, 0.42);
-        background: rgba(214, 38, 38, 0.88);
+        border-color: rgba(214, 77, 77, 0.34);
+        background: linear-gradient(180deg, rgba(176, 51, 51, 0.96), rgba(150, 38, 38, 0.96));
       }
 
       .dam-report-frame,
@@ -1235,11 +1299,11 @@ function ReportSystemStyles() {
       .dam-report-detail-grid,
       .dam-report-summary-grid {
         display: grid;
-        gap: 18px;
+        gap: 16px;
       }
 
       .dam-report-frame {
-        padding-top: 12px;
+        padding-top: 10px;
       }
 
       .dam-report-hero,
@@ -1247,59 +1311,68 @@ function ReportSystemStyles() {
       .dam-report-summary-panel,
       .dam-report-table-section,
       .dam-report-data-section {
-        padding: 24px;
+        padding: 22px;
       }
 
       .dam-report-hero {
-        min-height: calc(100svh - 168px);
+        min-height: 0;
         display: grid;
-        align-content: center;
-        justify-items: center;
-        text-align: center;
-        gap: 10px;
+        justify-items: start;
+        text-align: left;
+        gap: 12px;
       }
 
-      .dam-report-hero__lockup {
-        width: min(620px, 88vw);
+      .dam-report-hero__wordmark {
+        width: clamp(168px, 22vw, 252px);
       }
 
       .dam-report-page-head__brand {
         display: block;
-        width: clamp(170px, 26vw, 320px);
+        width: clamp(150px, 18vw, 220px);
       }
 
       .dam-report-page-head__brand--branch {
-        width: clamp(160px, 22vw, 260px);
+        width: clamp(138px, 16vw, 198px);
       }
 
       .dam-report-overline {
-        color: rgba(240, 240, 236, 0.52);
+        color: rgba(155, 171, 194, 0.62);
         font-size: 11px;
-        letter-spacing: 0.18em;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
       }
 
       .dam-report-overline--hero {
-        margin-top: 12px;
+        margin-top: 0;
       }
 
       .dam-report-hero__title {
         margin: 0;
-        color: rgba(248, 248, 245, 0.94);
-        font-size: clamp(30px, 5vw, 52px);
-        line-height: 1.02;
+        color: #f1f5fa;
+        font-size: clamp(30px, 5vw, 36px);
+        line-height: 1.06;
       }
 
       .dam-report-hero__secondary {
-        font-size: 16px;
+        font-size: 15px;
+      }
+
+      .dam-report-hero__actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .dam-report-footnote--hero {
+        gap: 10px;
+        color: rgba(155, 171, 194, 0.64);
+        font-size: 12px;
       }
 
       .dam-report-anchor-link,
       .dam-report-open-link {
-        color: #f8f8f5;
-        text-decoration: underline;
-        text-decoration-color: rgba(214, 38, 38, 0.42);
-        text-underline-offset: 4px;
+        color: #f0f4fa;
+        text-decoration: none;
       }
 
       .dam-report-section-head,
@@ -1317,12 +1390,14 @@ function ReportSystemStyles() {
       .dam-report-section-head h3,
       .dam-report-summary-panel h3 {
         margin: 0;
+        font-size: clamp(22px, 3vw, 32px);
+        line-height: 1.08;
       }
 
       .dam-report-page-head__copy,
       .dam-report-search {
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
 
       .dam-report-head-meta,
@@ -1334,66 +1409,67 @@ function ReportSystemStyles() {
       }
 
       .dam-report-head-meta span {
-        color: rgba(240, 240, 236, 0.54);
+        color: rgba(162, 177, 199, 0.68);
         font-size: 11px;
       }
 
       .dam-report-badge,
       .dam-report-chip {
-        min-height: 26px;
+        min-height: 24px;
         display: inline-flex;
         align-items: center;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 0 8px;
-        color: #f8f8f5;
+        border: 1px solid rgba(128, 146, 176, 0.18);
+        border-radius: 999px;
+        padding: 0 9px;
+        color: #edf2f8;
         font-size: 10px;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
       }
 
       .dam-report-badge--muted,
       .dam-report-chip--muted {
-        color: rgba(240, 240, 236, 0.58);
+        color: rgba(180, 193, 210, 0.68);
       }
 
       .dam-report-badge--warning,
       .dam-report-chip--warning {
-        border-color: rgba(214, 151, 38, 0.34);
+        border-color: rgba(214, 151, 38, 0.28);
         background: rgba(214, 151, 38, 0.12);
       }
 
       .dam-report-chip--good {
-        border-color: rgba(88, 182, 112, 0.28);
+        border-color: rgba(88, 182, 112, 0.24);
         background: rgba(88, 182, 112, 0.12);
       }
 
       .dam-report-chip--danger {
-        border-color: rgba(214, 38, 38, 0.38);
+        border-color: rgba(214, 77, 77, 0.28);
         background: rgba(214, 38, 38, 0.14);
       }
 
       .dam-report-metric-grid {
         display: grid;
         gap: 12px;
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
       }
 
       .dam-report-metric {
         display: grid;
-        gap: 10px;
+        gap: 8px;
         padding: 16px;
       }
 
       .dam-report-metric span {
-        color: rgba(240, 240, 236, 0.5);
-        font-size: 10px;
-        letter-spacing: 0.14em;
+        color: rgba(162, 177, 199, 0.62);
+        font-size: 11px;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
       }
 
       .dam-report-metric strong {
-        font-size: clamp(22px, 2.7vw, 30px);
-        line-height: 1.04;
+        font-size: clamp(24px, 3vw, 32px);
+        line-height: 1.08;
       }
 
       .dam-report-detail-grid {
@@ -1406,19 +1482,21 @@ function ReportSystemStyles() {
 
       .dam-report-bullet-list {
         display: grid;
-        gap: 10px;
+        gap: 8px;
         margin: 0;
         padding-left: 18px;
       }
 
       .dam-report-table-shell {
         overflow-x: auto;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(128, 146, 176, 0.14);
+        border-radius: 16px;
+        background: rgba(10, 15, 22, 0.76);
       }
 
       .dam-report-table {
         width: 100%;
-        min-width: 720px;
+        min-width: 700px;
         border-collapse: collapse;
       }
 
@@ -1428,23 +1506,23 @@ function ReportSystemStyles() {
 
       .dam-report-table th,
       .dam-report-table td {
-        padding: 12px 14px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 13px 14px;
+        border-bottom: 1px solid rgba(128, 146, 176, 0.1);
         text-align: left;
         vertical-align: top;
       }
 
       .dam-report-table th {
-        color: rgba(240, 240, 236, 0.52);
-        font-size: 10px;
-        letter-spacing: 0.14em;
+        color: rgba(155, 171, 194, 0.66);
+        font-size: 11px;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
       }
 
       .dam-report-table td {
-        color: rgba(245, 245, 241, 0.82);
-        font-size: 13px;
-        line-height: 1.5;
+        color: rgba(232, 238, 245, 0.86);
+        font-size: 14px;
+        line-height: 1.52;
       }
 
       .dam-report-table tbody tr:last-child td {
@@ -1461,16 +1539,17 @@ function ReportSystemStyles() {
 
       .dam-report-summary-block {
         padding: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(128, 146, 176, 0.14);
+        border-radius: 16px;
+        background: rgba(9, 14, 21, 0.6);
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
 
       .dam-report-summary-block h4 {
         margin: 0;
-        font-size: 18px;
-        line-height: 1.12;
+        font-size: 16px;
+        line-height: 1.2;
       }
 
       .dam-report-summary-block ul {
@@ -1481,15 +1560,17 @@ function ReportSystemStyles() {
       }
 
       .dam-report-summary-block li {
-        color: rgba(235, 235, 231, 0.8);
+        color: rgba(226, 233, 241, 0.82);
         font-size: 13px;
         line-height: 1.58;
       }
 
       .dam-report-footnote {
         display: flex;
-        gap: 16px;
+        gap: 12px;
         flex-wrap: wrap;
+        color: rgba(155, 171, 194, 0.66);
+        font-size: 12px;
       }
 
       .dam-report-error,
@@ -1501,8 +1582,9 @@ function ReportSystemStyles() {
 
       .dam-report-error-banner {
         padding: 14px 16px;
-        border: 1px solid rgba(214, 38, 38, 0.34);
-        background: rgba(214, 38, 38, 0.1);
+        border: 1px solid rgba(214, 77, 77, 0.24);
+        border-radius: 14px;
+        background: rgba(124, 32, 32, 0.16);
       }
 
       @media (max-width: 900px) {
@@ -1532,6 +1614,15 @@ function ReportSystemStyles() {
 
         .dam-report-table {
           min-width: 640px;
+        }
+
+        .dam-report-hero__actions,
+        .dam-report-footnote--hero {
+          width: 100%;
+        }
+
+        .dam-report-hero__actions .dam-report-button {
+          flex: 1 1 100%;
         }
 
         .dam-report-page-head__actions {
