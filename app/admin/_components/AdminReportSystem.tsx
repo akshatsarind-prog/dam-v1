@@ -569,11 +569,16 @@ function BranchPage({
   report: BranchReport
 }) {
   const indexHref = family === 'admin' ? '/admin/report' : '/admin/lifetime'
+  const isDiagnostic = report.layoutVariant === 'diagnostic'
 
   return (
-    <div className="dam-report-stack">
-      <section className="dam-report-page-head dam-report-page-head--branch">
-        <span className="dam-report-page-head__brand dam-report-page-head__brand--branch">
+    <div className={`dam-report-stack${isDiagnostic ? ' dam-report-stack--diagnostic' : ''}`}>
+      <section
+        className={`dam-report-page-head dam-report-page-head--branch${isDiagnostic ? ' dam-report-page-head--diagnostic' : ''}`}
+      >
+        <span
+          className={`dam-report-page-head__brand dam-report-page-head__brand--branch${isDiagnostic ? ' dam-report-page-head__brand--diagnostic' : ''}`}
+        >
           <AdminBrand variant="wordmark" sizes="(max-width: 768px) 220px, 280px" />
         </span>
         <div className="dam-report-page-head__copy">
@@ -1221,6 +1226,10 @@ function ReportSystemStyles() {
         font-size: clamp(32px, 4.2vw, 42px);
       }
 
+      .dam-report-page-head--diagnostic h1 {
+        font-size: clamp(28px, 3.4vw, 34px);
+      }
+
       .dam-report-auth__brand p,
       .dam-report-page-head p,
       .dam-report-section-head p,
@@ -1302,6 +1311,11 @@ function ReportSystemStyles() {
         gap: 16px;
       }
 
+      .dam-report-stack--diagnostic {
+        width: min(920px, 100%);
+        justify-self: center;
+      }
+
       .dam-report-frame {
         padding-top: 10px;
       }
@@ -1333,6 +1347,10 @@ function ReportSystemStyles() {
 
       .dam-report-page-head__brand--branch {
         width: clamp(138px, 16vw, 198px);
+      }
+
+      .dam-report-page-head__brand--diagnostic {
+        width: clamp(122px, 14vw, 170px);
       }
 
       .dam-report-overline {
@@ -1383,6 +1401,10 @@ function ReportSystemStyles() {
         justify-content: space-between;
         gap: 18px;
         flex-wrap: wrap;
+      }
+
+      .dam-report-page-head--diagnostic {
+        padding: 18px 20px;
       }
 
       .dam-report-page-head h1,

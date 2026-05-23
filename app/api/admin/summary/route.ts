@@ -136,7 +136,7 @@ export async function POST(request: Request) {
         },
         {
           role: 'user',
-          content: `Summarize this DAM admin branch report for a founder.\nBranch: ${body.branch}\nInstructions:\n- Read dataSourceBadges, dataQuality, supplementalPanels, keyMetrics, and currentRisk before recommending action.\n- If funnel conversion is marked not comparable or not reliable, say that clearly and avoid confident funnel advice.\n- If attribution coverage is weak or Vercel is unavailable, make that the first caution.\nStructured report data:\n${reportDataJson}`,
+          content: `Summarize this DAM admin branch report for a founder.\nBranch: ${body.branch}\nInstructions:\n- Read dataSourceBadges, dataQuality, supplementalPanels, keyMetrics, currentRisk, and recommendedAction before recommending action.\n- If funnel conversion is marked not comparable or not reliable, say that clearly and avoid confident funnel advice.\n- If attribution coverage is weak or Vercel is unavailable, make that the first caution.\n- If this is the Vercel Traffic branch and Vercel is unavailable, explain only: what is known, what is unavailable, the likely cause, and the next fix. Do not infer real Vercel visitors, page views, or bounce rate from Supabase events.\n- Supabase page_view events are product telemetry, not Vercel aggregate traffic.\nStructured report data:\n${reportDataJson}`,
         },
       ],
     })

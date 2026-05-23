@@ -32,6 +32,7 @@ export type BranchReport = {
   href: string
   title: string
   definition: string
+  layoutVariant?: 'default' | 'diagnostic'
   family: 'admin' | 'lifetime'
   statusLabel: string
   statusTone: BranchTone
@@ -48,6 +49,7 @@ export type BranchReport = {
     branch: string
     family: 'admin' | 'lifetime'
     definition: string
+    layoutVariant?: 'default' | 'diagnostic'
     status: string
     lastUpdated: string
     dataSourceBadges: string[]
@@ -289,6 +291,36 @@ function recommendationTone(
   }
 }
 
+function vercelApiStatusLabel(unavailableReason: string | null | undefined) {
+  const message = unavailableReason?.toLowerCase() ?? ''
+
+  if (message.includes('cannot access this project')) {
+    return 'Forbidden'
+  }
+
+  if (message.includes('invalid')) {
+    return 'Unauthorized'
+  }
+
+  if (message.includes('not found')) {
+    return 'Project not found'
+  }
+
+  if (message.includes('missing')) {
+    return 'Not configured'
+  }
+
+  if (message.includes('not enabled')) {
+    return 'Web Analytics disabled'
+  }
+
+  if (message.includes('linked to vercel web analytics')) {
+    return 'Aggregate metrics unavailable'
+  }
+
+  return 'Unavailable'
+}
+
 function buildTrafficRows(rows: AdminTrafficSourceRecord[]): string[][] {
   return rows.slice(0, 8).map((row) => [
     `${row.source} / ${row.medium}`,
@@ -323,6 +355,7 @@ function makeReport(input: Omit<BranchReport, 'summaryData'>): BranchReport {
       branch: input.title,
       family: input.family,
       definition: input.definition,
+      layoutVariant: input.layoutVariant,
       status: input.statusLabel,
       lastUpdated: input.lastUpdated,
       dataSourceBadges: input.dataSourceBadges,
@@ -1704,6 +1737,92 @@ export function buildLifetimeBranchReport(
 
     case 'vercel-traffic': {
       const vercel = metrics.vercelAnalytics
+      const supabasePageViews = formatCount(
+        metrics.lifetimeIntelligence.dataCoverage.trackedPageViewEvents
+      )
+
+      if (!vercel.connected) {
+        const unavailableExplanation =
+          'Vercel Web Analytics is enabled, but aggregate traffic metrics are not currently available through the server-side admin connection.'
+        const apiStatus = vercelApiStatusLabel(vercel.unavailableReason)
+
+        return makeReport({
+          slug,
+          href: `/admin/lifetime/${slug}`,
+          title: 'Vercel Traffic',
+          definition:
+            'Compact diagnostic status for the secure Vercel Web Analytics connection used by the admin.',
+          layoutVariant: 'diagnostic',
+          family: 'lifetime',
+          statusLabel: 'Unavailable',
+          statusTone: 'warning',
+          lastUpdated,
+          dataSourceBadges: ['Vercel Analytics', 'Supabase tracked', 'Partial coverage'],
+          keyMetrics: [
+            {
+              label: 'Project linked',
+              value: vercel.projectLinked ? 'Yes' : 'No',
+            },
+            {
+              label: 'Vercel API status',
+              value: apiStatus,
+              note: formatText(vercel.unavailableReason),
+            },
+            {
+              label: 'Supabase page_view events',
+              value: supabasePageViews,
+              note: 'Supabase tracked only, not Vercel aggregate traffic',
+            },
+            {
+              label: 'Traffic truth status',
+              value: 'Partial coverage',
+              note: metrics.lifetimeIntelligence.dataCoverage.trafficTruthStatus,
+            },
+          ],
+          interpretation: [
+            unavailableExplanation,
+            'Supabase page_view events still exist, but they should not be read as Vercel visitors, page views, or bounce rate.',
+          ],
+          dataQuality: [
+            formatText(vercel.unavailableReason),
+            'No real Vercel visitor, page-view, or bounce-rate metrics are available to this branch right now.',
+          ],
+          currentRisk: [
+            'Traffic truth is incomplete inside admin until the secure Vercel connection returns aggregate metrics.',
+          ],
+          recommendedAction: [
+            'Fix the secure server-side Vercel connection before using this branch for traffic decisions.',
+          ],
+          tables: [],
+          supplementalPanels: [
+            {
+              title: 'Fix checklist',
+              items: [
+                'Verify VERCEL_ACCESS_TOKEN has project or team access.',
+                'Verify VERCEL_PROJECT_ID is correct.',
+                'Add or verify VERCEL_TEAM_ID if the project belongs to a team.',
+                'Redeploy after environment changes.',
+                'Re-test /api/admin/metrics.',
+              ],
+            },
+            {
+              title: 'What is known',
+              items: [
+                `Supabase page_view events are available: ${supabasePageViews}.`,
+                'The admin is intentionally not fabricating Vercel visitors, page views, or bounce rate.',
+              ],
+            },
+            {
+              title: 'What is unavailable',
+              items: [
+                'Vercel aggregate visitors are unavailable.',
+                'Vercel aggregate page views are unavailable.',
+                'Vercel aggregate bounce rate is unavailable.',
+              ],
+            },
+          ],
+        })
+      }
 
       return makeReport({
         slug,
