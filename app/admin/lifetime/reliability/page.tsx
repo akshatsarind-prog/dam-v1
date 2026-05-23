@@ -1,14 +1,5 @@
-'use client'
-
-import { AdminMetricsGate } from '../../_components/AdminShell'
-import { LifetimeReliabilitySection } from '../../_components/LifetimeIntelligence'
+import { redirect } from 'next/navigation'
 
 export default function AdminLifetimeReliabilityPage() {
-  return (
-    <AdminMetricsGate
-      title="Lifetime Reliability"
-      description="Latency, bad rows, and operational pressure."
-      render={(metrics) => <LifetimeReliabilitySection metrics={metrics} />}
-    />
-  )
+  redirect('/admin/lifetime/reliability')
 }

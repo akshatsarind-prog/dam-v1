@@ -1,0 +1,1705 @@
+import type {
+  AdminClaimRecord,
+  AdminMetricsResponse,
+  AdminTrafficSourceRecord,
+  AdminValueShare,
+  OperatorRecommendation,
+} from '@/lib/admin/adminMetricsTypes'
+
+export type BranchTone = 'neutral' | 'good' | 'warning' | 'danger' | 'muted'
+
+export type ReportMetric = {
+  label: string
+  value: string
+  note?: string
+  tone?: BranchTone
+}
+
+export type ReportTable = {
+  title: string
+  columns: string[]
+  rows: string[][]
+  emptyCopy: string
+}
+
+export type BranchReport = {
+  slug: string
+  href: string
+  title: string
+  definition: string
+  family: 'admin' | 'lifetime'
+  statusLabel: string
+  statusTone: BranchTone
+  lastUpdated: string
+  dataSourceBadges: string[]
+  keyMetrics: ReportMetric[]
+  interpretation: string[]
+  dataQuality: string[]
+  currentRisk: string[]
+  recommendedAction: string[]
+  tables: ReportTable[]
+  summaryData: {
+    branch: string
+    family: 'admin' | 'lifetime'
+    definition: string
+    status: string
+    lastUpdated: string
+    dataSourceBadges: string[]
+    keyMetrics: ReportMetric[]
+    interpretation: string[]
+    dataQuality: string[]
+    currentRisk: string[]
+    recommendedAction: string[]
+    tables: ReportTable[]
+  }
+}
+
+export type BranchTableRow = {
+  number: string
+  title: string
+  definition: string
+  href: string
+  statusLabel: string
+  statusTone: BranchTone
+}
+
+type BranchDefinition<TSlug extends string> = {
+  slug: TSlug
+  title: string
+  definition: string
+}
+
+export const adminBranchDefinitions = [
+  {
+    slug: 'executive-snapshot',
+    title: 'Executive Snapshot',
+    definition: 'Top-line business health across usage, repeat behavior, attribution, and latency.',
+  },
+  {
+    slug: 'daily-intelligence',
+    title: 'Daily Intelligence',
+    definition: 'Today-only operating read across growth, product demand, and reliability.',
+  },
+  {
+    slug: 'funnel',
+    title: 'Funnel',
+    definition: 'Progress from traffic to app opens, claim submissions, and email capture.',
+  },
+  {
+    slug: 'traffic-sources',
+    title: 'Traffic Sources',
+    definition: 'Source quality, attribution trust, and email capture linkage by channel.',
+  },
+  {
+    slug: 'retention',
+    title: 'Retention',
+    definition: 'Repeat behavior, session depth, and high-intent usage patterns.',
+  },
+  {
+    slug: 'claim-categories',
+    title: 'Claim Categories',
+    definition: 'What users test most, where quality is weakest, and which themes dominate.',
+  },
+  {
+    slug: 'operational-health',
+    title: 'Operational Health',
+    definition: 'Latency, evidence coverage, low-confidence pressure, and operational risk.',
+  },
+  {
+    slug: 'recent-claims',
+    title: 'Recent Claims',
+    definition: 'The newest claims with verdict, confidence, risk, and attribution context.',
+  },
+  {
+    slug: 'recommendations',
+    title: 'Recommendations',
+    definition: 'Metrics-derived operator actions ranked by urgency and leverage.',
+  },
+] as const satisfies readonly BranchDefinition<string>[]
+
+export const lifetimeBranchDefinitions = [
+  {
+    slug: 'intelligence',
+    title: 'Lifetime Intelligence',
+    definition: 'Founder-level lifetime operating read across growth, behavior, trust, and reliability.',
+  },
+  {
+    slug: 'company-snapshot',
+    title: 'Company Snapshot',
+    definition: 'Lifetime scale, operating footprint, and product stage from tracked telemetry.',
+  },
+  {
+    slug: 'growth-intelligence',
+    title: 'Growth Intelligence',
+    definition: 'Traffic quality, channel conversion, bottlenecks, and growth trajectory.',
+  },
+  {
+    slug: 'user-behavior',
+    title: 'User Behavior',
+    definition: 'Session depth, time to first claim, common flows, and repeat-use patterns.',
+  },
+  {
+    slug: 'trust-product',
+    title: 'Trust & Product',
+    definition: 'Category demand, answer quality, suspicious themes, and user intent.',
+  },
+  {
+    slug: 'reliability',
+    title: 'Reliability',
+    definition: 'Latency distribution, bad rows, attribution failures, and infrastructure pressure.',
+  },
+  {
+    slug: 'strategic-recommendations',
+    title: 'Strategic Recommendations',
+    definition: 'Highest-leverage product, growth, retention, and risk actions from the lifetime record.',
+  },
+  {
+    slug: 'timeline',
+    title: 'Timeline',
+    definition: 'Historical milestones across product usage, growth signals, and system evolution.',
+  },
+  {
+    slug: 'data-coverage',
+    title: 'Data Coverage',
+    definition: 'What the telemetry stack measures today, what is partial, and what is missing.',
+  },
+  {
+    slug: 'vercel-traffic',
+    title: 'Vercel Traffic',
+    definition: 'Aggregate Vercel traffic coverage status and the current server-side analytics gap.',
+  },
+] as const satisfies readonly BranchDefinition<string>[]
+
+export type AdminBranchSlug = (typeof adminBranchDefinitions)[number]['slug']
+export type LifetimeBranchSlug = (typeof lifetimeBranchDefinitions)[number]['slug']
+
+export function isAdminBranchSlug(value: string): value is AdminBranchSlug {
+  return adminBranchDefinitions.some((branch) => branch.slug === value)
+}
+
+export function isLifetimeBranchSlug(value: string): value is LifetimeBranchSlug {
+  return lifetimeBranchDefinitions.some((branch) => branch.slug === value)
+}
+
+function formatDateTime(value: string | null | undefined, fallback = 'No data yet') {
+  if (!value) {
+    return fallback
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed.toLocaleString()
+}
+
+function formatCount(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
+  }
+
+  return new Intl.NumberFormat('en-US').format(value)
+}
+
+function formatRate(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
+  }
+
+  return `${(value * 100).toFixed(value >= 0.1 ? 1 : 2)}%`
+}
+
+function formatLatency(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
+  }
+
+  return value >= 1000 ? `${(value / 1000).toFixed(value >= 10_000 ? 1 : 2)} s` : `${Math.round(value)} ms`
+}
+
+function formatDecimal(value: number | null | undefined, fallback = 'No data yet') {
+  if (value === null || value === undefined) {
+    return fallback
+  }
+
+  return value >= 10 ? value.toFixed(1) : value.toFixed(2)
+}
+
+function formatText(value: string | null | undefined, fallback = 'No data yet') {
+  if (!value) {
+    return fallback
+  }
+
+  const trimmed = value.trim()
+  return trimmed || fallback
+}
+
+function formatCategory(value: string | null | undefined, fallback = 'No data yet') {
+  if (!value) {
+    return fallback
+  }
+
+  if (value === 'social_rumor') {
+    return 'Social rumor'
+  }
+
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
+function shortenId(value: string | null | undefined, fallback = 'No data yet') {
+  if (!value) {
+    return fallback
+  }
+
+  return value.length <= 14 ? value : `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+function claimSourceLabel(claim: AdminClaimRecord) {
+  if (!claim.attributed) {
+    return 'Unattributed'
+  }
+
+  return claim.utmSource ?? claim.referrer ?? 'Tracked'
+}
+
+function recommendationTone(
+  recommendations: OperatorRecommendation[]
+): Pick<BranchReport, 'statusLabel' | 'statusTone'> {
+  if (recommendations.some((recommendation) => recommendation.priority === 'high')) {
+    return {
+      statusLabel: 'Action needed',
+      statusTone: 'danger',
+    }
+  }
+
+  if (recommendations.some((recommendation) => recommendation.priority === 'medium')) {
+    return {
+      statusLabel: 'Watch',
+      statusTone: 'warning',
+    }
+  }
+
+  return {
+    statusLabel: 'Stable',
+    statusTone: 'good',
+  }
+}
+
+function buildTrafficRows(rows: AdminTrafficSourceRecord[]): string[][] {
+  return rows.slice(0, 8).map((row) => [
+    `${row.source} / ${row.medium}`,
+    row.campaign,
+    formatCount(row.claimSubmissions),
+    formatCount(row.uniqueSessions),
+    formatDecimal(row.claimsPerSession),
+    row.interpretation,
+  ])
+}
+
+function buildClaimRows(rows: AdminClaimRecord[]): string[][] {
+  return rows.slice(0, 10).map((row) => [
+    formatDateTime(row.createdAt),
+    formatCategory(row.category),
+    `${row.confidence.toFixed(1)} / 100`,
+    formatLatency(row.latencyMs),
+    claimSourceLabel(row),
+    formatText(row.riskLabel),
+    formatText(row.claimText),
+  ])
+}
+
+function buildValueShareRows(rows: AdminValueShare[]): string[][] {
+  return rows.map((row) => [row.label, formatCount(row.count), formatRate(row.percentage)])
+}
+
+function makeReport(input: Omit<BranchReport, 'summaryData'>): BranchReport {
+  return {
+    ...input,
+    summaryData: {
+      branch: input.title,
+      family: input.family,
+      definition: input.definition,
+      status: input.statusLabel,
+      lastUpdated: input.lastUpdated,
+      dataSourceBadges: input.dataSourceBadges,
+      keyMetrics: input.keyMetrics,
+      interpretation: input.interpretation,
+      dataQuality: input.dataQuality,
+      currentRisk: input.currentRisk,
+      recommendedAction: input.recommendedAction,
+      tables: input.tables,
+    },
+  }
+}
+
+export function buildAdminBranchReport(
+  slug: AdminBranchSlug,
+  metrics: AdminMetricsResponse
+): BranchReport {
+  const lastUpdated = formatDateTime(metrics.generatedAt)
+
+  switch (slug) {
+    case 'executive-snapshot': {
+      const executive = metrics.executiveSnapshot
+      const status =
+        executive.status === 'healthy'
+          ? { statusLabel: 'Healthy', statusTone: 'good' as const }
+          : executive.status === 'watch'
+            ? { statusLabel: 'Watch', statusTone: 'warning' as const }
+            : { statusLabel: 'Needs attention', statusTone: 'danger' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Executive Snapshot',
+        definition: 'Top-line business health across usage, repeat behavior, attribution, and latency.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived'],
+        keyMetrics: [
+          { label: 'Total claims', value: formatCount(executive.totalClaims) },
+          { label: 'Claims today', value: formatCount(executive.claimsToday) },
+          { label: 'Unique sessions', value: formatCount(executive.uniqueSessions) },
+          {
+            label: 'Returning session rate',
+            value: formatRate(executive.returningSessionRate),
+            tone: (executive.returningSessionRate ?? 0) < 0.15 ? 'warning' : 'good',
+          },
+          {
+            label: 'Average latency',
+            value: formatLatency(executive.averageLatencyMs),
+            tone: executive.averageLatencyMs >= 8000 ? 'danger' : 'neutral',
+          },
+          { label: 'Email captures', value: formatCount(executive.emailCaptures, 'Not tracked yet') },
+        ],
+        interpretation: [
+          `Executive status is ${status.statusLabel.toLowerCase()} based on the current usage, attribution, and latency profile.`,
+          `Claim-to-email conversion is ${formatRate(executive.claimToEmailConversionRate, 'not measurable yet')}.`,
+          `Latest claim seen: ${formatDateTime(executive.lastClaimAt)}. Latest event seen: ${formatDateTime(executive.lastEventAt)}.`,
+        ],
+        dataQuality: [
+          'This branch is computed from the existing `/api/admin/metrics` response only.',
+          `${formatCount(executive.unattributedClaims)} claim rows are unattributed and reduce channel trust.`,
+          executive.emailCaptures === null
+            ? 'Email capture totals are partial because beta-user linkage is not fully available.'
+            : 'Email capture totals are sourced from the existing beta-user table only.',
+        ],
+        currentRisk: [
+          executive.averageLatencyMs >= 8000
+            ? 'Latency is high enough to damage trust in daily use.'
+            : 'No major latency pressure dominates the executive read right now.',
+          (executive.returningSessionRate ?? 0) < 0.15
+            ? 'Repeat usage is still weak for a founder operating system.'
+            : 'Repeat usage is showing enough signal to keep monitoring, not panic.',
+          executive.unattributedClaims > Math.max(3, Math.floor(executive.totalClaims * 0.2))
+            ? 'Attribution gaps are obscuring which channels are truly working.'
+            : 'Attribution coverage is usable for top-line reading.',
+        ],
+        recommendedAction:
+          metrics.operatorRecommendations.length > 0
+            ? metrics.operatorRecommendations.slice(0, 3).map((item) => item.title)
+            : ['No operator recommendation is available yet.'],
+        tables: [
+          {
+            title: 'Verdict Mix',
+            columns: ['Verdict', 'Count'],
+            rows: metrics.verdictBreakdown.map((row) => [row.verdict, formatCount(row.count)]),
+            emptyCopy: 'No verdict rows yet.',
+          },
+          {
+            title: 'Risk Label Mix',
+            columns: ['Risk label', 'Count'],
+            rows: metrics.riskLabelBreakdown.map((row) => [row.riskLabel, formatCount(row.count)]),
+            emptyCopy: 'No risk rows yet.',
+          },
+        ],
+      })
+    }
+
+    case 'daily-intelligence': {
+      const daily = metrics.automationIntelligence
+      const status = recommendationTone(daily.recommendations)
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Daily Intelligence',
+        definition: 'Today-only operating read across growth, product demand, and reliability.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived'],
+        keyMetrics: [
+          { label: 'Claims today', value: formatCount(daily.dailySnapshot.claimsToday) },
+          { label: 'Sessions today', value: formatCount(daily.dailySnapshot.sessionsToday) },
+          { label: 'Emails today', value: formatCount(daily.dailySnapshot.emailsToday) },
+          {
+            label: 'Average latency',
+            value: formatLatency(daily.dailySnapshot.averageLatencyMs),
+            tone: (daily.dailySnapshot.averageLatencyMs ?? 0) >= 8000 ? 'danger' : 'neutral',
+          },
+          { label: 'Top source today', value: formatText(daily.dailySnapshot.topSourceToday) },
+          { label: 'Top category today', value: formatCategory(daily.dailySnapshot.topCategoryToday) },
+        ],
+        interpretation: [
+          daily.growthSignals.claimSubmissionsTrend.summary,
+          daily.growthSignals.repeatSessionTrend.summary,
+          `Most tested category today: ${formatCategory(daily.productSignals.mostTestedCategory?.category)}.`,
+        ],
+        dataQuality: [
+          'This branch is derived from the daily automation layer already returned by `/api/admin/metrics`.',
+          `Missing attribution rows today are represented as ${formatCount(daily.reliabilitySignals.missingAttributionRows)} unattributed records.`,
+          daily.dailySnapshot.claimsToday === 0
+            ? 'A zero-claim day should be read cautiously because silence can reflect either low demand or limited data.'
+            : 'Daily claim volume is present, so today-level interpretation is grounded in live rows.',
+        ],
+        currentRisk: [
+          daily.recommendedNextAction ? daily.recommendedNextAction.detail : 'No daily action is available yet.',
+          daily.reliabilitySignals.claimsOver8Seconds > 0
+            ? `${formatCount(daily.reliabilitySignals.claimsOver8Seconds)} claims crossed 8 seconds today.`
+            : 'No obvious 8-second latency spike is visible in today’s read.',
+          daily.reliabilitySignals.lowConfidenceClusters.length > 0
+            ? `${formatCategory(daily.reliabilitySignals.lowConfidenceClusters[0]?.category)} is the main low-confidence pressure point.`
+            : 'No low-confidence cluster is standing out today.',
+        ],
+        recommendedAction:
+          daily.recommendations.length > 0
+            ? daily.recommendations.slice(0, 4).map((item) => item.title)
+            : ['No daily recommendation is available yet.'],
+        tables: [
+          {
+            title: 'Recent High-Intent Sessions',
+            columns: ['Session', 'Claims', 'Source', 'Returning', 'Email'],
+            rows: daily.productSignals.recentHighIntentSessions.slice(0, 8).map((session) => [
+              shortenId(session.sessionId),
+              formatCount(session.claimCount),
+              formatText(session.source, 'Unattributed'),
+              session.isReturning ? 'Yes' : 'No',
+              session.emailCaptured ? 'Yes' : 'No',
+            ]),
+            emptyCopy: 'No high-intent sessions yet.',
+          },
+        ],
+      })
+    }
+
+    case 'funnel': {
+      const funnel = metrics.funnelIntelligence
+      const biggestDropOff = funnel.biggestDropOff?.conversion ?? null
+      const status =
+        funnel.stages.length === 0
+          ? { statusLabel: 'Partial', statusTone: 'muted' as const }
+          : biggestDropOff !== null && biggestDropOff < 0.2
+            ? { statusLabel: 'Leak', statusTone: 'warning' as const }
+            : { statusLabel: 'Tracked', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Funnel',
+        definition: 'Progress from traffic to app opens, claim submissions, and email capture.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Manual baseline'],
+        keyMetrics: [
+          { label: 'Tracked stages', value: formatCount(funnel.stages.length) },
+          {
+            label: 'Biggest drop-off',
+            value: funnel.biggestDropOff?.label ?? 'No data yet',
+            note: formatRate(funnel.biggestDropOff?.conversion),
+            tone: biggestDropOff !== null && biggestDropOff < 0.2 ? 'warning' : 'neutral',
+          },
+          {
+            label: 'Strongest stage',
+            value: funnel.strongestRetainedStage?.label ?? 'No data yet',
+            note: formatRate(funnel.strongestRetainedStage?.conversion),
+          },
+          {
+            label: 'Best source',
+            value: funnel.bestSource?.label ?? 'No data yet',
+            note: funnel.bestSource
+              ? `${formatCount(funnel.bestSource.claimSubmissions)} claim submissions`
+              : 'No source winner yet',
+          },
+        ],
+        interpretation: [
+          funnel.nextRecommendedAction,
+          funnel.stages.some((stage) => stage.manualBaseline)
+            ? 'Parts of the funnel still depend on manual baselines, so channel-level precision is limited.'
+            : 'The funnel is primarily tracked rather than manually estimated.',
+          funnel.biggestDropOff
+            ? `${funnel.biggestDropOff.label} is the largest visible conversion break in the current flow.`
+            : 'There is not enough tracked stage depth to identify a dominant drop-off yet.',
+        ],
+        dataQuality: [
+          `${formatCount(funnel.stages.filter((stage) => stage.status === 'tracked').length)} stages are directly tracked.`,
+          `${formatCount(funnel.stages.filter((stage) => stage.manualBaseline).length)} stages currently rely on manual baselines.`,
+          funnel.stages.some((stage) => stage.status === 'not_tracked')
+            ? 'At least one funnel stage is not tracked yet.'
+            : 'Every exposed funnel stage has some tracked or manual coverage.',
+        ],
+        currentRisk: [
+          biggestDropOff !== null && biggestDropOff < 0.2
+            ? 'A major funnel leak exists before users reach the deeper operating loop.'
+            : 'No catastrophic funnel break is visible from the current stages.',
+          funnel.bestSource === null
+            ? 'There is no reliable source winner yet.'
+            : 'A source winner exists, but it still depends on the current attribution quality.',
+        ],
+        recommendedAction: [funnel.nextRecommendedAction],
+        tables: [
+          {
+            title: 'Stage Detail',
+            columns: ['Stage', 'Count', 'Status', 'Source', 'Conversion from previous'],
+            rows: funnel.stages.map((stage) => [
+              stage.label,
+              formatCount(stage.count),
+              stage.status === 'manual'
+                ? stage.manualBaseline
+                  ? 'Manual baseline'
+                  : 'Manual'
+                : stage.status === 'tracked'
+                  ? 'Tracked'
+                  : 'Not tracked yet',
+              stage.sourceLabel,
+              formatRate(stage.conversionFromPrevious),
+            ]),
+            emptyCopy: 'No funnel stages yet.',
+          },
+        ],
+      })
+    }
+
+    case 'traffic-sources': {
+      const sources = metrics.trafficSourceIntelligence
+      const unattributedRate =
+        metrics.executiveSnapshot.totalClaims > 0
+          ? sources.unattributedClaims / metrics.executiveSnapshot.totalClaims
+          : null
+      const status =
+        !sources.available
+          ? { statusLabel: 'Partial', statusTone: 'muted' as const }
+          : (unattributedRate ?? 0) >= 0.2
+            ? { statusLabel: 'Coverage gap', statusTone: 'warning' as const }
+            : { statusLabel: 'Usable', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Traffic Sources',
+        definition: 'Source quality, attribution trust, and email capture linkage by channel.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Partial coverage'],
+        keyMetrics: [
+          { label: 'Source rows', value: formatCount(sources.rows.length) },
+          {
+            label: 'Best source by claims',
+            value: sources.bestSourceByClaims?.label ?? 'No data yet',
+            note: sources.bestSourceByClaims
+              ? `${formatCount(sources.bestSourceByClaims.claimSubmissions)} claims`
+              : sources.note,
+          },
+          {
+            label: 'Best source by claims/session',
+            value: sources.bestSourceByClaimsPerSession?.label ?? 'No data yet',
+            note: formatDecimal(sources.bestSourceByClaimsPerSession?.claimsPerSession),
+          },
+          {
+            label: 'Unattributed claims',
+            value: formatCount(sources.unattributedClaims),
+            note: formatRate(unattributedRate),
+            tone: (unattributedRate ?? 0) >= 0.2 ? 'warning' : 'neutral',
+          },
+        ],
+        interpretation: [
+          sources.note,
+          sources.bestSourceByClaims
+            ? `${sources.bestSourceByClaims.label} is the cleanest claim-volume source right now.`
+            : 'No source has enough clear signal to be called a winner.',
+          sources.topReferrers.length > 0
+            ? `${sources.topReferrers[0].referrer} is the top recorded referrer in the current telemetry.`
+            : 'No referrer leadership is visible yet.',
+        ],
+        dataQuality: [
+          `${formatCount(sources.attributedClaims)} attributed claims are currently usable for source analysis.`,
+          `${formatCount(sources.unattributedClaims)} claims still sit in the unattributed bucket.`,
+          'Traffic rows merge claim, event, and signup context only where the current telemetry exposes it.',
+        ],
+        currentRisk: [
+          (unattributedRate ?? 0) >= 0.2
+            ? 'Attribution loss is high enough to distort channel decisions.'
+            : 'Attribution loss exists but is not overwhelming the whole branch.',
+          sources.rows.length === 0
+            ? 'There is not enough source data to trust traffic conclusions yet.'
+            : 'Traffic source conclusions are usable but still constrained by tracking coverage.',
+        ],
+        recommendedAction:
+          metrics.operatorRecommendations.length > 0
+            ? metrics.operatorRecommendations
+                .filter((item) => /source|attribution|campaign|traffic/i.test(item.title + item.detail))
+                .slice(0, 3)
+                .map((item) => item.title)
+            : ['No source-specific action is available yet.'],
+        tables: [
+          {
+            title: 'Source Performance',
+            columns: ['Source / medium', 'Campaign', 'Claims', 'Sessions', 'Claims/session', 'Interpretation'],
+            rows: buildTrafficRows(sources.rows),
+            emptyCopy: 'No traffic source rows yet.',
+          },
+          {
+            title: 'Top Referrers',
+            columns: ['Referrer', 'Sessions'],
+            rows: sources.topReferrers.map((row) => [row.referrer, formatCount(row.sessionCount)]),
+            emptyCopy: 'No referrer rows yet.',
+          },
+        ],
+      })
+    }
+
+    case 'retention': {
+      const retention = metrics.retentionIntelligence
+      const status =
+        retention.uniqueSessions === 0
+          ? { statusLabel: 'Partial', statusTone: 'muted' as const }
+          : (retention.returningSessionRate ?? 0) < 0.15
+            ? { statusLabel: 'Weak repeat use', statusTone: 'warning' as const }
+            : { statusLabel: 'Repeat signal', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Retention',
+        definition: 'Repeat behavior, session depth, and high-intent usage patterns.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived'],
+        keyMetrics: [
+          { label: 'Unique sessions', value: formatCount(retention.uniqueSessions) },
+          { label: 'Returning sessions', value: formatCount(retention.returningSessions) },
+          {
+            label: 'Returning session rate',
+            value: formatRate(retention.returningSessionRate),
+            tone: (retention.returningSessionRate ?? 0) < 0.15 ? 'warning' : 'good',
+          },
+          { label: 'Repeat-claim sessions', value: formatCount(retention.repeatClaimSessions) },
+          { label: 'Claims per session', value: formatDecimal(retention.averageClaimsPerSession) },
+          { label: 'High-intent sessions', value: formatCount(retention.highIntentSessions.length) },
+        ],
+        interpretation: retention.interpretation,
+        dataQuality: [
+          'Retention is inferred from tracked session behavior already exposed by the metrics service.',
+          `Average time per session: ${formatLatency(retention.averageTimePerSessionMs)}.`,
+          retention.averageTimeBetweenSessionsMs === null
+            ? 'Average time between sessions is not measurable yet.'
+            : `Average time between sessions is ${formatLatency(retention.averageTimeBetweenSessionsMs)}.`,
+        ],
+        currentRisk: [
+          (retention.returningSessionRate ?? 0) < 0.15
+            ? 'Repeat use is still too weak for dependable habit formation.'
+            : 'Repeat use exists and should be reinforced rather than rescued.',
+          retention.highIntentSessions.length === 0
+            ? 'There are no obvious high-intent sessions to inspect yet.'
+            : 'High-intent sessions are present, which means behavior quality can be studied directly.',
+        ],
+        recommendedAction:
+          metrics.operatorRecommendations.length > 0
+            ? metrics.operatorRecommendations
+                .filter((item) => /repeat|retention|session|usage/i.test(item.title + item.detail))
+                .slice(0, 3)
+                .map((item) => item.title)
+            : ['No retention-specific action is available yet.'],
+        tables: [
+          {
+            title: 'High-Intent Sessions',
+            columns: ['Session', 'Claims', 'Source', 'Returning', 'Email', 'Last seen'],
+            rows: retention.highIntentSessions.slice(0, 10).map((session) => [
+              shortenId(session.sessionId),
+              formatCount(session.claimCount),
+              formatText(session.source, 'Unattributed'),
+              session.isReturning ? 'Yes' : 'No',
+              session.emailCaptured ? 'Yes' : 'No',
+              formatDateTime(session.lastSeenAt),
+            ]),
+            emptyCopy: 'No high-intent sessions yet.',
+          },
+        ],
+      })
+    }
+
+    case 'claim-categories': {
+      const categories = metrics.categoryIntelligence
+      const weakestConfidence = categories.lowestConfidenceCategory?.averageConfidence ?? null
+      const status =
+        categories.categoryBreakdown.length === 0
+          ? { statusLabel: 'Partial', statusTone: 'muted' as const }
+          : (weakestConfidence ?? 100) < 60
+            ? { statusLabel: 'Quality watch', statusTone: 'warning' as const }
+            : { statusLabel: 'Readable', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Claim Categories',
+        definition: 'What users test most, where quality is weakest, and which themes dominate.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived'],
+        keyMetrics: [
+          { label: 'Categories', value: formatCount(categories.categoryBreakdown.length) },
+          {
+            label: 'Most tested',
+            value: formatCategory(categories.mostTestedCategory?.category),
+            note: formatRate(categories.mostTestedCategory?.percentage),
+          },
+          {
+            label: 'Lowest confidence',
+            value: formatCategory(categories.lowestConfidenceCategory?.category),
+            note: categories.lowestConfidenceCategory
+              ? `${categories.lowestConfidenceCategory.averageConfidence.toFixed(1)} / 100`
+              : 'No data yet',
+            tone: (weakestConfidence ?? 100) < 60 ? 'warning' : 'neutral',
+          },
+          {
+            label: 'Highest latency',
+            value: formatCategory(categories.highestLatencyCategory?.category),
+            note: formatLatency(categories.highestLatencyCategory?.averageLatencyMs),
+          },
+        ],
+        interpretation: categories.interpretation,
+        dataQuality: [
+          'Category derivation is analytics-only and does not change analyzer behavior.',
+          categories.categoryBreakdown.length === 0
+            ? 'There are not enough categorized claims to read demand shape yet.'
+            : `The category mix is currently driven by ${formatCount(categories.categoryBreakdown.length)} visible buckets.`,
+          categories.highestSourceCampaignCategory
+            ? `${formatCategory(categories.highestSourceCampaignCategory.category)} currently has the strongest source/campaign concentration.`
+            : 'No category has a clear source/campaign concentration yet.',
+        ],
+        currentRisk: [
+          (weakestConfidence ?? 100) < 60
+            ? `${formatCategory(categories.lowestConfidenceCategory?.category)} is the clearest answer-quality risk today.`
+            : 'No category is flashing extreme quality risk from the current averages.',
+          categories.highestLatencyCategory
+            ? `${formatCategory(categories.highestLatencyCategory.category)} is the main latency-heavy category.`
+            : 'No dominant slow category is visible yet.',
+        ],
+        recommendedAction:
+          metrics.operatorRecommendations.length > 0
+            ? metrics.operatorRecommendations
+                .filter((item) => /quality|confidence|category|product/i.test(item.title + item.detail))
+                .slice(0, 3)
+                .map((item) => item.title)
+            : ['No category-specific action is available yet.'],
+        tables: [
+          {
+            title: 'Category Breakdown',
+            columns: ['Category', 'Claims', 'Share', 'Avg confidence', 'Avg latency', 'Top source'],
+            rows: categories.categoryBreakdown.map((row) => [
+              formatCategory(row.category),
+              formatCount(row.count),
+              formatRate(row.percentage),
+              `${row.averageConfidence.toFixed(1)} / 100`,
+              formatLatency(row.averageLatencyMs),
+              formatText(row.topSource),
+            ]),
+            emptyCopy: 'No category rows yet.',
+          },
+        ],
+      })
+    }
+
+    case 'operational-health': {
+      const health = metrics.operationalHealth
+      const status =
+        health.averageLatencyMs >= 8000 || health.claimsOver8s > 0
+          ? { statusLabel: 'Under pressure', statusTone: 'danger' as const }
+          : health.lowConfidenceClaimsCount > 0
+            ? { statusLabel: 'Watch', statusTone: 'warning' as const }
+            : { statusLabel: 'Stable', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Operational Health',
+        definition: 'Latency, evidence coverage, low-confidence pressure, and operational risk.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Partial coverage'],
+        keyMetrics: [
+          {
+            label: 'Average latency',
+            value: formatLatency(health.averageLatencyMs),
+            tone: health.averageLatencyMs >= 8000 ? 'danger' : 'neutral',
+          },
+          { label: 'P95 latency', value: formatLatency(health.p95LatencyMs) },
+          { label: 'Claims over 8s', value: formatCount(health.claimsOver8s) },
+          { label: 'Claims over 12s', value: formatCount(health.claimsOver12s) },
+          { label: 'Zero-source claims', value: formatCount(health.claimsWithZeroSources) },
+          { label: 'Low-confidence claims', value: formatCount(health.lowConfidenceClaimsCount) },
+        ],
+        interpretation: [
+          `Median latency is ${formatLatency(health.medianLatencyMs)}.`,
+          `Average evidence count per claim is ${formatDecimal(health.averageSourceCount)}.`,
+          `Latest claim seen: ${formatDateTime(health.lastClaimAt)}. Latest event seen: ${formatDateTime(health.lastEventAt)}.`,
+        ],
+        dataQuality: [
+          'This branch measures only what the current metrics service already exposes.',
+          'Error counts, fallback counts, and malformed-output counts are not currently tracked and are not invented here.',
+          `${formatCount(health.claimsWithZeroSources)} claims returned zero sources in the visible telemetry.`,
+        ],
+        currentRisk: [
+          health.averageLatencyMs >= 8000
+            ? 'Latency is the main operational risk right now.'
+            : 'Latency is not catastrophic, but it still needs monitoring.',
+          health.lowConfidenceClaimsCount > 0
+            ? `${formatCount(health.lowConfidenceClaimsCount)} low-confidence rows are currently visible.`
+            : 'No large low-confidence stack is visible right now.',
+        ],
+        recommendedAction:
+          metrics.operatorRecommendations.length > 0
+            ? metrics.operatorRecommendations
+                .filter((item) => /latency|health|reliability|source|quality/i.test(item.title + item.detail))
+                .slice(0, 3)
+                .map((item) => item.title)
+            : ['No operations-specific action is available yet.'],
+        tables: [
+          {
+            title: 'Slowest Claims',
+            columns: ['Created', 'Category', 'Confidence', 'Latency', 'Source', 'Risk', 'Claim'],
+            rows: buildClaimRows(health.slowestClaims),
+            emptyCopy: 'No slow-claim rows yet.',
+          },
+          {
+            title: 'Low-Confidence Claims',
+            columns: ['Created', 'Category', 'Confidence', 'Latency', 'Source', 'Risk', 'Claim'],
+            rows: buildClaimRows(health.lowConfidenceClaims),
+            emptyCopy: 'No low-confidence rows yet.',
+          },
+        ],
+      })
+    }
+
+    case 'recent-claims': {
+      const claims = metrics.recentClaims
+      const highRiskCount = claims.filter((claim) => /high|severe/i.test(claim.riskLabel)).length
+      const status =
+        claims.length === 0
+          ? { statusLabel: 'No rows', statusTone: 'muted' as const }
+          : highRiskCount > 0
+            ? { statusLabel: 'Contains risk', statusTone: 'warning' as const }
+            : { statusLabel: 'Live', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Recent Claims',
+        definition: 'The newest claims with verdict, confidence, risk, and attribution context.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked'],
+        keyMetrics: [
+          { label: 'Visible rows', value: formatCount(claims.length) },
+          { label: 'High-risk rows', value: formatCount(highRiskCount) },
+          {
+            label: 'Low-confidence rows',
+            value: formatCount(claims.filter((claim) => claim.confidence < 60).length),
+          },
+          {
+            label: 'Latest claim',
+            value: claims[0] ? formatDateTime(claims[0].createdAt) : 'No data yet',
+          },
+        ],
+        interpretation: [
+          'This branch is the fastest way to inspect the latest raw operating activity.',
+          highRiskCount > 0
+            ? 'Recent rows include at least one high-risk or severe-risk claim.'
+            : 'Recent rows do not show an immediate high-risk spike.',
+          claims.some((claim) => !claim.attributed)
+            ? 'Some recent rows are unattributed, so traffic interpretation remains incomplete.'
+            : 'Recent rows carry usable attribution coverage.',
+        ],
+        dataQuality: [
+          'Rows come directly from the recent-claims slice exposed by `/api/admin/metrics`.',
+          'Only the latest visible rows are shown here, so this branch is intentionally tactical rather than exhaustive.',
+          `${formatCount(claims.filter((claim) => !claim.attributed).length)} recent rows are unattributed.`,
+        ],
+        currentRisk: [
+          highRiskCount > 0
+            ? 'A founder should inspect the recent high-risk rows directly.'
+            : 'No immediate cluster of high-risk rows dominates the latest sample.',
+          claims.some((claim) => claim.latencyMs >= 8000)
+            ? 'Some recent claims are also operationally slow.'
+            : 'The latest sample is not dominated by extreme latency.',
+        ],
+        recommendedAction:
+          metrics.operatorRecommendations.length > 0
+            ? metrics.operatorRecommendations.slice(0, 3).map((item) => item.title)
+            : ['No linked recommendation is available yet.'],
+        tables: [
+          {
+            title: 'Recent Claim Log',
+            columns: ['Created', 'Category', 'Confidence', 'Latency', 'Source', 'Risk', 'Claim'],
+            rows: buildClaimRows(claims),
+            emptyCopy: 'No recent claims yet.',
+          },
+        ],
+      })
+    }
+
+    case 'recommendations': {
+      const recommendations = metrics.operatorRecommendations
+      const status = recommendationTone(recommendations)
+
+      return makeReport({
+        slug,
+        href: `/admin/report/${slug}`,
+        title: 'Recommendations',
+        definition: 'Metrics-derived operator actions ranked by urgency and leverage.',
+        family: 'admin',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Derived'],
+        keyMetrics: [
+          { label: 'Recommendations', value: formatCount(recommendations.length) },
+          {
+            label: 'High priority',
+            value: formatCount(recommendations.filter((item) => item.priority === 'high').length),
+            tone: recommendations.some((item) => item.priority === 'high') ? 'danger' : 'neutral',
+          },
+          {
+            label: 'Medium priority',
+            value: formatCount(recommendations.filter((item) => item.priority === 'medium').length),
+          },
+          { label: 'Current executive status', value: metrics.executiveSnapshot.status.replace(/_/g, ' ') },
+        ],
+        interpretation: [
+          'These recommendations come from the current metrics response only.',
+          recommendations.length > 0
+            ? `${recommendations[0].title} is the top current operator priority.`
+            : 'No metrics-derived recommendation is available yet.',
+        ],
+        dataQuality: [
+          'No recommendation in this branch is hard-coded against fake analytics values.',
+          'If a signal is missing in the metrics response, it is not invented in the recommendation layer.',
+        ],
+        currentRisk: [
+          recommendations.some((item) => item.priority === 'high')
+            ? 'There is at least one high-priority issue requiring founder attention.'
+            : 'No high-priority action currently dominates the system.',
+        ],
+        recommendedAction:
+          recommendations.length > 0
+            ? recommendations.slice(0, 5).map((item) => `${item.priority.toUpperCase()}: ${item.title}`)
+            : ['No recommendation is available yet.'],
+        tables: [
+          {
+            title: 'Action Queue',
+            columns: ['Priority', 'Title', 'Detail'],
+            rows: recommendations.map((item) => [item.priority, item.title, item.detail]),
+            emptyCopy: 'No recommendations yet.',
+          },
+        ],
+      })
+    }
+  }
+}
+
+export function buildLifetimeBranchReport(
+  slug: LifetimeBranchSlug,
+  metrics: AdminMetricsResponse
+): BranchReport {
+  const lifetime = metrics.lifetimeIntelligence
+  const lastUpdated = formatDateTime(metrics.generatedAt)
+
+  switch (slug) {
+    case 'intelligence': {
+      const status =
+        lifetime.snapshot.totalClaimSubmissions === 0
+          ? { statusLabel: 'Sparse', statusTone: 'muted' as const }
+          : lifetime.reliability.currentReliabilityStatus.toLowerCase().includes('stable')
+            ? { statusLabel: 'Operating', statusTone: 'good' as const }
+            : { statusLabel: 'Watch', statusTone: 'warning' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Lifetime Intelligence',
+        definition: 'Founder-level lifetime operating read across growth, behavior, trust, and reliability.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Partial coverage'],
+        keyMetrics: [
+          { label: 'DAM stage', value: lifetime.snapshot.currentDamStage },
+          { label: 'Total claim submissions', value: formatCount(lifetime.snapshot.totalClaimSubmissions) },
+          { label: 'Tracked sessions', value: formatCount(lifetime.snapshot.totalSessions) },
+          { label: 'Returning session rate', value: formatRate(lifetime.snapshot.returningSessionRate) },
+          { label: 'Strongest signal', value: lifetime.strategy.strongestCurrentSignal },
+          { label: 'Reliability status', value: lifetime.reliability.currentReliabilityStatus },
+        ],
+        interpretation: [
+          `Current DAM stage: ${lifetime.snapshot.currentDamStage}.`,
+          lifetime.strategy.strongestCurrentSignal,
+          `Most valuable behavioral signal: ${lifetime.behavior.mostValuableBehavioralSignal}`,
+        ],
+        dataQuality: [
+          lifetime.dataCoverage.mismatchSummary,
+          'Lifetime intelligence is bounded by tracked Supabase telemetry and derived interpretation only.',
+          'Vercel aggregate traffic is still not connected into the metrics response.',
+        ],
+        currentRisk: [
+          lifetime.strategy.biggestOperationalRisk,
+          lifetime.growth.biggestGrowthBottleneck,
+          `Current user intent: ${lifetime.trustProduct.currentUserIntent}.`,
+        ],
+        recommendedAction: lifetime.strategy.topNextActions.slice(0, 4).map((item) => item.title),
+        tables: [
+          {
+            title: 'Channel Leaders',
+            columns: ['Source / medium', 'Campaign', 'Claims', 'Sessions', 'Claims/session', 'Interpretation'],
+            rows: buildTrafficRows(lifetime.growth.topAcquisitionChannels),
+            emptyCopy: 'No channel leaders yet.',
+          },
+        ],
+      })
+    }
+
+    case 'company-snapshot': {
+      const split = lifetime.snapshot.mobileVsDesktopSplit
+      const status =
+        lifetime.snapshot.totalClaimSubmissions === 0
+          ? { statusLabel: 'Sparse', statusTone: 'muted' as const }
+          : { statusLabel: 'Mapped', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Company Snapshot',
+        definition: 'Lifetime scale, operating footprint, and product stage from tracked telemetry.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Partial coverage'],
+        keyMetrics: [
+          { label: 'Tracked visitors', value: formatCount(lifetime.snapshot.totalVisitors, 'Unavailable') },
+          { label: 'Tracked sessions', value: formatCount(lifetime.snapshot.totalSessions) },
+          { label: 'Page views', value: formatCount(lifetime.snapshot.totalPageViews) },
+          { label: 'Claim submissions', value: formatCount(lifetime.snapshot.totalClaimSubmissions) },
+          { label: 'Email captures', value: formatCount(lifetime.snapshot.totalEmailCaptures, 'Not tracked yet') },
+          { label: 'Operational days', value: formatCount(lifetime.snapshot.totalOperationalDays) },
+        ],
+        interpretation: [
+          `Current DAM stage is ${lifetime.snapshot.currentDamStage}.`,
+          `Most active source: ${formatText(lifetime.snapshot.mostActiveSource)}.`,
+          `Most tested lifetime category: ${formatCategory(lifetime.snapshot.mostTestedCategory)}.`,
+        ],
+        dataQuality: [
+          lifetime.dataCoverage.mismatchSummary,
+          split
+            ? 'Device split is computed from tracked Supabase event metadata only.'
+            : 'Device split is not fully measurable from the current telemetry.',
+          'Country-level reach is not available from the current metrics response.',
+        ],
+        currentRisk: [
+          lifetime.snapshot.totalVisitors === null
+            ? 'Visitor totals are partial because visitor_id coverage is incomplete.'
+            : 'Visitor totals are tracked where visitor_id coverage exists.',
+          lifetime.snapshot.averageLatencyMs >= 8000
+            ? 'Average lifetime latency is still high for a premium internal system.'
+            : 'Lifetime latency is not the dominant snapshot risk.',
+        ],
+        recommendedAction: [
+          lifetime.strategy.highestLeverageGrowthAction,
+          lifetime.strategy.highestLeverageRetentionAction,
+          lifetime.strategy.highestLeverageProductFix,
+        ],
+        tables: [
+          {
+            title: 'Device Split',
+            columns: ['Device', 'Sessions', 'Share'],
+            rows: split
+              ? buildValueShareRows(
+                  [
+                    { label: 'Mobile', count: split.mobile, percentage: split.mobile / Math.max(lifetime.snapshot.totalSessions, 1) },
+                    { label: 'Desktop', count: split.desktop, percentage: split.desktop / Math.max(lifetime.snapshot.totalSessions, 1) },
+                    { label: 'Tablet', count: split.tablet, percentage: split.tablet / Math.max(lifetime.snapshot.totalSessions, 1) },
+                    { label: 'Unknown', count: split.unknown, percentage: split.unknown / Math.max(lifetime.snapshot.totalSessions, 1) },
+                  ].filter((row) => row.count > 0)
+                )
+              : [],
+            emptyCopy: 'Device split is not available yet.',
+          },
+        ],
+      })
+    }
+
+    case 'growth-intelligence': {
+      const status =
+        (lifetime.growth.unattributedTrafficPercentage ?? 0) >= 0.2
+          ? { statusLabel: 'Attribution drag', statusTone: 'warning' as const }
+          : { statusLabel: 'Readable', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Growth Intelligence',
+        definition: 'Traffic quality, channel conversion, bottlenecks, and growth trajectory.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Partial coverage'],
+        keyMetrics: [
+          { label: 'Visitor trend', value: lifetime.growth.visitorGrowthTrend.summary },
+          { label: 'Claim trend', value: lifetime.growth.claimGrowthTrend.summary },
+          { label: 'Repeat trend', value: lifetime.growth.repeatSessionTrend.summary },
+          { label: 'Email trend', value: lifetime.growth.emailCaptureTrend.summary },
+          {
+            label: 'Unattributed traffic',
+            value: formatRate(lifetime.growth.unattributedTrafficPercentage),
+            tone: (lifetime.growth.unattributedTrafficPercentage ?? 0) >= 0.2 ? 'warning' : 'neutral',
+          },
+          { label: 'Biggest bottleneck', value: lifetime.growth.biggestGrowthBottleneck },
+        ],
+        interpretation: [
+          lifetime.growth.visitorGrowthTrend.summary,
+          lifetime.growth.claimGrowthTrend.summary,
+          lifetime.growth.emailCaptureTrend.summary,
+        ],
+        dataQuality: [
+          'Growth conclusions depend on tracked source and visitor coverage only.',
+          `${formatCount(lifetime.growth.topAcquisitionChannels.length)} acquisition channels are currently visible in the lifetime layer.`,
+          'Vercel aggregate top-line traffic is still absent from this branch.',
+        ],
+        currentRisk: [
+          lifetime.growth.biggestGrowthBottleneck,
+          (lifetime.growth.unattributedTrafficPercentage ?? 0) >= 0.2
+            ? 'Attribution gaps are materially weakening growth confidence.'
+            : 'Attribution quality is not the main growth blocker right now.',
+        ],
+        recommendedAction: [
+          lifetime.strategy.highestLeverageGrowthAction,
+          ...lifetime.strategy.topNextActions.slice(0, 2).map((item) => item.title),
+        ],
+        tables: [
+          {
+            title: 'Top Acquisition Channels',
+            columns: ['Source / medium', 'Campaign', 'Claims', 'Sessions', 'Claims/session', 'Interpretation'],
+            rows: buildTrafficRows(lifetime.growth.topAcquisitionChannels),
+            emptyCopy: 'No lifetime channel rows yet.',
+          },
+          {
+            title: 'Best Converting Sources',
+            columns: ['Source / medium', 'Campaign', 'Claims', 'Sessions', 'Claims/session', 'Interpretation'],
+            rows: buildTrafficRows(lifetime.growth.bestConvertingSources),
+            emptyCopy: 'No best-converting rows yet.',
+          },
+        ],
+      })
+    }
+
+    case 'user-behavior': {
+      const status =
+        (lifetime.snapshot.returningSessionRate ?? 0) < 0.15
+          ? { statusLabel: 'Weak habit', statusTone: 'warning' as const }
+          : { statusLabel: 'Behavior signal', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'User Behavior',
+        definition: 'Session depth, time to first claim, common flows, and repeat-use patterns.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived'],
+        keyMetrics: [
+          { label: 'First-time sessions', value: formatCount(lifetime.behavior.firstTimeSessions) },
+          { label: 'Repeat sessions', value: formatCount(lifetime.behavior.repeatSessions) },
+          { label: 'Time before first claim', value: formatLatency(lifetime.behavior.averageTimeBeforeFirstClaimMs) },
+          { label: 'Most common flow', value: lifetime.behavior.mostCommonUserFlow?.label ?? 'No data yet' },
+          { label: 'Example claim usage rate', value: formatRate(lifetime.behavior.exampleClaimUsageRate) },
+          { label: 'Most valuable signal', value: lifetime.behavior.mostValuableBehavioralSignal },
+        ],
+        interpretation: [
+          lifetime.behavior.mostValuableBehavioralSignal,
+          lifetime.behavior.highIntentSessionPatterns[0] ?? 'No high-intent pattern is visible yet.',
+          lifetime.behavior.repeatUserPatterns[0] ?? 'No repeat-user pattern is visible yet.',
+        ],
+        dataQuality: [
+          'Behavior is modeled from tracked sessions and event order only.',
+          lifetime.behavior.mobileVsDesktopEngagement
+            ? 'Device engagement split is partially measurable.'
+            : 'Device engagement split is incomplete because device metadata coverage is partial.',
+        ],
+        currentRisk: [
+          (lifetime.snapshot.returningSessionRate ?? 0) < 0.15
+            ? 'The lifetime system still lacks strong repeat-use behavior.'
+            : 'Repeat-use behavior exists and should now be amplified.',
+          lifetime.behavior.mostCommonUserFlow === null
+            ? 'There is no stable dominant flow yet.'
+            : `The main flow is ${lifetime.behavior.mostCommonUserFlow.label}, which should shape future operating loops.`,
+        ],
+        recommendedAction: [
+          lifetime.strategy.highestLeverageRetentionAction,
+          ...lifetime.strategy.topNextActions.slice(0, 2).map((item) => item.title),
+        ],
+        tables: [
+          {
+            title: 'Claims per Session Distribution',
+            columns: ['Bucket', 'Sessions', 'Share'],
+            rows: buildValueShareRows(lifetime.behavior.claimsPerSessionDistribution),
+            emptyCopy: 'No claims-per-session distribution yet.',
+          },
+          {
+            title: 'Longest Sessions',
+            columns: ['Session', 'Source', 'Device', 'Claims', 'Duration', 'Email'],
+            rows: lifetime.behavior.longestSessions.map((row) => [
+              shortenId(row.sessionId),
+              formatText(row.source, 'Unattributed'),
+              row.deviceType,
+              formatCount(row.claimCount),
+              formatLatency(row.durationMs),
+              row.emailCaptured ? 'Yes' : 'No',
+            ]),
+            emptyCopy: 'No long sessions yet.',
+          },
+        ],
+      })
+    }
+
+    case 'trust-product': {
+      const weakestConfidence = lifetime.trustProduct.lowestConfidenceCategory?.averageConfidence ?? null
+      const status =
+        (weakestConfidence ?? 100) < 60
+          ? { statusLabel: 'Quality pressure', statusTone: 'warning' as const }
+          : { statusLabel: 'Intent visible', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Trust & Product',
+        definition: 'Category demand, answer quality, suspicious themes, and user intent.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived'],
+        keyMetrics: [
+          { label: 'Current user intent', value: lifetime.trustProduct.currentUserIntent },
+          {
+            label: 'Lowest-confidence category',
+            value: formatCategory(lifetime.trustProduct.lowestConfidenceCategory?.category),
+            note: weakestConfidence !== null ? `${weakestConfidence.toFixed(1)} / 100` : 'No data yet',
+            tone: (weakestConfidence ?? 100) < 60 ? 'warning' : 'neutral',
+          },
+          {
+            label: 'Highest-latency category',
+            value: formatCategory(lifetime.trustProduct.highestLatencyCategory?.category),
+            note: formatLatency(lifetime.trustProduct.highestLatencyCategory?.averageLatencyMs),
+          },
+          { label: 'Low-confidence trend', value: lifetime.trustProduct.lowConfidenceTrend.summary },
+        ],
+        interpretation: [
+          lifetime.trustProduct.currentUserIntent,
+          lifetime.trustProduct.lowConfidenceTrend.summary,
+          lifetime.trustProduct.recurringMisinformationThemes[0]
+            ? `${lifetime.trustProduct.recurringMisinformationThemes[0].label} is the leading misinformation theme.`
+            : 'No dominant misinformation theme is visible yet.',
+        ],
+        dataQuality: [
+          'This branch is derived from existing claim logs and analytics-only category mapping.',
+          `${formatCount(lifetime.trustProduct.topClaimCategories.length)} top lifetime categories are currently visible.`,
+          'Theme detection is descriptive and does not alter analyzer behavior.',
+        ],
+        currentRisk: [
+          (weakestConfidence ?? 100) < 60
+            ? `${formatCategory(lifetime.trustProduct.lowestConfidenceCategory?.category)} is the primary trust/product risk.`
+            : 'No category is showing severe quality decay right now.',
+          lifetime.trustProduct.recurringScamThemes[0]
+            ? `${lifetime.trustProduct.recurringScamThemes[0].label} is the main recurring scam theme.`
+            : 'No recurring scam theme dominates the current lifetime sample.',
+        ],
+        recommendedAction: [
+          lifetime.strategy.highestLeverageProductFix,
+          ...lifetime.strategy.topNextActions.slice(0, 2).map((item) => item.title),
+        ],
+        tables: [
+          {
+            title: 'Top Claim Categories',
+            columns: ['Category', 'Claims', 'Share', 'Avg confidence', 'Avg latency', 'Top source'],
+            rows: lifetime.trustProduct.topClaimCategories.map((row) => [
+              formatCategory(row.category),
+              formatCount(row.count),
+              formatRate(row.percentage),
+              `${row.averageConfidence.toFixed(1)} / 100`,
+              formatLatency(row.averageLatencyMs),
+              formatText(row.topSource),
+            ]),
+            emptyCopy: 'No lifetime category rows yet.',
+          },
+          {
+            title: 'Scam vs Misinformation Mix',
+            columns: ['Bucket', 'Claims', 'Share'],
+            rows: buildValueShareRows(lifetime.trustProduct.scamVsMisinformationDistribution),
+            emptyCopy: 'No trust-product mix yet.',
+          },
+        ],
+      })
+    }
+
+    case 'reliability': {
+      const status =
+        lifetime.reliability.averageLatencyMs >= 8000 || lifetime.reliability.claimsOver8Seconds > 0
+          ? { statusLabel: 'Under pressure', statusTone: 'danger' as const }
+          : { statusLabel: 'Stable', statusTone: 'good' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Reliability',
+        definition: 'Latency distribution, bad rows, attribution failures, and infrastructure pressure.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Partial coverage'],
+        keyMetrics: [
+          { label: 'Average latency', value: formatLatency(lifetime.reliability.averageLatencyMs) },
+          { label: 'Median latency', value: formatLatency(lifetime.reliability.medianLatencyMs) },
+          { label: 'Highest latency ever', value: formatLatency(lifetime.reliability.highestLatencyEverMs) },
+          { label: 'Claims over 8s', value: formatCount(lifetime.reliability.claimsOver8Seconds) },
+          { label: 'Attribution failures', value: formatCount(lifetime.reliability.attributionFailures) },
+          {
+            label: 'Unknown / empty rows',
+            value: formatCount(
+              lifetime.reliability.unknownVerdictRows +
+                lifetime.reliability.unknownRiskRows +
+                lifetime.reliability.emptyClaimRows
+            ),
+          },
+        ],
+        interpretation: [
+          lifetime.reliability.currentReliabilityStatus,
+          formatText(lifetime.reliability.operationalUptimeIndicator, 'No uptime indicator yet.'),
+          `Vercel function health: ${formatText(lifetime.reliability.vercelFunctionHealth, 'Not connected yet')}.`,
+        ],
+        dataQuality: [
+          'Infrastructure status is limited to what the current metrics response already provides.',
+          'Vercel function health and deployment count remain unconnected unless a server-side integration is added.',
+          `${formatCount(lifetime.reliability.attributionFailures)} lifetime claims still lack attribution.`,
+        ],
+        currentRisk: [
+          lifetime.strategy.biggestOperationalRisk,
+          lifetime.reliability.averageLatencyMs >= 8000
+            ? 'Lifetime latency remains too high for a premium operating surface.'
+            : 'Latency is not the only reliability concern right now.',
+        ],
+        recommendedAction: [
+          lifetime.strategy.highestLeverageProductFix,
+          ...lifetime.strategy.topNextActions.slice(0, 2).map((item) => item.title),
+        ],
+        tables: [
+          {
+            title: 'Latency Distribution',
+            columns: ['Bucket', 'Claims', 'Share'],
+            rows: buildValueShareRows(lifetime.reliability.latencyDistribution),
+            emptyCopy: 'No latency distribution yet.',
+          },
+          {
+            title: 'Slowest Claims Ever',
+            columns: ['Created', 'Category', 'Confidence', 'Latency', 'Source', 'Risk', 'Claim'],
+            rows: buildClaimRows(lifetime.reliability.slowestClaimsEver),
+            emptyCopy: 'No lifetime slow-claim rows yet.',
+          },
+        ],
+      })
+    }
+
+    case 'strategic-recommendations': {
+      const status = recommendationTone(lifetime.strategy.topNextActions)
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Strategic Recommendations',
+        definition: 'Highest-leverage product, growth, retention, and risk actions from the lifetime record.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Derived'],
+        keyMetrics: [
+          { label: 'Top next actions', value: formatCount(lifetime.strategy.topNextActions.length) },
+          { label: 'Highest leverage product fix', value: lifetime.strategy.highestLeverageProductFix },
+          { label: 'Highest leverage growth action', value: lifetime.strategy.highestLeverageGrowthAction },
+          { label: 'Highest leverage retention action', value: lifetime.strategy.highestLeverageRetentionAction },
+        ],
+        interpretation: [
+          lifetime.strategy.strongestCurrentSignal,
+          lifetime.strategy.biggestAnalyticsBlindSpot,
+          lifetime.strategy.biggestOperationalRisk,
+        ],
+        dataQuality: [
+          'This branch is generated from the actual lifetime telemetry-derived recommendation layer.',
+          'Missing metrics do not get replaced with fabricated strategic certainty.',
+        ],
+        currentRisk: [lifetime.strategy.biggestOperationalRisk],
+        recommendedAction: [
+          lifetime.strategy.highestLeverageProductFix,
+          lifetime.strategy.highestLeverageGrowthAction,
+          lifetime.strategy.highestLeverageRetentionAction,
+        ],
+        tables: [
+          {
+            title: 'Strategic Action Queue',
+            columns: ['Priority', 'Title', 'Detail'],
+            rows: lifetime.strategy.topNextActions.map((item) => [item.priority, item.title, item.detail]),
+            emptyCopy: 'No strategic actions yet.',
+          },
+        ],
+      })
+    }
+
+    case 'timeline': {
+      const status = lifetime.timeline.hasEnoughHistoricalData
+        ? { statusLabel: 'History present', statusTone: 'good' as const }
+        : { statusLabel: 'Sparse history', statusTone: 'muted' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Timeline',
+        definition: 'Historical milestones across product usage, growth signals, and system evolution.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Derived', 'Partial coverage'],
+        keyMetrics: [
+          { label: 'Milestones', value: formatCount(lifetime.timeline.milestones.length) },
+          { label: 'Historical coverage', value: lifetime.timeline.hasEnoughHistoricalData ? 'Sufficient' : 'Sparse' },
+          {
+            label: 'Most active day',
+            value: lifetime.snapshot.mostActiveDay ? formatDateTime(lifetime.snapshot.mostActiveDay.day) : 'No data yet',
+          },
+        ],
+        interpretation: [
+          lifetime.timeline.hasEnoughHistoricalData
+            ? 'There is enough historical data to read company milestones.'
+            : 'History is still too sparse for a confident narrative arc.',
+          lifetime.timeline.milestones[0]?.detail ?? 'No milestone detail is visible yet.',
+        ],
+        dataQuality: [
+          'Timeline quality depends on historical depth in tracked claims, events, and beta-user rows.',
+          lifetime.timeline.hasEnoughHistoricalData
+            ? 'Historical coverage is good enough for milestone reporting.'
+            : 'Sparse historical depth means any timeline story should be read cautiously.',
+        ],
+        currentRisk: [
+          lifetime.timeline.hasEnoughHistoricalData
+            ? 'The main risk is interpretation quality, not total absence of history.'
+            : 'History is too thin to rely on trend narratives yet.',
+        ],
+        recommendedAction: [
+          'Keep expanding tracked history before making major strategy calls from timeline shape alone.',
+        ],
+        tables: [
+          {
+            title: 'Milestones',
+            columns: ['Milestone', 'At', 'Detail'],
+            rows: lifetime.timeline.milestones.map((item) => [item.label, formatDateTime(item.at), item.detail]),
+            emptyCopy: 'No milestones yet.',
+          },
+          {
+            title: 'Growth Timeline',
+            columns: ['Day', 'Visitors', 'Sessions', 'Claims', 'Emails'],
+            rows: lifetime.growth.timeline.map((row) => [
+              row.day,
+              formatCount(row.visitors),
+              formatCount(row.sessions),
+              formatCount(row.claims),
+              formatCount(row.emails),
+            ]),
+            emptyCopy: 'No growth timeline yet.',
+          },
+        ],
+      })
+    }
+
+    case 'data-coverage': {
+      const status =
+        lifetime.dataCoverage.eventRowsWithVisitorId === 0
+          ? { statusLabel: 'Coverage gap', statusTone: 'warning' as const }
+          : { statusLabel: 'Partial', statusTone: 'muted' as const }
+
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Data Coverage',
+        definition: 'What the telemetry stack measures today, what is partial, and what is missing.',
+        family: 'lifetime',
+        ...status,
+        lastUpdated,
+        dataSourceBadges: ['Supabase tracked', 'Partial coverage', 'Vercel Analytics'],
+        keyMetrics: [
+          { label: 'Tracked visitors', value: formatCount(lifetime.dataCoverage.trackedVisitors, 'Unavailable') },
+          { label: 'Tracked sessions', value: formatCount(lifetime.dataCoverage.trackedSessions) },
+          { label: 'Tracked page views', value: formatCount(lifetime.dataCoverage.trackedPageViewEvents) },
+          { label: 'Tracked app opens', value: formatCount(lifetime.dataCoverage.trackedAppOpenEvents) },
+          { label: 'Event rows with visitor_id', value: formatCount(lifetime.dataCoverage.eventRowsWithVisitorId) },
+          { label: 'Claim rows with attribution', value: formatCount(lifetime.dataCoverage.claimRowsWithAttribution) },
+        ],
+        interpretation: [
+          lifetime.dataCoverage.mismatchSummary,
+          'Supabase telemetry is the current source of truth for this admin system.',
+          'Vercel web analytics is installed in the app but not connected as a server-side aggregate feed here.',
+        ],
+        dataQuality: [
+          `Event rows with referrer: ${formatCount(lifetime.dataCoverage.eventRowsWithReferrer)}.`,
+          `Event rows with landing path: ${formatCount(lifetime.dataCoverage.eventRowsWithLandingPath)}.`,
+          `Event rows with any UTM metadata: ${formatCount(lifetime.dataCoverage.eventRowsWithAnyUtm)}.`,
+        ],
+        currentRisk: [
+          lifetime.dataCoverage.eventRowsWithVisitorId === 0
+            ? 'Visitor-level analysis is fundamentally limited because visitor_id coverage is missing.'
+            : 'Visitor-level analysis is only as strong as current visitor_id coverage.',
+          'Vercel aggregate visitors and page views are unavailable until a server-side integration is added.',
+        ],
+        recommendedAction: [
+          lifetime.strategy.biggestAnalyticsBlindSpot,
+          'Improve visitor_id and attribution coverage before over-trusting growth conclusions.',
+        ],
+        tables: [
+          {
+            title: 'Coverage Detail',
+            columns: ['Signal', 'Value'],
+            rows: [
+              ['Tracked visitors', formatCount(lifetime.dataCoverage.trackedVisitors, 'Unavailable')],
+              ['Tracked sessions', formatCount(lifetime.dataCoverage.trackedSessions)],
+              ['Tracked page_view events', formatCount(lifetime.dataCoverage.trackedPageViewEvents)],
+              ['Tracked app_open events', formatCount(lifetime.dataCoverage.trackedAppOpenEvents)],
+              ['Event rows with visitor_id', formatCount(lifetime.dataCoverage.eventRowsWithVisitorId)],
+              ['Event rows with device_type', formatCount(lifetime.dataCoverage.eventRowsWithDeviceType)],
+              ['Event rows with referrer', formatCount(lifetime.dataCoverage.eventRowsWithReferrer)],
+              ['Event rows with landing path', formatCount(lifetime.dataCoverage.eventRowsWithLandingPath)],
+              ['Event rows with any UTM', formatCount(lifetime.dataCoverage.eventRowsWithAnyUtm)],
+              ['Claim rows with visitor_id', formatCount(lifetime.dataCoverage.claimRowsWithVisitorId)],
+              ['Claim rows with attribution', formatCount(lifetime.dataCoverage.claimRowsWithAttribution)],
+            ],
+            emptyCopy: 'No coverage rows yet.',
+          },
+        ],
+      })
+    }
+
+    case 'vercel-traffic': {
+      return makeReport({
+        slug,
+        href: `/admin/lifetime/${slug}`,
+        title: 'Vercel Traffic',
+        definition: 'Aggregate Vercel traffic coverage status and the current server-side analytics gap.',
+        family: 'lifetime',
+        statusLabel: 'Unavailable',
+        statusTone: 'muted',
+        lastUpdated,
+        dataSourceBadges: ['Vercel Analytics', 'Partial coverage'],
+        keyMetrics: [
+          { label: 'Vercel aggregate visitors', value: 'Unavailable' },
+          { label: 'Vercel page views', value: 'Unavailable' },
+          { label: 'Vercel top pages', value: 'Unavailable' },
+          { label: 'Server-side Vercel API feed', value: 'Not connected' },
+        ],
+        interpretation: [
+          'The app has Vercel Analytics installed client-side, but this admin system does not fetch Vercel aggregate traffic server-side.',
+          'No Vercel traffic numbers are fabricated in this branch.',
+        ],
+        dataQuality: [
+          'Supabase page_view events still exist elsewhere in admin metrics, but they are not equivalent to Vercel aggregate traffic.',
+          'A server-side Vercel integration is required before this branch can show trustworthy aggregate numbers.',
+        ],
+        currentRisk: [
+          'Founders cannot currently compare Supabase telemetry against Vercel aggregate traffic from inside this admin.',
+        ],
+        recommendedAction: [
+          'Connect a secure server-side Vercel analytics source before treating traffic totals as complete.',
+        ],
+        tables: [
+          {
+            title: 'Current Coverage',
+            columns: ['Signal', 'Status', 'Note'],
+            rows: [
+              ['Vercel visitors', 'Unavailable', 'Not connected to the current admin metrics service'],
+              ['Vercel page views', 'Unavailable', 'Not connected to the current admin metrics service'],
+              ['Vercel paths/pages', 'Unavailable', 'Not connected to the current admin metrics service'],
+              ['Supabase page_view events', formatCount(lifetime.dataCoverage.trackedPageViewEvents), 'Available elsewhere as tracked events, not Vercel aggregate traffic'],
+            ],
+            emptyCopy: 'No Vercel coverage rows yet.',
+          },
+        ],
+      })
+    }
+  }
+}
+
+export function buildAdminReportIndexRows(metrics: AdminMetricsResponse): BranchTableRow[] {
+  const rows = adminBranchDefinitions.map((branch, index) => {
+    const report = buildAdminBranchReport(branch.slug, metrics)
+    return {
+      number: `${index + 1}`.padStart(2, '0'),
+      title: branch.title,
+      definition: branch.definition,
+      href: report.href,
+      statusLabel: report.statusLabel,
+      statusTone: report.statusTone,
+    }
+  })
+
+  const lifetimeReport = buildLifetimeBranchReport('intelligence', metrics)
+  const coverageReport = buildLifetimeBranchReport('data-coverage', metrics)
+  const vercelReport = buildLifetimeBranchReport('vercel-traffic', metrics)
+
+  return [
+    ...rows,
+    {
+      number: '10',
+      title: 'Lifetime Intelligence',
+      definition:
+        'Founder-level lifetime operating read across growth, behavior, trust, reliability, and coverage.',
+      href: lifetimeReport.href,
+      statusLabel: lifetimeReport.statusLabel,
+      statusTone: lifetimeReport.statusTone,
+    },
+    {
+      number: '11',
+      title: 'Data Coverage',
+      definition: 'Coverage quality across visitor, session, attribution, and telemetry completeness.',
+      href: coverageReport.href,
+      statusLabel: coverageReport.statusLabel,
+      statusTone: coverageReport.statusTone,
+    },
+    {
+      number: '12',
+      title: 'Vercel Traffic',
+      definition: 'Aggregate Vercel traffic coverage status without fabricated numbers.',
+      href: vercelReport.href,
+      statusLabel: vercelReport.statusLabel,
+      statusTone: vercelReport.statusTone,
+    },
+  ]
+}
+
+export function buildLifetimeReportIndexRows(metrics: AdminMetricsResponse): BranchTableRow[] {
+  return lifetimeBranchDefinitions.map((branch, index) => {
+    const report = buildLifetimeBranchReport(branch.slug, metrics)
+    return {
+      number: `${index + 1}`.padStart(2, '0'),
+      title: branch.title,
+      definition: branch.definition,
+      href: report.href,
+      statusLabel: report.statusLabel,
+      statusTone: report.statusTone,
+    }
+  })
+}

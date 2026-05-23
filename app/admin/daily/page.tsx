@@ -1,13 +1,5 @@
-'use client'
-
-import { AdminMetricsGate, DailySection } from '../_components/AdminShell'
+import { redirect } from 'next/navigation'
 
 export default function AdminDailyPage() {
-  return (
-    <AdminMetricsGate
-      title="Daily Intelligence"
-      description="Private daily operator layer across growth, product, and reliability signals."
-      render={(metrics) => <DailySection metrics={metrics} />}
-    />
-  )
+  redirect('/admin/report/daily-intelligence')
 }

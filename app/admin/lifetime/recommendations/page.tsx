@@ -1,14 +1,5 @@
-'use client'
-
-import { AdminMetricsGate } from '../../_components/AdminShell'
-import { LifetimeStrategySection } from '../../_components/LifetimeIntelligence'
+import { redirect } from 'next/navigation'
 
 export default function AdminLifetimeRecommendationsPage() {
-  return (
-    <AdminMetricsGate
-      title="Lifetime Strategic Recommendations"
-      description="Metrics-derived next actions only."
-      render={(metrics) => <LifetimeStrategySection metrics={metrics} />}
-    />
-  )
+  redirect('/admin/lifetime/strategic-recommendations')
 }
