@@ -100,15 +100,19 @@ function Menu({
   pathname,
   isOpen,
   isRefreshing,
+  isExporting,
   onClose,
   onRefresh,
+  onDownloadFullReport,
   onLogout,
 }: {
   pathname: string
   isOpen: boolean
   isRefreshing: boolean
+  isExporting: boolean
   onClose: () => void
   onRefresh: () => void
+  onDownloadFullReport: () => void
   onLogout: () => void
 }) {
   const linkMeta = [
@@ -172,6 +176,16 @@ function Menu({
               {item.label}
             </Link>
           ))}
+          <button
+            type="button"
+            className="dam-report-menu__link dam-report-menu__link--button"
+            onClick={() => {
+              onClose()
+              onDownloadFullReport()
+            }}
+          >
+            {isExporting ? 'Generating report...' : 'Download Full Report'}
+          </button>
           <button
             type="button"
             className="dam-report-menu__link dam-report-menu__link--button"
@@ -456,6 +470,154 @@ function ReportBody({ report }: { report: BranchReport }) {
   )
 }
 
+function DiagnosticTrafficPanel({ report }: { report: BranchReport }) {
+  const rowMap = new Map(report.keyMetrics.map((metric) => [metric.label, metric]))
+  const projectLinked = rowMap.get('Project linked')
+  const metadataStatus = rowMap.get('Project metadata')
+  const analyticsStatus = rowMap.get('Vercel API status')
+  const supabasePageViews = rowMap.get('Supabase page_view events')
+  const trafficTruth = rowMap.get('Traffic truth status')
+  const explanation =
+    report.interpretation[0] ??
+    'Vercel Web Analytics is enabled, but dashboard-style aggregate metrics are not available through the verified public server-side API. Supabase page_view events remain available as product telemetry, not traffic truth.'
+  const action =
+    report.recommendedAction[0] ??
+    'Use Vercel dashboard for aggregate traffic. Use DAM admin for product behavior.'
+
+  return (
+    <section className="dam-report-diagnostic-panel">
+      <div className="dam-report-section-head">
+        <div>
+          <p className="dam-report-overline">Connection diagnostic</p>
+          <h2>Vercel traffic connection</h2>
+        </div>
+      </div>
+
+      <div className="dam-report-diagnostic-panel__rows">
+        <div className="dam-report-diagnostic-panel__row">
+          <span>Project linked</span>
+          <strong>{projectLinked?.value ?? 'Unavailable'}</strong>
+        </div>
+        <div className="dam-report-diagnostic-panel__row">
+          <span>Project metadata</span>
+          <strong>{metadataStatus?.value ?? 'Unavailable'}</strong>
+        </div>
+        <div className="dam-report-diagnostic-panel__row">
+          <span>Aggregate analytics</span>
+          <strong>{analyticsStatus?.value ?? 'Unavailable'}</strong>
+        </div>
+        <div className="dam-report-diagnostic-panel__row">
+          <span>Supabase page_view events</span>
+          <strong>{supabasePageViews?.value ?? 'Unavailable'}</strong>
+        </div>
+        <div className="dam-report-diagnostic-panel__row">
+          <span>Traffic truth</span>
+          <strong>{trafficTruth?.value ?? 'Partial coverage'}</strong>
+        </div>
+      </div>
+
+      <p className="dam-report-diagnostic-panel__copy">{explanation}</p>
+      <p className="dam-report-diagnostic-panel__action">{action}</p>
+    </section>
+  )
+}
+
+function FunnelSplitBody({ report }: { report: BranchReport }) {
+  const overview = report.funnelOverview
+  const productTable = report.tables[0]
+
+  if (!overview) {
+    return <ReportBody report={report} />
+  }
+
+  return (
+    <section className="dam-report-funnel">
+      <div className="dam-report-funnel__grid">
+        <article className="dam-report-funnel__panel">
+          <div className="dam-report-section-head dam-report-section-head--compact">
+            <div>
+              <p className="dam-report-overline">External traffic reference</p>
+              <h3>Vercel dashboard</h3>
+            </div>
+          </div>
+          <p className="dam-report-funnel__copy">{overview.externalTrafficNote}</p>
+          <div className="dam-report-funnel__rows">
+            {overview.externalTrafficRows.map((row) => (
+              <div key={row.label} className="dam-report-funnel__row">
+                <div>
+                  <span>{row.label}</span>
+                  {row.note ? <p>{row.note}</p> : null}
+                </div>
+                <strong>{row.value}</strong>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="dam-report-funnel__panel">
+          <div className="dam-report-section-head dam-report-section-head--compact">
+            <div>
+              <p className="dam-report-overline">Product funnel</p>
+              <h3>Supabase-tracked behavior</h3>
+            </div>
+          </div>
+          <p className="dam-report-funnel__copy">{overview.productFunnelNote}</p>
+          <div className="dam-report-funnel__rows">
+            {overview.productFunnelRows.map((row) => (
+              <div key={row.label} className="dam-report-funnel__row">
+                <div>
+                  <span>{row.label}</span>
+                  {row.note ? <p>{row.note}</p> : null}
+                </div>
+                <strong>{row.value}</strong>
+              </div>
+            ))}
+          </div>
+        </article>
+      </div>
+
+      {productTable ? (
+        <section className="dam-report-data-section">
+          <div className="dam-report-section-head">
+            <div>
+              <p className="dam-report-overline">Product funnel table</p>
+              <h3>{productTable.title}</h3>
+            </div>
+          </div>
+          <div className="dam-report-table-shell">
+            <table className="dam-report-table dam-report-table--detail">
+              <thead>
+                <tr>
+                  {productTable.columns.map((column) => (
+                    <th key={column}>{column}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {productTable.rows.length > 0 ? (
+                  productTable.rows.map((row, rowIndex) => (
+                    <tr key={`${productTable.title}-${rowIndex}`}>
+                      {row.map((cell, cellIndex) => (
+                        <td key={`${productTable.title}-${rowIndex}-${cellIndex}`}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={productTable.columns.length} className="dam-report-table__empty">
+                      {productTable.emptyCopy}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </section>
+  )
+}
+
 function NarrativeBlock({ title, items }: { title: string; items: string[] }) {
   return (
     <article className="dam-report-panel">
@@ -605,7 +767,13 @@ function BranchPage({
       </section>
 
       <ReportSummary password={password} report={report} />
-      <ReportBody report={report} />
+      {report.layoutVariant === 'diagnostic' ? (
+        <DiagnosticTrafficPanel report={report} />
+      ) : report.layoutVariant === 'funnel-split' ? (
+        <FunnelSplitBody report={report} />
+      ) : (
+        <ReportBody report={report} />
+      )}
     </div>
   )
 }
@@ -648,6 +816,8 @@ function WorkspaceView({
 export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
   const pathname = usePathname()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isExportingReport, setIsExportingReport] = useState(false)
+  const [exportErrorMessage, setExportErrorMessage] = useState('')
   const [state, setState] = useState<DashboardState>(() => {
     if (typeof window !== 'undefined') {
       const savedPassword = window.sessionStorage.getItem(SESSION_STORAGE_KEY)
@@ -785,6 +955,48 @@ export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
     })
   }
 
+  async function handleDownloadFullReport() {
+    setIsExportingReport(true)
+    setExportErrorMessage('')
+
+    try {
+      const response = await fetch('/api/admin/report-export', {
+        method: 'GET',
+        headers: {
+          'x-admin-password': state.password,
+        },
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: { message?: string | null } | null }
+          | null
+        throw new Error(payload?.error?.message || 'Unable to generate full report.')
+      }
+
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const disposition = response.headers.get('content-disposition') ?? ''
+      const filename = disposition.match(/filename="([^"]+)"/i)?.[1] ?? 'dam-full-admin-report.html'
+
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = filename
+      anchor.rel = 'noopener'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+    } catch (error) {
+      setExportErrorMessage(
+        error instanceof Error ? error.message : 'Unable to generate full report.'
+      )
+    } finally {
+      setIsExportingReport(false)
+    }
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -879,7 +1091,9 @@ export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
             pathname={pathname}
             isOpen={isMenuOpen}
             isRefreshing={state.status === 'loading'}
+            isExporting={isExportingReport}
             onClose={() => setIsMenuOpen(false)}
+            onDownloadFullReport={() => void handleDownloadFullReport()}
             onRefresh={() =>
               void loadMetrics(state.password, {
                 persist: false,
@@ -893,6 +1107,7 @@ export function AdminReportWorkspace({ mode }: { mode: WorkspaceMode }) {
               <div className="dam-report-error-banner">{state.metrics.error.message}</div>
             ) : null}
             {state.errorMessage ? <div className="dam-report-error-banner">{state.errorMessage}</div> : null}
+            {exportErrorMessage ? <div className="dam-report-error-banner">{exportErrorMessage}</div> : null}
             <WorkspaceView mode={mode} password={state.password} metrics={state.metrics} />
           </section>
         </>
@@ -1502,6 +1717,134 @@ function ReportSystemStyles() {
         padding: 16px;
       }
 
+      .dam-report-funnel {
+        display: grid;
+        gap: 16px;
+      }
+
+      .dam-report-funnel__grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .dam-report-funnel__panel {
+        display: grid;
+        gap: 12px;
+        padding: 18px;
+        border: 1px solid rgba(128, 146, 176, 0.14);
+        border-radius: 18px;
+        background: rgba(9, 14, 21, 0.72);
+        box-shadow:
+          0 18px 60px rgba(0, 0, 0, 0.16),
+          inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+
+      .dam-report-section-head--compact {
+        gap: 0;
+      }
+
+      .dam-report-funnel__copy {
+        margin: 0;
+        color: rgba(188, 200, 217, 0.74);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .dam-report-funnel__rows {
+        display: grid;
+        gap: 8px;
+      }
+
+      .dam-report-funnel__row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 12px;
+        border: 1px solid rgba(128, 146, 176, 0.12);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .dam-report-funnel__row span {
+        display: block;
+        color: rgba(162, 177, 199, 0.68);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .dam-report-funnel__row p {
+        margin: 4px 0 0;
+        color: rgba(188, 200, 217, 0.72);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .dam-report-funnel__row strong {
+        color: #edf2f8;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .dam-report-diagnostic-panel {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        border: 1px solid rgba(128, 146, 176, 0.14);
+        border-radius: 18px;
+        background: rgba(9, 14, 21, 0.72);
+        box-shadow:
+          0 18px 60px rgba(0, 0, 0, 0.16),
+          inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+
+      .dam-report-diagnostic-panel__rows {
+        display: grid;
+        gap: 8px;
+      }
+
+      .dam-report-diagnostic-panel__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        min-height: 42px;
+        padding: 10px 12px;
+        border: 1px solid rgba(128, 146, 176, 0.12);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .dam-report-diagnostic-panel__row span {
+        color: rgba(162, 177, 199, 0.68);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .dam-report-diagnostic-panel__row strong {
+        color: #edf2f8;
+        font-size: 14px;
+        font-weight: 600;
+        text-align: right;
+      }
+
+      .dam-report-diagnostic-panel__copy,
+      .dam-report-diagnostic-panel__action {
+        margin: 0;
+        color: rgba(188, 200, 217, 0.76);
+        font-size: 14px;
+        line-height: 1.58;
+      }
+
+      .dam-report-diagnostic-panel__action {
+        color: #edf2f8;
+      }
+
       .dam-report-bullet-list {
         display: grid;
         gap: 8px;
@@ -1653,6 +1996,19 @@ function ReportSystemStyles() {
 
         .dam-report-page-head__actions .dam-report-button {
           width: 100%;
+        }
+
+        .dam-report-funnel__grid {
+          grid-template-columns: 1fr;
+        }
+
+        .dam-report-funnel__row {
+          flex-direction: column;
+        }
+
+        .dam-report-funnel__row strong {
+          text-align: left;
+          white-space: normal;
         }
       }
     `}</style>

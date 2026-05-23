@@ -34,7 +34,7 @@ export type BranchReport = {
   href: string
   title: string
   definition: string
-  layoutVariant?: 'default' | 'diagnostic'
+  layoutVariant?: 'default' | 'diagnostic' | 'funnel-split'
   family: 'admin' | 'lifetime'
   statusLabel: string
   statusTone: BranchTone
@@ -47,6 +47,12 @@ export type BranchReport = {
   recommendedAction: string[]
   tables: ReportTable[]
   supplementalPanels?: ReportPanel[]
+  funnelOverview?: {
+    externalTrafficNote: string
+    externalTrafficRows: ReportMetric[]
+    productFunnelNote: string
+    productFunnelRows: ReportMetric[]
+  }
   diagnostics?: {
     projectApiStatus: AdminVercelDiagnostics['projectApiStatus']
     analyticsEndpointAttempts: AdminVercelEndpointAttempt[]
@@ -56,7 +62,7 @@ export type BranchReport = {
     branch: string
     family: 'admin' | 'lifetime'
     definition: string
-    layoutVariant?: 'default' | 'diagnostic'
+    layoutVariant?: 'default' | 'diagnostic' | 'funnel-split'
     status: string
     lastUpdated: string
     dataSourceBadges: string[]
@@ -67,6 +73,12 @@ export type BranchReport = {
     recommendedAction: string[]
     tables: ReportTable[]
     supplementalPanels?: ReportPanel[]
+    funnelOverview?: {
+      externalTrafficNote: string
+      externalTrafficRows: ReportMetric[]
+      productFunnelNote: string
+      productFunnelRows: ReportMetric[]
+    }
     diagnostics?: {
       projectApiStatus: AdminVercelDiagnostics['projectApiStatus']
       analyticsEndpointAttempts: AdminVercelEndpointAttempt[]
@@ -378,6 +390,7 @@ function makeReport(input: Omit<BranchReport, 'summaryData'>): BranchReport {
       recommendedAction: input.recommendedAction,
       tables: input.tables,
       supplementalPanels: input.supplementalPanels,
+      funnelOverview: input.funnelOverview,
       diagnostics: input.diagnostics,
     },
   }
@@ -537,114 +550,180 @@ export function buildAdminBranchReport(
 
     case 'funnel': {
       const funnel = metrics.funnelIntelligence
-      const biggestDropOff = funnel.biggestDropOff?.conversion ?? null
+      const trackedPageViews = metrics.lifetimeIntelligence.dataCoverage.trackedPageViewEvents
+      const trackedSessions = metrics.lifetimeIntelligence.dataCoverage.trackedSessions
+      const claimSubmissions = metrics.lifetimeIntelligence.snapshot.totalClaimSubmissions
+      const repeatClaimSessions = metrics.lifetimeIntelligence.snapshot.totalRepeatSessions
+      const emailCaptures = metrics.emailCaptureIntelligence.totalEmails
       const status =
         funnel.stages.length === 0
           ? { statusLabel: 'Partial', statusTone: 'muted' as const }
-          : !funnel.hasComparableConversionChain
-            ? { statusLabel: 'Not comparable', statusTone: 'warning' as const }
-            : biggestDropOff !== null && biggestDropOff < 0.2
-              ? { statusLabel: 'Leak', statusTone: 'warning' as const }
-              : { statusLabel: 'Tracked', statusTone: 'good' as const }
+          : { statusLabel: 'Tracked', statusTone: 'good' as const }
+
+      const claimsFromSessions =
+        trackedSessions > 0 && claimSubmissions <= trackedSessions
+          ? claimSubmissions / trackedSessions
+          : null
+      const repeatSessionsFromSessions =
+        trackedSessions > 0 && repeatClaimSessions <= trackedSessions
+          ? repeatClaimSessions / trackedSessions
+          : null
+      const emailsFromClaims =
+        claimSubmissions > 0 && emailCaptures <= claimSubmissions
+          ? emailCaptures / claimSubmissions
+          : null
+      const externalTrafficRows: ReportMetric[] = [
+        {
+          label: 'Vercel Analytics status',
+          value: 'External dashboard only / API unavailable',
+          note: 'Use the Vercel dashboard for total traffic reach.',
+        },
+        { label: 'Vercel visitors', value: 'View in Vercel', note: 'Dashboard-only traffic reference.' },
+        { label: 'Vercel page views', value: 'View in Vercel', note: 'Dashboard-only traffic reference.' },
+        { label: 'Vercel bounce rate', value: 'View in Vercel', note: 'Dashboard-only traffic reference.' },
+      ]
+      const productFunnelRows: ReportMetric[] = [
+        {
+          label: 'Supabase page_view events',
+          value: formatCount(trackedPageViews),
+          note: 'Supabase product telemetry, not Vercel traffic truth.',
+        },
+        {
+          label: 'Tracked app sessions',
+          value: formatCount(trackedSessions),
+          note: 'Tracked inside DAM product telemetry.',
+        },
+        {
+          label: 'Claim submissions',
+          value: formatCount(claimSubmissions),
+          note:
+            claimsFromSessions === null
+              ? 'Not comparable to the previous row in a traffic sense.'
+              : `From tracked app sessions: ${formatRate(claimsFromSessions)}.`,
+        },
+        {
+          label: 'Repeat claim sessions',
+          value: formatCount(repeatClaimSessions),
+          note:
+            repeatSessionsFromSessions === null
+              ? 'Not comparable to the previous row in a traffic sense.'
+              : `From tracked app sessions: ${formatRate(repeatSessionsFromSessions)}.`,
+        },
+        {
+          label: 'Email captures',
+          value: formatCount(emailCaptures, 'Not tracked yet'),
+          note:
+            emailsFromClaims === null
+              ? 'Not comparable to the previous row in a traffic sense.'
+              : `From claim submissions: ${formatRate(emailsFromClaims)}.`,
+        },
+      ]
 
       return makeReport({
         slug,
         href: `/admin/report/${slug}`,
         title: 'Funnel',
-        definition: 'Honest stage reporting across manual reach, Supabase traffic instrumentation, sessions, claims, and email capture.',
+        definition:
+          'Supabase product funnel for tracked behavior, with Vercel traffic kept as an external dashboard reference.',
         family: 'admin',
         ...status,
         lastUpdated,
-        dataSourceBadges: ['Manual baseline', 'Supabase tracked', 'Derived', 'Partial coverage'],
-        keyMetrics: [
-          { label: 'Tracked stages', value: formatCount(funnel.stages.length) },
-          {
-            label: 'Biggest comparable drop-off',
-            value: funnel.biggestDropOff?.label ?? 'No data yet',
-            note: formatRate(funnel.biggestDropOff?.conversion, 'Not comparable'),
-            tone: biggestDropOff !== null && biggestDropOff < 0.2 ? 'warning' : 'neutral',
-          },
-          {
-            label: 'Strongest comparable stage',
-            value: funnel.strongestRetainedStage?.label ?? 'No data yet',
-            note: formatRate(funnel.strongestRetainedStage?.conversion, 'Not comparable'),
-          },
-          {
-            label: 'Best attributed source',
-            value: funnel.bestAttributedSource?.label ?? 'Best attributed source unavailable',
-            note: funnel.bestAttributedSource
-              ? `${formatCount(funnel.bestAttributedSource.claimSubmissions)} attributed claims`
-              : 'Attribution coverage gap',
-          },
-          {
-            label: 'Attribution coverage',
-            value: formatRate(funnel.attributionCoverageRate, 'No data yet'),
-            note:
-              funnel.attributionCoverageRate !== null && funnel.attributionCoverageRate < 0.8
-                ? 'Use tracked links consistently before scaling distribution.'
-                : 'Attribution coverage is usable inside current product telemetry.',
-          },
-        ],
+        dataSourceBadges: ['Vercel dashboard reference', 'Supabase tracked', 'Derived'],
+        keyMetrics: [...externalTrafficRows, ...productFunnelRows],
         interpretation: [
-          funnel.nextRecommendedAction,
-          funnel.hasComparableConversionChain
-            ? funnel.biggestDropOff
-              ? `${funnel.biggestDropOff.label} is the largest comparable conversion break in the current flow.`
-              : 'There is not enough comparable stage depth to identify a dominant drop-off yet.'
-            : 'The funnel cannot be interpreted as a clean conversion chain yet because stage scopes are not fully comparable.',
+          'Vercel measures traffic reach. Supabase measures product behavior. This report uses Supabase for the product funnel and Vercel only as an external dashboard reference.',
+          'Do not compare Supabase product telemetry directly to Vercel visitors, page views, or bounce rate.',
           funnel.bestAttributedSource
             ? `${funnel.bestAttributedSource.label} is the cleanest attributed source currently visible in product telemetry.`
             : 'No attributed source is strong enough to treat as a distribution winner yet.',
         ],
         dataQuality: [
-          funnel.dataQualityNote,
-          `${formatCount(funnel.stages.filter((stage) => stage.status === 'tracked').length)} stages are directly tracked within Supabase telemetry.`,
-          funnel.stages.some((stage) => !stage.isComparableToPrevious)
-            ? 'At least one stage-to-stage conversion is intentionally marked not comparable or not reliable.'
-            : 'Every displayed conversion is comparable inside the current funnel scope.',
+          'Vercel traffic metrics are available in the Vercel dashboard but are not currently available inside DAM admin through a verified public server-side API.',
+          'Supabase page_view events are product telemetry, not traffic truth.',
+          'Only Supabase-compatible conversions are shown as rates; Vercel reference rows are intentionally non-comparable.',
         ],
         currentRisk: [
-          !funnel.hasComparableConversionChain
-            ? 'Traffic and product telemetry are not aligned enough to support confident growth recommendations.'
-            : biggestDropOff !== null && biggestDropOff < 0.2
-              ? 'A comparable funnel leak exists before users reach the deeper operating loop.'
-              : 'No catastrophic comparable funnel break is visible from the current stages.',
+          'Do not use this branch to reason about total site traffic reach.',
+          funnel.attributionCoverageRate !== null && funnel.attributionCoverageRate < 0.8
+            ? 'Attribution coverage is still weak enough to distort channel decisions.'
+            : 'Attribution coverage is usable for current product-telemetry interpretation.',
           funnel.bestAttributedSource === null
             ? 'There is no reliable attributed source winner yet.'
             : 'A best attributed source exists, but it still depends on current attribution coverage.',
         ],
-        recommendedAction: [funnel.nextRecommendedAction],
+        recommendedAction: [
+          'Use the Vercel dashboard for aggregate traffic and use DAM admin for product conversion and attribution coverage.',
+          funnel.attributionCoverageRate !== null && funnel.attributionCoverageRate < 0.8
+            ? 'Improve tracked links before treating source conclusions as stable.'
+            : 'Keep tightening attribution coverage before scaling channel decisions.',
+        ],
+        funnelOverview: {
+          externalTrafficNote:
+            'Vercel traffic metrics are available in the Vercel dashboard but are not currently available inside DAM admin through a verified public server-side API.',
+          externalTrafficRows,
+          productFunnelNote:
+            'This is the DAM product funnel. It measures Supabase-tracked behavior inside the product, not total site traffic.',
+          productFunnelRows,
+        },
         supplementalPanels: [
           {
             title: 'What can be trusted',
-            items: funnel.trustNotes,
+            items: [
+              'Supabase page_view events, tracked app sessions, claims, repeat sessions, and email captures measure product behavior.',
+              'Attribution coverage and best attributed source remain valid inside current Supabase telemetry.',
+            ],
           },
           {
             title: 'What cannot be trusted yet',
-            items: funnel.limitations,
+            items: [
+              'Vercel visitors, page views, and bounce rate are not available in this admin through a verified public API.',
+              'Manual reach is not treated as a normal funnel stage in this branch.',
+            ],
           },
         ],
         tables: [
           {
-            title: 'Stage Detail',
-            columns: ['Stage', 'Count', 'Status', 'Source badge', 'Conversion from previous', 'Comparability'],
-            rows: funnel.stages.map((stage) => [
-              stage.label,
-              formatCount(stage.count),
-              stage.status === 'manual'
-                ? stage.manualBaseline
-                  ? 'Manual baseline'
-                  : 'Manual'
-                : stage.status === 'tracked'
-                  ? 'Tracked'
-                  : 'Not tracked yet',
-              stage.sourceLabel,
-              formatRate(stage.conversionFromPrevious, stage.comparabilityLabel),
-              stage.comparabilityReason
-                ? `${stage.comparabilityLabel}: ${stage.comparabilityReason}`
-                : stage.comparabilityLabel,
-            ]),
-            emptyCopy: 'No funnel stages yet.',
+            title: 'Product Funnel',
+            columns: ['Stage', 'Count', 'Conversion', 'Scope'],
+            rows: [
+              [
+                'Supabase page_view events',
+                formatCount(trackedPageViews),
+                'External reference only',
+                'Supabase product telemetry',
+              ],
+              [
+                'Tracked app sessions',
+                formatCount(trackedSessions),
+                'Starting point',
+                'Supabase product telemetry',
+              ],
+              [
+                'Claim submissions',
+                formatCount(claimSubmissions),
+                claimsFromSessions === null
+                  ? 'Not comparable'
+                  : `From tracked app sessions: ${formatRate(claimsFromSessions)}`,
+                'Supabase product telemetry',
+              ],
+              [
+                'Repeat claim sessions',
+                formatCount(repeatClaimSessions),
+                repeatSessionsFromSessions === null
+                  ? 'Not comparable'
+                  : `From tracked app sessions: ${formatRate(repeatSessionsFromSessions)}`,
+                'Supabase product telemetry',
+              ],
+              [
+                'Email captures',
+                formatCount(emailCaptures, 'Not tracked yet'),
+                emailsFromClaims === null
+                  ? 'Not comparable'
+                  : `From claim submissions: ${formatRate(emailsFromClaims)}`,
+                'Supabase product telemetry',
+              ],
+            ],
+            emptyCopy: 'No product funnel rows yet.',
           },
         ],
       })
@@ -698,6 +777,7 @@ export function buildAdminBranchReport(
           },
         ],
         interpretation: [
+          'Source attribution here is based on Supabase claim and session telemetry, not Vercel referrer totals.',
           sources.note,
           sources.bestAttributedSourceByClaims
             ? `${sources.bestAttributedSourceByClaims.label} is the cleanest attributed claim-volume source right now.`
@@ -731,7 +811,7 @@ export function buildAdminBranchReport(
             title: 'What can be trusted',
             items: [
               'Claim submissions, email captures, and returning sessions come from Supabase product telemetry.',
-              'Attributed source rows are usable only where attribution was actually carried into logged rows.',
+              'Attribution rows are based on logged claim/session data and are not equivalent to Vercel referrer totals.',
             ],
           },
           {
