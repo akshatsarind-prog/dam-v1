@@ -1,5 +1,5 @@
 import { tavily } from '@tavily/core'
-import { routeClaim } from '@/lib/claimRouter'
+import { detectCurrentOfficeHolderClaim, routeClaim, type CurrentOfficeHolderRole } from '@/lib/claimRouter'
 import { withTimeout } from '@/lib/timeout'
 
 export type RetrievedEvidence = {
@@ -41,6 +41,7 @@ type RetrievalOptions = {
   category?: ClaimCategory
   preferredDomains?: string[]
   stableFactHint?: string
+  currentOfficeHolder?: boolean
 }
 
 const GENERAL_AUTHORITATIVE_DOMAINS = ['britannica.com'] as const
@@ -50,6 +51,8 @@ const SCIENCE_DOMAINS = ['nasa.gov', 'esa.int'] as const
 const GOVERNMENT_DOMAINS = ['gov.in', 'pib.gov.in'] as const
 const BREAKING_NEWS_DOMAINS = ['reuters.com', 'apnews.com', 'bbc.com'] as const
 const SCAM_DOMAINS = ['gov.in', 'cybercrime.gov.in', 'rbi.org.in'] as const
+const SEARCH_PROVIDER_TIMEOUT_SECONDS = 8
+const RETRIEVAL_TIMEOUT_MS = 8500
 const CATEGORY_SEARCH_HINTS: Record<ClaimCategory, string> = {
   health: 'WHO',
   finance: 'RBI',
@@ -58,6 +61,14 @@ const CATEGORY_SEARCH_HINTS: Record<ClaimCategory, string> = {
   breaking_news: 'Reuters',
   scam: 'cybercrime',
   general: 'Britannica/Wikipedia',
+}
+
+type CurrentOfficeHolderProfile = {
+  role: CurrentOfficeHolderRole
+  subject: string | null
+  target: string
+  preferredDomains: string[]
+  queries: string[]
 }
 
 function getClient() {
@@ -95,6 +106,10 @@ function includesSignal(text: string, signal: string) {
 }
 
 function buildTargetedQuery(query: string, category: ClaimCategory) {
+  if (getCurrentOfficeHolderProfile(query)) {
+    return query
+  }
+
   const hint = CATEGORY_SEARCH_HINTS[category]
 
   if (!hint) {
@@ -112,6 +127,137 @@ function buildTargetedQuery(query: string, category: ClaimCategory) {
 function hasRbiSignal(query: string) {
   const normalized = normalizeText(query)
   return includesSignal(normalized, 'rbi') || includesSignal(normalized, 'central bank')
+}
+
+function normalizeOfficeHolderTarget(value: string) {
+  return normalizeText(value)
+    .replace(/\bthe\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function pickCompanyDomain(target: string) {
+  const normalized = normalizeOfficeHolderTarget(target)
+  const companyDomainMap: Record<string, string> = {
+    apple: 'apple.com',
+    microsoft: 'microsoft.com',
+    google: 'google.com',
+    alphabet: 'abc.xyz',
+    amazon: 'amazon.com',
+    meta: 'about.meta.com',
+    tesla: 'tesla.com',
+  }
+
+  if (companyDomainMap[normalized]) {
+    return companyDomainMap[normalized]
+  }
+
+  if (/^[a-z0-9-]+$/.test(normalized)) {
+    return `${normalized}.com`
+  }
+
+  return null
+}
+
+function buildGovernmentOfficeQueries(
+  subject: string | null,
+  roleLabel: string,
+  targetLabel: string,
+  preferredDomains: string[]
+) {
+  const subjectText = subject ?? ''
+  const primaryDomain = preferredDomains[0]
+  const secondaryDomain = preferredDomains[1]
+  const targetQueries = [
+    primaryDomain ? `site:${primaryDomain} ${roleLabel} ${subjectText}`.trim() : '',
+    secondaryDomain ? `site:${secondaryDomain} ${roleLabel} ${subjectText}`.trim() : '',
+    `${roleLabel} ${subjectText} official ${targetLabel}`.trim(),
+    `official current ${roleLabel.toLowerCase()} ${targetLabel} ${subjectText}`.trim(),
+  ]
+
+  return targetQueries.filter(Boolean)
+}
+
+function buildCompanyOfficeQueries(subject: string | null, roleLabel: string, targetLabel: string, domain: string | null) {
+  const subjectText = subject ?? ''
+  const queries = [
+    domain ? `site:${domain} leadership ${subjectText} ${roleLabel}`.trim() : '',
+    `${targetLabel} leadership ${subjectText} ${roleLabel}`.trim(),
+    `official ${targetLabel} ${roleLabel.toLowerCase()} ${subjectText}`.trim(),
+  ]
+
+  return queries.filter(Boolean)
+}
+
+function getCurrentOfficeHolderProfile(claim: string): CurrentOfficeHolderProfile | null {
+  const match = detectCurrentOfficeHolderClaim(claim)
+
+  if (!match.matched || !match.role || !match.target) {
+    return null
+  }
+
+  const target = normalizeOfficeHolderTarget(match.target)
+  const subject = match.subject?.trim() ?? null
+  const roleLabels: Record<CurrentOfficeHolderRole, string> = {
+    president: 'President',
+    vice_president: 'Vice President',
+    prime_minister: 'Prime Minister',
+    chief_minister: 'Chief Minister',
+    governor: 'Governor',
+    ceo: 'CEO',
+    head: 'Head',
+    leader: 'Leader',
+  }
+  const roleLabel = roleLabels[match.role]
+  let preferredDomains: string[] = []
+  let queries: string[] = []
+
+  if (['president', 'vice_president'].includes(match.role) && /^(usa|us|u s a|united states|united states of america|america)$/.test(target)) {
+    preferredDomains = ['whitehouse.gov', 'usa.gov']
+    queries = buildGovernmentOfficeQueries(subject, roleLabel, 'United States', preferredDomains)
+  } else if (match.role === 'prime_minister' && /^india$/.test(target)) {
+    preferredDomains = ['pmindia.gov.in', 'india.gov.in', 'pib.gov.in']
+    queries = buildGovernmentOfficeQueries(subject, roleLabel, 'India', preferredDomains)
+  } else if (match.role === 'president' && /^france$/.test(target)) {
+    preferredDomains = ['elysee.fr', 'gouvernement.fr']
+    queries = buildGovernmentOfficeQueries(subject, roleLabel, 'France', preferredDomains)
+  } else if (match.role === 'prime_minister' && /^(uk|u k|united kingdom|britain|great britain)$/.test(target)) {
+    preferredDomains = ['gov.uk', 'number10.gov.uk']
+    queries = buildGovernmentOfficeQueries(subject, roleLabel, 'United Kingdom', preferredDomains)
+  } else if (match.role === 'vice_president' && /^india$/.test(target)) {
+    preferredDomains = ['vicepresidentofindia.nic.in', 'india.gov.in']
+    queries = buildGovernmentOfficeQueries(subject, roleLabel, 'India', preferredDomains)
+  } else if (match.role === 'president' && /^india$/.test(target)) {
+    preferredDomains = ['presidentofindia.gov.in', 'india.gov.in']
+    queries = buildGovernmentOfficeQueries(subject, roleLabel, 'India', preferredDomains)
+  } else if (match.role === 'ceo') {
+    const companyDomain = pickCompanyDomain(target)
+    preferredDomains = companyDomain ? [companyDomain] : []
+    queries = buildCompanyOfficeQueries(subject, roleLabel, match.target, companyDomain)
+  } else if (['head', 'leader'].includes(match.role)) {
+    const organizationDomain = pickCompanyDomain(target)
+    preferredDomains = organizationDomain ? [organizationDomain] : []
+    queries = organizationDomain
+      ? buildCompanyOfficeQueries(subject, roleLabel, match.target, organizationDomain)
+      : [`official ${roleLabel.toLowerCase()} of ${match.target} ${subject ?? ''}`.trim()]
+  } else if (['governor', 'chief_minister', 'prime_minister', 'president', 'vice_president'].includes(match.role)) {
+    queries = [
+      `official current ${roleLabel.toLowerCase()} ${match.target} ${subject ?? ''}`.trim(),
+      `${roleLabel} ${subject ?? ''} official ${match.target}`.trim(),
+    ]
+  }
+
+  if (!queries.length) {
+    queries = [`official current ${roleLabel.toLowerCase()} ${match.target} ${subject ?? ''}`.trim()]
+  }
+
+  return {
+    role: match.role,
+    subject,
+    target: match.target,
+    preferredDomains,
+    queries: uniqueQueries(queries).slice(0, 3),
+  }
 }
 
 function normalizeRetrievalCategory(category: string): ClaimCategory {
@@ -152,10 +298,17 @@ export function buildRetrievalQueries(
   const normalizedCategory = normalizeRetrievalCategory(category)
   const preferredDomainHint = preferredDomains[0]?.trim()
   const stableFactHint = options.stableFactHint?.trim()
+  const currentOfficeHolderProfile = getCurrentOfficeHolderProfile(cleanClaim)
   const queries: string[] = []
 
   if (cleanClaim) {
     queries.push(cleanClaim)
+  }
+
+  if (currentOfficeHolderProfile) {
+    return uniqueQueries(currentOfficeHolderProfile.queries)
+      .filter((query) => query.length >= 3)
+      .slice(0, 3)
   }
 
   if (stableFactHint) {
@@ -226,7 +379,13 @@ export function buildRetrievalQueries(
     .slice(0, 2)
 }
 
-export function getPreferredDomains(category: ClaimCategory): string[] {
+export function getPreferredDomains(category: ClaimCategory, claim = ''): string[] {
+  const currentOfficeHolderProfile = getCurrentOfficeHolderProfile(claim)
+
+  if (currentOfficeHolderProfile) {
+    return [...currentOfficeHolderProfile.preferredDomains]
+  }
+
   switch (category) {
     case 'health':
       return [...HEALTH_DOMAINS]
@@ -272,7 +431,7 @@ async function searchEvidence(
     includeAnswer: false,
     includeFavicon: true,
     autoParameters: false,
-    timeout: 4,
+    timeout: SEARCH_PROVIDER_TIMEOUT_SECONDS,
     ...(options.includeDomains?.length ? { includeDomains: options.includeDomains } : {}),
   })
 
@@ -296,13 +455,18 @@ export async function retrieveEvidence(
   const queries = uniqueQueries(Array.isArray(queryOrQueries) ? queryOrQueries : [queryOrQueries])
   const category = options.category ?? routeClaim(queries[0] || '').retrievalCategory
   const preferredDomains = normalizeDomains(
-    options.preferredDomains ?? getPreferredDomains(category)
+    options.preferredDomains ?? getPreferredDomains(category, queries[0] || '')
   )
-  const retrievalDomains = preferredDomains.slice(0, 1)
+  const currentOfficeHolder =
+    options.currentOfficeHolder ?? routeClaim(queries[0] || '').isCurrentOfficeHolder
+  const retrievalDomains = currentOfficeHolder ? preferredDomains.slice(0, 2) : preferredDomains.slice(0, 1)
   const topic = category === 'breaking_news' ? 'news' : 'general'
   const maxResults = 3
   const days = category === 'breaking_news' ? 7 : undefined
   const activeQueries =
+    currentOfficeHolder
+      ? queries.slice(0, 3)
+      :
     category === 'health' ||
     category === 'scam' ||
     category === 'breaking_news' ||
@@ -347,7 +511,13 @@ export async function retrieveEvidence(
           maxResults,
           days,
         })
-      } catch {
+      } catch (error) {
+        console.warn('[retrieval] search failed', {
+          category,
+          currentOfficeHolder,
+          query: query.slice(0, 180),
+          message: error instanceof Error ? error.message : String(error),
+        })
         retrievalFailed = true
         return []
       }
@@ -365,7 +535,7 @@ export async function retrieveEvidence(
 
   return withTimeout(
     retrievalPromise,
-    4000,
+    RETRIEVAL_TIMEOUT_MS,
     {
       evidence: [],
       retrievalFailed: true,
