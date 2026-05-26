@@ -1,5 +1,6 @@
 import { tavily } from '@tavily/core'
-import { detectCurrentOfficeHolderClaim, routeClaim, type CurrentOfficeHolderRole } from '@/lib/claimRouter'
+import * as claimRouter from '@/lib/claimRouter'
+import type { CurrentOfficeHolderRole } from '@/lib/claimRouter'
 import { withTimeout } from '@/lib/timeout'
 
 export type RetrievedEvidence = {
@@ -190,7 +191,7 @@ function buildCompanyOfficeQueries(subject: string | null, roleLabel: string, ta
 }
 
 function getCurrentOfficeHolderProfile(claim: string): CurrentOfficeHolderProfile | null {
-  const match = detectCurrentOfficeHolderClaim(claim)
+  const match = claimRouter.detectCurrentOfficeHolderClaim(claim)
 
   if (!match.matched || !match.role || !match.target) {
     return null
@@ -453,12 +454,12 @@ export async function retrieveEvidence(
 ): Promise<RetrievedEvidenceResult> {
   const client = getClient()
   const queries = uniqueQueries(Array.isArray(queryOrQueries) ? queryOrQueries : [queryOrQueries])
-  const category = options.category ?? routeClaim(queries[0] || '').retrievalCategory
+  const category = options.category ?? claimRouter.routeClaim(queries[0] || '').retrievalCategory
   const preferredDomains = normalizeDomains(
     options.preferredDomains ?? getPreferredDomains(category, queries[0] || '')
   )
   const currentOfficeHolder =
-    options.currentOfficeHolder ?? routeClaim(queries[0] || '').isCurrentOfficeHolder
+    options.currentOfficeHolder ?? claimRouter.routeClaim(queries[0] || '').isCurrentOfficeHolder
   const retrievalDomains = currentOfficeHolder ? preferredDomains.slice(0, 2) : preferredDomains.slice(0, 1)
   const topic = category === 'breaking_news' ? 'news' : 'general'
   const maxResults = 3

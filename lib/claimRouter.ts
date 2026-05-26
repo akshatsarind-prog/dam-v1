@@ -23,6 +23,23 @@ export type RetrievalCategory =
   | 'scam'
   | 'general'
 
+export type CurrentOfficeHolderRole =
+  | 'president'
+  | 'vice_president'
+  | 'prime_minister'
+  | 'chief_minister'
+  | 'governor'
+  | 'ceo'
+  | 'head'
+  | 'leader'
+
+export type CurrentOfficeHolderMatch = {
+  matched: boolean
+  role: CurrentOfficeHolderRole | null
+  subject: string | null
+  target: string | null
+}
+
 export type ClaimRoute = {
   category: ClaimCategory
   retrievalCategory: RetrievalCategory
@@ -30,6 +47,7 @@ export type ClaimRoute = {
   isCivicRumor: boolean
   isBreakingNews: boolean
   isStableFactCandidate: boolean
+  isCurrentOfficeHolder: boolean
   isHealthClaim: boolean
   isFinanceClaim: boolean
   isStatisticalClaim: boolean
@@ -342,8 +360,79 @@ const ADVERSARIAL_CUES = [
   'bypass',
 ] as const
 
+const CURRENT_OFFICE_HOLDER_ROLE_PATTERNS: Array<{
+  role: CurrentOfficeHolderRole
+  patterns: RegExp[]
+}> = [
+  {
+    role: 'vice_president',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+vice\s+president\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+vice\s+president\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+  {
+    role: 'prime_minister',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+prime\s+minister\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+prime\s+minister\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+  {
+    role: 'chief_minister',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+chief\s+minister\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+chief\s+minister\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+  {
+    role: 'president',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+president\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+president\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+  {
+    role: 'governor',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+governor\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+governor\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+  {
+    role: 'ceo',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+(?:ceo|chief\s+executive\s+officer)\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+(?:ceo|chief\s+executive\s+officer)\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+  {
+    role: 'head',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+head\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+head\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+  {
+    role: 'leader',
+    patterns: [
+      /\b(?:[a-z][a-z.'-]*\s+){0,6}is\s+the\s+current\s+leader\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+      /\bcurrent\s+leader\s+of\s+([a-z0-9&.,' -]{2,80})\b/i,
+    ],
+  },
+] as const
+
 function normalizeText(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function normalizeOfficeHolderEntity(value: string | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const normalized = value.trim().replace(/\s+/g, ' ').replace(/^[,.\s]+|[,.\s]+$/g, '')
+  return normalized || null
 }
 
 function includesSignal(text: string, signal: string) {
@@ -378,6 +467,50 @@ function isBreakingNewsClaim(claim: string) {
   return hasAnySignal(normalized, Array.from(BREAKING_NEWS_CUES)) || BREAKING_NEWS_PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(claim))
 }
 
+export function detectCurrentOfficeHolderClaim(claim: string): CurrentOfficeHolderMatch {
+  const normalized = normalizeText(claim)
+
+  if (!normalized || !normalized.includes('current')) {
+    return {
+      matched: false,
+      role: null,
+      subject: null,
+      target: null,
+    }
+  }
+
+  for (const entry of CURRENT_OFFICE_HOLDER_ROLE_PATTERNS) {
+    for (const pattern of entry.patterns) {
+      const match = claim.match(pattern)
+
+      if (!match) {
+        continue
+      }
+
+      const fullMatch = normalizeOfficeHolderEntity(match[0])
+      const target = normalizeOfficeHolderEntity(match[1])
+      const subjectMatch = fullMatch?.match(
+        /^(.*?)\s+is\s+the\s+current\s+(?:vice\s+president|prime\s+minister|chief\s+minister|president|governor|ceo|chief\s+executive\s+officer|head|leader)\s+of\b/i
+      )
+      const subject = normalizeOfficeHolderEntity(subjectMatch?.[1])
+
+      return {
+        matched: Boolean(target),
+        role: entry.role,
+        subject,
+        target,
+      }
+    }
+  }
+
+  return {
+    matched: false,
+    role: null,
+    subject: null,
+    target: null,
+  }
+}
+
 function isCivicRumorClaim(claim: string) {
   const normalized = normalizeText(claim)
 
@@ -394,6 +527,10 @@ function isStableFactCandidate(claim: string) {
   const normalized = normalizeText(claim)
 
   if (!normalized) {
+    return false
+  }
+
+  if (detectCurrentOfficeHolderClaim(claim).matched) {
     return false
   }
 
@@ -546,6 +683,10 @@ function getRoutingReason(category: ClaimCategory, retrievalCategory: RetrievalC
 }
 
 function getRouteCategory(claim: string): ClaimCategory {
+  if (detectCurrentOfficeHolderClaim(claim).matched) {
+    return 'general'
+  }
+
   if (isScamLikeClaim(claim)) {
     return 'scam'
   }
@@ -589,21 +730,25 @@ export function routeClaim(claim: string): ClaimRoute {
   const retrievalCategory = detectRetrievalCategory(claim)
   const category = getRouteCategory(claim)
   const normalized = normalizeText(claim)
+  const officeHolderMatch = detectCurrentOfficeHolderClaim(claim)
 
   return {
     category,
     retrievalCategory,
     isScamLike: category === 'scam',
-    isCivicRumor: category === 'civic_rumor' || retrievalCategory === 'government',
+    isCivicRumor: !officeHolderMatch.matched && (category === 'civic_rumor' || retrievalCategory === 'government'),
     isBreakingNews: category === 'breaking_news',
     isStableFactCandidate: category === 'stable_fact',
+    isCurrentOfficeHolder: officeHolderMatch.matched,
     isHealthClaim: category === 'health' || retrievalCategory === 'health',
     isFinanceClaim: category === 'finance' || retrievalCategory === 'finance',
     isStatisticalClaim: category === 'statistics',
     isQuoteClaim: category === 'quote',
     isAdversarialClaim: category === 'adversarial',
     routingReason: normalized
-      ? getRoutingReason(category, retrievalCategory)
+      ? officeHolderMatch.matched
+        ? 'Current office-holder or current leadership claim was detected.'
+        : getRoutingReason(category, retrievalCategory)
       : 'Empty claim input falls back to general routing.',
   }
 }
