@@ -953,13 +953,188 @@ function normalizeClaimCategoryValue(value: string): ClaimCategory {
   return isValidRetrievalCategory(value) ? value : 'general'
 }
 
-function hasPreferredDomainEvidence(evidence: RankedEvidence[], claimCategory: string) {
+function hasPreferredDomainEvidence(evidence: RankedEvidence[], claimCategory: string, claim = '') {
   return evidence.some((item) =>
     domainMatchesAny(
       item.domain.toLowerCase(),
-      getPreferredDomains(normalizeClaimCategoryValue(claimCategory))
+      getPreferredDomains(normalizeClaimCategoryValue(claimCategory), claim)
     )
   )
+}
+
+function isCurrentOfficeHolderClaim(claim: string) {
+  return routeClaim(claim).isCurrentOfficeHolder
+}
+
+function getCurrentOfficeHolderEvidenceMetrics(
+  claim: string,
+  evidence: Array<{ domain: string; credibility: CredibilityLabel }>,
+  claimCategory: string
+) {
+  const preferredDomains = getPreferredDomains(normalizeClaimCategoryValue(claimCategory), claim)
+  const officialSources = evidence.filter(
+    (item) =>
+      domainMatchesAny(item.domain.toLowerCase(), preferredDomains) ||
+      (item.credibility === 'High' && item.domain.endsWith('.gov'))
+  )
+  const usableEvidence = evidence.filter((item) => {
+    if (officialSources.includes(item)) {
+      return true
+    }
+
+    return (
+      item.credibility === 'High' ||
+      item.credibility === 'Moderate' ||
+      domainMatchesAny(item.domain.toLowerCase(), ['reuters.com', 'apnews.com', 'bbc.com', 'nytimes.com'])
+    )
+  })
+
+  return {
+    preferredDomains,
+    officialSourceCount: officialSources.length,
+    usableEvidenceCount: usableEvidence.length,
+    officialSourceMissing: officialSources.length === 0,
+    weakRetrieval: usableEvidence.length === 0,
+  }
+}
+
+type CurrentOfficeHolderSupportSignal = {
+  directSupport: boolean
+  officialSourceCount: number
+  supportingSourceIds: string[]
+  reason: string
+}
+
+type CurrentOfficeHolderSupportEvidence = {
+  id?: string
+  title?: string
+  content?: string
+  rawContent?: string
+  excerpt?: string
+  domain: string
+  credibility: CredibilityLabel
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function getCurrentOfficeHolderSupportSignal(
+  claim: string,
+  evidence: CurrentOfficeHolderSupportEvidence[],
+  claimCategory: string
+): CurrentOfficeHolderSupportSignal {
+  const currentOfficeHolder = isCurrentOfficeHolderClaim(claim)
+  if (!currentOfficeHolder) {
+    return {
+      directSupport: false,
+      officialSourceCount: 0,
+      supportingSourceIds: [],
+      reason: '',
+    }
+  }
+
+  const normalizedClaim = normalizeStableFactText(claim)
+  const match = normalizedClaim.match(
+    /^(.*?)\s+is\s+the\s+current\s+(vice president|prime minister|chief minister|president|governor|ceo|chief executive officer|head|leader)\s+of\s+([a-z0-9&.,' -]{2,80})$/
+  )
+
+  if (!match) {
+    return {
+      directSupport: false,
+      officialSourceCount: 0,
+      supportingSourceIds: [],
+      reason: '',
+    }
+  }
+
+  const subject = normalizeStableFactText(match[1])
+  const office = normalizeStableFactText(match[2])
+  const subjectTokens = subject.split(' ').filter((token) => token.length > 1)
+  const officeTokens =
+    office === 'chief executive officer' ? ['ceo', 'chief executive officer'] : [office]
+  const subjectPattern =
+    subjectTokens.length >= 2
+      ? `${escapeRegex(subjectTokens[0])}(?:\\s+[a-z]\\.?|\\s+\\w+){0,2}\\s+${escapeRegex(
+          subjectTokens[subjectTokens.length - 1]
+        )}`
+      : escapeRegex(subjectTokens[0] ?? '')
+  const preferredDomains = getPreferredDomains(normalizeClaimCategoryValue(claimCategory), claim)
+
+  const supportingSources = evidence.filter((item) => {
+    const domain = item.domain.toLowerCase()
+    const officialSource =
+      domainMatchesAny(domain, preferredDomains) ||
+      (item.credibility === 'High' &&
+        (domain.endsWith('.gov') ||
+          domain.endsWith('.gov.in') ||
+          domain.endsWith('.nic.in') ||
+          domain === 'apple.com' ||
+          domain === 'elysee.fr' ||
+          domain === 'gov.uk' ||
+          domain === 'number10.gov.uk' ||
+          domain === 'pmindia.gov.in' ||
+          domain === 'presidentofindia.gov.in' ||
+          domain === 'vicepresidentofindia.nic.in'))
+
+    if (!officialSource) {
+      return false
+    }
+
+    const rawText = `${item.title || ''} ${item.excerpt || ''}`.toLowerCase()
+    const targetPattern = escapeRegex(normalizeStableFactText(match[3]))
+
+    if (office === 'president' || office === 'vice president') {
+      const officePattern =
+        office === 'vice president' ? 'vice\\s+president' : '(?<!vice\\s)president'
+      return (
+        new RegExp(`\\b${officePattern}\\s+${subjectPattern}\\b`).test(rawText) ||
+        new RegExp(`\\b${subjectPattern}\\s+is\\s+the\\s+(?:current\\s+)?${officePattern}\\b`).test(rawText) ||
+        new RegExp(`\\b${subjectPattern}\\s+is\\s+${officePattern}\\b`).test(rawText)
+      )
+    }
+
+    if (office === 'prime minister') {
+      return (
+        new RegExp(`\\bprime\\s+minister\\s+${subjectPattern}\\b`).test(rawText) ||
+        new RegExp(`\\b${subjectPattern}\\s+is\\s+(?:the\\s+)?(?:current\\s+)?prime\\s+minister\\b`).test(rawText) ||
+        new RegExp(
+          `\\b${subjectPattern}\\s+assumes\\s+office\\s+as\\b.*\\bprime\\s+minister\\s+of\\s+${targetPattern}\\b`
+        ).test(rawText) ||
+        new RegExp(`\\b${subjectPattern}\\s+is\\s+the\\s+prime\\s+minister\\s+of\\s+${targetPattern}\\b`).test(rawText)
+      )
+    }
+
+    if (office === 'ceo' || office === 'chief executive officer') {
+      return (
+        new RegExp(`\\b(?:ceo|chief executive officer)\\s+${subjectPattern}\\b`).test(rawText) ||
+        new RegExp(`\\b${subjectPattern}\\s+is\\s+the\\s+(?:ceo|chief executive officer)\\s+of\\s+${targetPattern}\\b`).test(
+          rawText
+        ) ||
+        new RegExp(`\\b${subjectPattern}\\s+serves?\\s+as\\s+(?:the\\s+)?(?:ceo|chief executive officer)\\s+of\\s+${targetPattern}\\b`).test(
+          rawText
+        )
+      )
+    }
+
+    const officePattern = officeTokens.map(escapeRegex).join('|')
+    return (
+      new RegExp(`\\b(?:${officePattern})\\s+${subjectPattern}\\b`).test(rawText) ||
+      new RegExp(`\\b${subjectPattern}\\s+is\\s+the\\s+(?:current\\s+)?(?:${officePattern})\\b`).test(rawText)
+    )
+  })
+
+  return {
+    directSupport: supportingSources.length > 0,
+    officialSourceCount: supportingSources.length,
+    supportingSourceIds: supportingSources
+      .slice(0, 3)
+      .map((item) => item.id)
+      .filter((id): id is string => Boolean(id)),
+    reason: supportingSources.length
+      ? 'Retrieved official current-office sources directly support the claim.'
+      : '',
+  }
 }
 
 function hasAuthoritativeStableFactAlignment(context: StableFactNormalizationContext) {
@@ -967,7 +1142,7 @@ function hasAuthoritativeStableFactAlignment(context: StableFactNormalizationCon
     context.sourceCredibility.weightedScore >= 60 ||
     context.sourceCredibility.label === 'High' ||
     context.sourceCredibility.label === 'Moderate' ||
-    hasPreferredDomainEvidence(context.evidence, context.claimCategory)
+    hasPreferredDomainEvidence(context.evidence, context.claimCategory, context.claim)
   )
 }
 
@@ -991,7 +1166,8 @@ function hasStableFactCorroborationSignal(context: StableFactNormalizationContex
     return false
   }
 
-  const directSupport = validateStableFactRelation(context.claim, context.evidence).directSupport
+  const directSupport =
+    context.directStableFactSupport || validateStableFactRelation(context.claim, context.evidence).directSupport
 
   if (!directSupport) {
     return false
@@ -1073,6 +1249,11 @@ function hasDirectStableLocationContradiction(input: ContradictionNormalizationC
 
 function hasStableFactContradictionSignal(input: ContradictionNormalizationContext) {
   if (getIndiaDelhiCapitalAliasContext(input.claim).matched) {
+    return false
+  }
+
+  const currentOfficeHolderClaim = isCurrentOfficeHolderClaim(input.claim)
+  if (currentOfficeHolderClaim && !input.conflictingSignals.hasConflict) {
     return false
   }
 
@@ -1165,6 +1346,7 @@ function buildContradictionDecision(input: ContradictionNormalizationInput): Nor
   const cautiousVerdict = isCautiousVerdict(input.verdict) || input.confidenceScore <= 45
   const supportedVerdict = isSupportedVerdict(input.verdict)
   const currentNewsClaim = isCurrentNewsClaim(input.claim)
+  const currentOfficeHolderClaim = isCurrentOfficeHolderClaim(input.claim)
   const stableFactAnchor = evaluateStableFactAnchor(input.claim)
   const capitalAliasContext = getIndiaDelhiCapitalAliasContext(input.claim)
 
@@ -1192,6 +1374,15 @@ function buildContradictionDecision(input: ContradictionNormalizationInput): Nor
     return {
       label: 'Missing context',
       summary: capitalAliasContext.summary,
+      severity: 'Low',
+      items: [],
+    }
+  }
+
+  if (currentOfficeHolderClaim && !input.conflictingSignals.hasConflict) {
+    return {
+      label: 'No direct contradiction was identified in retrieved evidence.',
+      summary: 'Retrieved official current-office sources are unclear and do not establish a direct contradiction.',
       severity: 'Low',
       items: [],
     }
@@ -1361,7 +1552,7 @@ function buildContradictionDecision(input: ContradictionNormalizationInput): Nor
 }
 
 function getContradictionSourceIds(input: ContradictionNormalizationInput) {
-  const preferredDomains = getPreferredDomains(normalizeClaimCategoryValue(input.claimCategory))
+  const preferredDomains = getPreferredDomains(normalizeClaimCategoryValue(input.claimCategory), input.claim)
   const preferred = input.evidence.filter(
     (item) =>
       item.credibility === 'High' ||
@@ -2405,7 +2596,7 @@ function classifyRoutingBucket(claim: string, claimCategory: string, breakingNew
     return 'scam'
   }
 
-  if (route.isCivicRumor || claimCategory === 'government' || isCivicRumorClaim(claim)) {
+  if (!route.isCurrentOfficeHolder && (route.isCivicRumor || claimCategory === 'government' || isCivicRumorClaim(claim))) {
     return 'civic_rumor'
   }
 
@@ -2617,9 +2808,9 @@ function buildConfidenceCapReason(input: ConfidenceCapContext, cap: number) {
     input.evidenceCount >= 1 &&
     (input.evidenceStrength.label === 'moderate' || input.evidenceStrength.label === 'strong') &&
     (input.sourceCredibility.weightedScore >= 60 ||
-      hasPreferredDomainEvidence(input.evidence, input.claimCategory)) &&
+      hasPreferredDomainEvidence(input.evidence, input.claimCategory, input.claim)) &&
     (['High', 'Moderate'].includes(input.sourceCredibility.label) ||
-      hasPreferredDomainEvidence(input.evidence, input.claimCategory)) &&
+      hasPreferredDomainEvidence(input.evidence, input.claimCategory, input.claim)) &&
     !input.retrievalFailed &&
     !input.dangerousHealthTreatmentSignal &&
     !input.breakingNewsVague &&
@@ -2700,9 +2891,9 @@ function applyConfidenceCaps(params: ConfidenceCapContext) {
     params.evidenceCount >= 1 &&
     (params.evidenceStrength.label === 'moderate' || params.evidenceStrength.label === 'strong') &&
     (params.sourceCredibility.weightedScore >= 60 ||
-      hasPreferredDomainEvidence(params.evidence, params.claimCategory)) &&
+      hasPreferredDomainEvidence(params.evidence, params.claimCategory, params.claim)) &&
     (['High', 'Moderate'].includes(params.sourceCredibility.label) ||
-      hasPreferredDomainEvidence(params.evidence, params.claimCategory)) &&
+      hasPreferredDomainEvidence(params.evidence, params.claimCategory, params.claim)) &&
     !params.retrievalFailed &&
     !params.dangerousHealthTreatmentSignal &&
     !params.breakingNewsVague &&
@@ -5367,7 +5558,7 @@ function applyFinalStableFactSafeguard<
   const capitalAliasContext = getIndiaDelhiCapitalAliasContext(context.claim)
   const stableFactAnchor = evaluateStableFactAnchor(context.claim)
   const relationValidation = validateStableFactRelation(context.claim, context.evidence)
-  const directSupport = relationValidation.directSupport
+  const directSupport = context.directStableFactSupport || relationValidation.directSupport
   const authoritativeAlignment = hasAuthoritativeStableFactAlignment(context)
   const evidenceQuality =
     context.evidenceStrength.label === 'moderate' || context.evidenceStrength.label === 'strong'
@@ -6958,7 +7149,10 @@ function normalizeResponseState<T extends OperationalTrustNormalizable>(
   const stableAnchor = evaluateStableFactAnchor(context.claim)
   const currentNewsClaim = isCurrentNewsClaim(context.claim)
   const capitalAliasContext = getIndiaDelhiCapitalAliasContext(context.claim)
-  const civicRumor = routingBucket === 'civic_rumor' || context.claimCategory === 'government' || isCivicRumorClaim(context.claim)
+  const currentOfficeHolder = isCurrentOfficeHolderClaim(context.claim)
+  const civicRumor =
+    !currentOfficeHolder &&
+    (routingBucket === 'civic_rumor' || context.claimCategory === 'government' || isCivicRumorClaim(context.claim))
   const breakingNewsState =
     routingBucket === 'breaking_news' || context.breakingNewsVague || currentNewsClaim
   const scamState = scamPattern.isScamLike || routingBucket === 'scam'
@@ -6980,6 +7174,12 @@ function normalizeResponseState<T extends OperationalTrustNormalizable>(
   const baseReason =
     output.reason || output.reasoning || output.confidence.rationale || output.uncertaintyReason || ''
   const normalizedEvidence = output.evidence ?? []
+  const currentOfficeHolderMetrics = currentOfficeHolder
+    ? getCurrentOfficeHolderEvidenceMetrics(context.claim, normalizedEvidence, context.claimCategory)
+    : null
+  const currentOfficeHolderSupport = currentOfficeHolder
+    ? getCurrentOfficeHolderSupportSignal(context.claim, normalizedEvidence, context.claimCategory)
+    : null
   const normalized: T = {
     ...output,
     reason: normalizeResponseText(output.reason || baseReason),
@@ -7193,6 +7393,133 @@ function normalizeResponseState<T extends OperationalTrustNormalizable>(
     }
   }
 
+  if (currentOfficeHolder && currentOfficeHolderSupport?.directSupport && !directContradictionSignal) {
+    const officialSourceCount = currentOfficeHolderMetrics?.officialSourceCount ?? currentOfficeHolderSupport.officialSourceCount
+    const usableEvidenceCount = currentOfficeHolderMetrics?.usableEvidenceCount ?? normalizedEvidence.length
+    const supportReason = currentOfficeHolderSupport.reason
+    const confidenceScore = Math.max(readNumber(normalized.confidence.score, 0), officialSourceCount > 0 ? 82 : 78)
+
+    return {
+      ...normalized,
+      verdict: 'Corroborated',
+      risk: 'Low',
+      reason: supportReason,
+      reasoning: supportReason,
+      uncertaintyReason: 'No direct contradiction was identified in retrieved evidence.',
+      confidenceCapReason: supportReason,
+      confidence: {
+        ...normalized.confidence,
+        score: confidenceScore,
+        label: 'Strong',
+        rationale: supportReason,
+        drivers: Array.from(
+          new Set([
+            ...(normalized.confidence.drivers ?? []),
+            'Direct official current-office support detected.',
+          ])
+        ),
+      },
+      corroborationLevel: {
+        ...(normalized.corroborationLevel ?? {
+          label: 'Direct support detected',
+          agreement: supportReason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Direct support detected',
+        agreement: supportReason,
+        sourceCount: usableEvidenceCount,
+        highCredibilityCount: officialSourceCount,
+        indicators: Array.from(
+          new Set([
+            ...(normalized.corroborationLevel?.indicators ?? []),
+            'Direct official current-office support detected.',
+          ])
+        ),
+      },
+      contradictions: {
+        ...(normalized.contradictions ?? {
+          label: 'No direct contradiction was identified in retrieved evidence.',
+          level: 'None',
+          summary: 'No direct contradiction was identified in retrieved evidence.',
+          items: [],
+        }),
+        label: 'No direct contradiction was identified in retrieved evidence.',
+        level: 'None',
+        summary: 'No direct contradiction was identified in retrieved evidence.',
+        items: [],
+      },
+      contradictionSummary: 'No direct contradiction was identified in retrieved evidence.',
+    }
+  }
+
+  if (
+    currentOfficeHolder &&
+    normalized.verdict !== 'Corroborated' &&
+    normalized.verdict !== 'Likely incorrect'
+  ) {
+    const officialSourceMissing = currentOfficeHolderMetrics?.officialSourceMissing ?? true
+    const usableEvidenceCount = currentOfficeHolderMetrics?.usableEvidenceCount ?? 0
+    const officialSourceCount = currentOfficeHolderMetrics?.officialSourceCount ?? 0
+    const weakRetrieval = currentOfficeHolderMetrics?.weakRetrieval ?? true
+    const reason = officialSourceMissing
+      ? 'Official current-office source was not found in this retrieval pass.'
+      : 'Retrieved current-office sources do not yet provide direct support for the claim.'
+    const confidenceScore = Math.min(readNumber(normalized.confidence.score, 0), officialSourceMissing ? 35 : 45)
+    const indicators = [
+      officialSourceMissing ? 'Official current-office source missing.' : 'Official current-office source retrieved.',
+      weakRetrieval ? 'Weak retrieval.' : `Usable current-office evidence count: ${usableEvidenceCount}.`,
+    ]
+
+    return {
+      ...normalized,
+      verdict:
+        normalized.verdict === 'Evidence insufficient' ||
+        normalized.verdict === 'Unverified' ||
+        normalized.verdict === 'Missing context'
+          ? normalized.verdict
+          : 'Evidence insufficient',
+      reason,
+      reasoning: reason,
+      uncertaintyReason: reason,
+      confidenceCapReason: reason,
+      confidence: {
+        ...normalized.confidence,
+        score: confidenceScore,
+        label: confidenceScore >= 40 ? 'Moderate' : 'Weak',
+        rationale: reason,
+        drivers: Array.from(new Set([...(normalized.confidence.drivers ?? []), ...indicators])),
+      },
+      corroborationLevel: {
+        ...(normalized.corroborationLevel ?? {
+          label: 'Current-office verification pending',
+          agreement: reason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: officialSourceMissing ? 'Official source missing' : 'Current-office verification pending',
+        agreement: reason,
+        sourceCount: usableEvidenceCount,
+        highCredibilityCount: officialSourceCount,
+        indicators: Array.from(new Set([...(normalized.corroborationLevel?.indicators ?? []), ...indicators])),
+      },
+      contradictions: {
+        ...(normalized.contradictions ?? {
+          label: 'Official source missing',
+          level: 'Low',
+          summary: reason,
+          items: [],
+        }),
+        label: officialSourceMissing ? 'Official source missing' : 'Current-office verification pending',
+        level: 'Low',
+        summary: reason,
+      },
+      contradictionSummary: reason,
+    }
+  }
+
   if (breakingNewsState && (normalizedEvidence.length === 0 || context.evidenceStrength.label !== 'strong')) {
     return {
       ...normalized,
@@ -7335,6 +7662,14 @@ function applyPass4FinalConsistencyGuard<T extends Analysis>(
   context: OperationalTrustNormalizationContext
 ): T {
   let final = output
+  const currentOfficeHolder = isCurrentOfficeHolderClaim(context.claim)
+  const currentOfficeHolderSupport = currentOfficeHolder
+    ? getCurrentOfficeHolderSupportSignal(
+        context.claim,
+        final.evidence ?? [],
+        context.claimCategory
+      )
+    : null
 
   const broadContextReason = [
     final.reason,
@@ -7352,6 +7687,71 @@ function applyPass4FinalConsistencyGuard<T extends Analysis>(
       context.dangerousHealthTreatmentSignal)
 
   const misleadingStatisticTrap = hasMisleadingStatisticTrap(context.claim, context.claimCategory)
+
+  if (
+    currentOfficeHolder &&
+    currentOfficeHolderSupport?.directSupport &&
+    final.verdict !== 'Likely incorrect'
+  ) {
+    const supportReason = currentOfficeHolderSupport.reason
+    const confidenceScore = Math.max(readNumber(final.confidence.score, 0), 82)
+    const officialSourceCount = currentOfficeHolderSupport.officialSourceCount
+    const usableEvidenceCount = final.evidence?.length ?? 0
+
+    final = {
+      ...final,
+      verdict: 'Corroborated',
+      risk: 'Low',
+      reason: supportReason,
+      reasoning: supportReason,
+      uncertaintyReason: 'No direct contradiction was identified in retrieved evidence.',
+      confidenceCapReason: supportReason,
+      confidence: {
+        ...final.confidence,
+        score: confidenceScore,
+        label: 'Strong',
+        rationale: supportReason,
+        drivers: Array.from(
+          new Set([
+            ...(final.confidence.drivers ?? []),
+            'Direct official current-office support detected.',
+          ])
+        ),
+      },
+      corroborationLevel: {
+        ...(final.corroborationLevel ?? {
+          label: 'Direct support detected',
+          agreement: supportReason,
+          sourceCount: 0,
+          highCredibilityCount: 0,
+          indicators: [],
+        }),
+        label: 'Direct support detected',
+        agreement: supportReason,
+        sourceCount: usableEvidenceCount,
+        highCredibilityCount: officialSourceCount,
+        indicators: Array.from(
+          new Set([
+            ...(final.corroborationLevel?.indicators ?? []),
+            'Direct official current-office support detected.',
+          ])
+        ),
+      },
+      contradictions: {
+        ...(final.contradictions ?? {
+          label: 'No direct contradiction was identified in retrieved evidence.',
+          level: 'None',
+          summary: 'No direct contradiction was identified in retrieved evidence.',
+          items: [],
+        }),
+        label: 'No direct contradiction was identified in retrieved evidence.',
+        level: 'None',
+        summary: 'No direct contradiction was identified in retrieved evidence.',
+        items: [],
+      },
+      contradictionSummary: 'No direct contradiction was identified in retrieved evidence.',
+    }
+  }
 
   if (dangerousHealthClaim) {
     const reason =
@@ -8775,8 +9175,8 @@ async function analyzeRequest(
   const decomposition = normalizeDecomposition(null, rawClaim)
   const claimRoute = routeClaim(rawClaim)
   const detectedCategory = claimRoute.retrievalCategory
-  const preferredDomains = getPreferredDomains(detectedCategory)
-  const stableFact = claimRoute.isStableFactCandidate
+  const preferredDomains = getPreferredDomains(detectedCategory, rawClaim)
+  const stableFact = claimRoute.isStableFactCandidate || claimRoute.isCurrentOfficeHolder
   const stableFactHint = stableFact ? getStableFactRetrievalHint(rawClaim) : undefined
   const retrievalQueries = buildRetrievalQueries(rawClaim, detectedCategory, preferredDomains, {
     stableFactHint,
@@ -8787,15 +9187,27 @@ async function analyzeRequest(
     const retrievedEvidenceResult = await retrieveEvidence(retrievalQueries, {
       category: detectedCategory,
       preferredDomains,
+      currentOfficeHolder: claimRoute.isCurrentOfficeHolder,
     })
     const uniqueEvidence = dedupeRetrievedEvidence(retrievedEvidenceResult.evidence)
     evidence = rankEvidence(uniqueEvidence, {
       preferredDomains,
+      currentOfficeHolder: claimRoute.isCurrentOfficeHolder,
     })
+    const directClaimSupport = hasDirectClaimSupport(rawClaim, evidence)
+    const officeHolderMetrics = claimRoute.isCurrentOfficeHolder
+      ? getCurrentOfficeHolderEvidenceMetrics(rawClaim, evidence, detectedCategory)
+      : null
     const directStableFactSupport =
       stableFact
         ? hasDirectStableFactSupport(rawClaim, evidence) ||
-          hasWaterBoilingBaselineSupport(rawClaim, evidence)
+          hasWaterBoilingBaselineSupport(rawClaim, evidence) ||
+          Boolean(
+            claimRoute.isCurrentOfficeHolder &&
+              directClaimSupport &&
+              officeHolderMetrics &&
+              officeHolderMetrics.officialSourceCount > 0
+          )
         : false
     const evidenceStrength = classifyEvidenceStrength(
       evidence,
@@ -8808,7 +9220,6 @@ async function analyzeRequest(
     const sourceCredibility = summarizeSourceCredibility(evidence)
     const evidenceContext = buildEvidenceContext(evidence)
     const conflictingSignals = detectConflictingSignals(evidence)
-    const directClaimSupport = hasDirectClaimSupport(rawClaim, evidence)
     const scamSignals = detectScamSignals(rawClaim)
     const currentNewsClaim = isCurrentNewsClaim(rawClaim)
     const breakingNewsVague = claimRoute.isBreakingNews || isBreakingNewsPlaceholderClaim(rawClaim) || currentNewsClaim
