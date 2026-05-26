@@ -1,0 +1,483 @@
+[
+  {
+    "claim": "Donald Trump is the current president of the USA",
+    "type": "true-officer",
+    "status": 200,
+    "verdict": "Corroborated",
+    "confidence": {
+      "score": 82,
+      "label": "Strong",
+      "rationale": "Retrieved evidence directly supports the claim.",
+      "drivers": [
+        "Verification timed out before authoritative evidence could be evaluated.",
+        "Direct stable-fact support detected."
+      ]
+    },
+    "evidenceCount": 0,
+    "officialHighAuthority": false,
+    "retrievalFailed": false,
+    "latency": 11533,
+    "operationalCorrect": false,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved evidence directly supports the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Donald Trump is the current president of the USA"
+    ],
+    "evidenceDomains": []
+  },
+  {
+    "claim": "JD Vance is the current vice president of the USA",
+    "type": "true-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 5."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 8803,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "JD Vance is the current vice president of the USA"
+    ],
+    "evidenceDomains": [
+      "whitehouse.gov",
+      "whitehouse.gov",
+      "whitehouse.gov",
+      "whitehouse.gov",
+      "whitehouse.gov"
+    ]
+  },
+  {
+    "claim": "Narendra Modi is the current Prime Minister of India",
+    "type": "true-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 4."
+      ]
+    },
+    "evidenceCount": 4,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 6700,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Narendra Modi is the current Prime Minister of India"
+    ],
+    "evidenceDomains": [
+      "pmindia.gov.in",
+      "pmindia.gov.in",
+      "pmindia.gov.in",
+      "pmindia.gov.in"
+    ]
+  },
+  {
+    "claim": "Keir Starmer is the current Prime Minister of the UK",
+    "type": "true-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 3."
+      ]
+    },
+    "evidenceCount": 3,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 6892,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Keir Starmer is the current Prime Minister of the UK"
+    ],
+    "evidenceDomains": [
+      "number10.gov.uk",
+      "number10.gov.uk",
+      "number10.gov.uk"
+    ]
+  },
+  {
+    "claim": "Emmanuel Macron is the current President of France",
+    "type": "true-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 5."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 6252,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Emmanuel Macron is the current President of France"
+    ],
+    "evidenceDomains": [
+      "elysee.fr",
+      "elysee.fr",
+      "elysee.fr",
+      "elysee.fr",
+      "elysee.fr"
+    ]
+  },
+  {
+    "claim": "Tim Cook is the current CEO of Apple",
+    "type": "true-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 5."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 6360,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Tim Cook is the current CEO of Apple"
+    ],
+    "evidenceDomains": [
+      "apple.com",
+      "apple.com",
+      "apple.com",
+      "apple.com",
+      "apple.com"
+    ]
+  },
+  {
+    "claim": "Barack Obama is the current president of the USA",
+    "type": "false-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 35,
+      "label": "Weak",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 5.",
+        "No direct contradiction was identified in retrieved evidence."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 8351,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": true,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Barack Obama is the current president of the USA"
+    ],
+    "evidenceDomains": [
+      "whitehouse.gov",
+      "whitehouse.gov",
+      "go.usa.gov",
+      "whitehouse.gov",
+      "whitehouse.gov"
+    ]
+  },
+  {
+    "claim": "Donald Trump is the current Prime Minister of India",
+    "type": "false-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Retrieved evidence conflicts with established factual records.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 5."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 6252,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": true,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Donald Trump is the current Prime Minister of India"
+    ],
+    "evidenceDomains": [
+      "india.gov.in",
+      "pmindia.gov.in",
+      "pmindia.gov.in",
+      "pmindia.gov.in",
+      "pmindia.gov.in"
+    ]
+  },
+  {
+    "claim": "Elon Musk is the current CEO of Apple",
+    "type": "false-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Retrieved evidence conflicts with established factual records.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 5."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 7492,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": true,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Elon Musk is the current CEO of Apple"
+    ],
+    "evidenceDomains": [
+      "podcasts.apple.com",
+      "podcasts.apple.com",
+      "podcasts.apple.com",
+      "podcasts.apple.com",
+      "podcasts.apple.com"
+    ]
+  },
+  {
+    "claim": "JD Vance is the current president of the USA",
+    "type": "false-officer",
+    "status": 200,
+    "verdict": "Evidence insufficient",
+    "confidence": {
+      "score": 40,
+      "label": "Moderate",
+      "rationale": "Retrieved sources do not provide direct support for the claim.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Retrieved evidence conflicts with established factual records.",
+        "Direct stable-fact support is absent.",
+        "Official current-office source retrieved.",
+        "Usable current-office evidence count: 5."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": true,
+    "retrievalFailed": false,
+    "latency": 5775,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": true,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved sources do not provide direct support for the claim.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "JD Vance is the current president of the USA"
+    ],
+    "evidenceDomains": [
+      "whitehouse.gov",
+      "whitehouse.gov",
+      "whitehouse.gov",
+      "whitehouse.gov",
+      "whitehouse.gov"
+    ]
+  },
+  {
+    "claim": "Paris is the capital of France",
+    "type": "control-fact",
+    "status": 200,
+    "verdict": "Corroborated",
+    "confidence": {
+      "score": 90,
+      "label": "Strong",
+      "rationale": "Evidence aligns with established factual records.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Retrieved evidence directly supports the claim and aligns with established factual records.",
+        "Direct stable-fact support detected.",
+        "Deterministic stable-fact anchor matched."
+      ]
+    },
+    "evidenceCount": 3,
+    "officialHighAuthority": false,
+    "retrievalFailed": false,
+    "latency": 5322,
+    "operationalCorrect": true,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": null,
+    "reason": "Evidence aligns with established factual records.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Paris is the capital of France"
+    ],
+    "evidenceDomains": [
+      "britannica.com",
+      "britannica.com",
+      "britannica.com"
+    ]
+  },
+  {
+    "claim": "Your bank account will be blocked tonight unless KYC is updated immediately",
+    "type": "control-scam",
+    "status": 200,
+    "verdict": "Fake KYC urgency",
+    "confidence": {
+      "score": 30,
+      "label": "Weak",
+      "rationale": "Retrieved evidence is limited or indirect, so the claim should not be treated as confirmed.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Breaking-news verification remains incomplete."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": false,
+    "retrievalFailed": false,
+    "latency": 7035,
+    "operationalCorrect": false,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": false,
+    "manipulatedStatisticSafe": null,
+    "reason": "Retrieved evidence is limited or indirect, so the claim should not be treated as confirmed.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "Your bank account will be blocked tonight unless KYC is updated immediately"
+    ],
+    "evidenceDomains": [
+      "businessleague.in",
+      "ibsintelligence.com",
+      "digit.in",
+      "munsifdaily.com",
+      "jaagrukbharat.com"
+    ]
+  },
+  {
+    "claim": "100% of people who drank water eventually died",
+    "type": "control-stat",
+    "status": 200,
+    "verdict": "Likely incorrect",
+    "confidence": {
+      "score": 25,
+      "label": "Weak",
+      "rationale": "Retrieved evidence conflicts with established factual records.",
+      "drivers": [
+        "Evidence quality not specified.",
+        "Retrieved evidence conflicts with established factual records."
+      ]
+    },
+    "evidenceCount": 5,
+    "officialHighAuthority": false,
+    "retrievalFailed": false,
+    "latency": 7273,
+    "operationalCorrect": false,
+    "protectedFromCorroboration": null,
+    "scamEscalatesCorrectly": null,
+    "manipulatedStatisticSafe": false,
+    "reason": "Verification incomplete.",
+    "malformed": false,
+    "fallback": false,
+    "retrievalQueries": [
+      "100% of people who drank water eventually died"
+    ],
+    "evidenceDomains": [
+      "reuters.com",
+      "reuters.com",
+      "reuters.com",
+      "reuters.com",
+      "reuters.com"
+    ]
+  }
+]

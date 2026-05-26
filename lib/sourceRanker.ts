@@ -57,6 +57,22 @@ const LOW_TRUST_DOMAINS = [
   'youtube.com',
   'reddit.com',
 ] as const
+const CURRENT_OFFICE_HOLDER_LOW_SIGNAL_DOMAINS = [
+  'polymarket.com',
+  'polymarketanalytics.com',
+  'facebook.com',
+  'x.com',
+  'twitter.com',
+  'reddit.com',
+  'wizedu.com',
+  'coursehero.com',
+  'chegg.com',
+  'quora.com',
+  'medium.com',
+  'substack.com',
+  'blogspot.com',
+  'wordpress.com',
+] as const
 
 const SUPPORT_STANCE_CUES = [
   'confirmed',
@@ -282,7 +298,7 @@ function credibilityRationale(label: CredibilityLabel, domain: string, preferred
 
 export function rankEvidence(
   evidence: RetrievedEvidence[],
-  options: { preferredDomains?: string[] } = {}
+  options: { preferredDomains?: string[]; currentOfficeHolder?: boolean } = {}
 ): RankedEvidence[] {
   const preferredDomains = normalizeDomains(options?.preferredDomains)
   const seenUrls = new Set<string>()
@@ -300,10 +316,24 @@ export function rankEvidence(
     })
     .map((item, index) => {
       const domain = extractHostname(item.url)
-      const credibility = scoreSourceCredibility(domain)
       const preferredDomainMatch = preferredDomains.length && domainMatches(domain, preferredDomains)
+      const credibility =
+        options.currentOfficeHolder && preferredDomainMatch
+          ? {
+              label: 'High' as const,
+              weightedScore: 94,
+            }
+          : scoreSourceCredibility(domain)
+      const lowSignalPenalty =
+        options.currentOfficeHolder &&
+        domainMatches(domain, CURRENT_OFFICE_HOLDER_LOW_SIGNAL_DOMAINS)
+          ? 40
+          : 0
       const rankingScore =
-        credibility.weightedScore + item.score + (preferredDomainMatch ? 18 : 0)
+        credibility.weightedScore +
+        item.score +
+        (preferredDomainMatch ? (options.currentOfficeHolder ? 36 : 18) : 0) -
+        lowSignalPenalty
 
       return {
         ...item,

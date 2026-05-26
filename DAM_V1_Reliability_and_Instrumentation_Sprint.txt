@@ -1,0 +1,105 @@
+# DAM V1 Reliability + Instrumentation Sprint
+
+## Outcome
+
+DAM V1 was built, deployed, benchmarked, and instrumented as a retrieval-backed claim analysis system for checking risky messages before users trust, forward, or act on them.
+
+Over this sprint, DAM moved from a live reliability prototype into an instrumented private-beta system with early behavioral usage.
+
+## What Was Built
+
+- Live DAM V1 product
+- Retrieval-backed evidence pipeline
+- Source credibility ranking
+- Structured verdict output
+- Contradiction handling
+- Confidence calibration
+- Deterministic response normalization
+- Timeout and fallback safeguards
+- Claim logging
+- Session telemetry
+- Returning-session tracking
+- Email capture
+- Source attribution foundations
+- Admin analytics dashboard
+- Downloadable internal report
+
+## Reliability Work
+
+I personally tested over 1000+ claims across:
+
+- misinformation
+- scams
+- health claims
+- manipulated statistics
+- fake quotes
+- breaking-news-style claims
+- adversarial prompts
+
+Latest 300 claim benchmark:
+
+- 0 bad verdicts
+- 0 overconfidence cases
+- 0 major hallucinations
+- 0 false stable-fact corroborations
+- 299/300 adjusted contradiction consistency
+- ~5.1s average latency
+- 100% API success rate
+
+The core reliability goal was to make DAM fail conservatively instead of confidently.
+
+## Execution Loop
+
+Thought retrieval-backed verification was the missing layer -> executed live evidence retrieval, source ranking, and contradiction handling -> got major hallucinations and dangerous confident outputs down to 0.
+
+Thought misinformation products fail on trust calibration, not just UI -> executed confidence caps, stable-fact routing, and operational uncertainty handling -> got overconfidence cases down from 7 to 0.
+
+Thought speed mattered more than long explanations -> simplified the runtime into a fast single-pass retrieval + reasoning pipeline -> got stable latency around ~5-6 seconds.
+
+Thought product learning required real telemetry -> added Supabase claim/session logging, returning-session tracking, source attribution foundations, email capture, and an internal admin dashboard.
+
+## Current Usage
+
+- 82 visitors from Vercel Analytics over last 30 days
+- 387 page views
+- 76 claims tested
+- 141 tracked sessions
+- 25 returning sessions
+- 17.7% returning session rate
+- 7 multi-day users
+- ~9m 34s average session time
+- 2 email captures
+
+Vercel Analytics measures external traffic and page views. Supabase/admin telemetry measures product behavior inside DAM.
+
+## Key Insight
+
+DAM is not just being used as a generic fact-checker.
+
+The stronger behavior is:
+
+before I click,
+before I forward,
+before I trust,
+before I act.
+
+This suggests DAM is moving toward an operational trust layer for risky online information.
+
+## Current Status
+
+DAM V1 is live and in controlled private beta.
+
+Current focus:
+
+- increase repeat claim submissions
+- improve email/signup conversion
+- collect more real user-submitted claims
+- identify strongest repeat-use categories
+- turn DAM into a habitual check-before-acting layer for scams and risky information
+
+Product:
+https://app.usedam.com/
+
+Landing page:
+https://usedam.com/
+
