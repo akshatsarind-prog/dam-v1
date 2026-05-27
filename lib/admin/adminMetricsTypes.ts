@@ -10,13 +10,36 @@ export type RiskLabelBreakdown = {
 
 export type AdminClaimCategory =
   | 'scam'
-  | 'health'
-  | 'political'
   | 'government'
+  | 'health'
+  | 'politics'
+  | 'breaking_news'
+  | 'finance'
+  | 'crypto'
   | 'statistics'
   | 'social_rumor'
-  | 'crypto'
+  | 'technology_ai'
+  | 'education'
+  | 'science'
+  | 'environment'
+  | 'legal'
+  | 'celebrity_media'
+  | 'product_consumer'
+  | 'religion_community'
+  | 'general_fact'
   | 'other'
+
+export type AdminCategorySource = 'deterministic' | 'ai_assisted' | 'fallback'
+
+export type AdminCategoryConfidence = 'high' | 'medium' | 'low'
+
+export type AdminClaimCategoryExample = {
+  claimText: string
+  createdAt: string | null
+  verdict: string
+  categorySource: AdminCategorySource
+  categoryConfidence: AdminCategoryConfidence
+}
 
 export type AdminHealthStatus = 'healthy' | 'watch' | 'needs_attention'
 
@@ -37,6 +60,10 @@ export type AdminClaimRecord = {
   referrer: string | null
   landingPath: string | null
   category: AdminClaimCategory
+  categorySource: AdminCategorySource
+  categoryConfidence: AdminCategoryConfidence
+  categoryReason: string
+  suggestedCategory: AdminClaimCategory | null
   attributed: boolean
 }
 
@@ -182,12 +209,17 @@ export type AdminCategoryBreakdownRecord = {
   percentage: number
   averageConfidence: number
   averageLatencyMs: number
+  averageCategoryConfidenceScore: number
+  averageCategoryConfidenceLabel: AdminCategoryConfidence
   averageSourceCount: number | null
   topSource: string | null
   topCampaign: string | null
+  topCategorySource: AdminCategorySource | null
+  categorySourceQuality: string
   latestClaimText: string | null
   latestClaimAt: string | null
   attributedClaimCount: number
+  recentExamples: AdminClaimCategoryExample[]
 }
 
 export type CategoryIntelligence = {
@@ -196,6 +228,14 @@ export type CategoryIntelligence = {
   highestLatencyCategory: AdminCategoryBreakdownRecord | null
   lowestConfidenceCategory: AdminCategoryBreakdownRecord | null
   highestSourceCampaignCategory: AdminCategoryBreakdownRecord | null
+  otherPressure: {
+    count: number
+    share: number
+    tooHigh: boolean
+    warning: string | null
+  }
+  otherClaims: AdminClaimRecord[]
+  categorySourceNotes: string[]
   interpretation: string[]
 }
 

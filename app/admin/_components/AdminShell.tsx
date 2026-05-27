@@ -235,6 +235,14 @@ export function formatCategoryLabel(category: AdminClaimCategory) {
   }
 }
 
+function formatCategorySourceLabel(value: string | null | undefined) {
+  if (!value) {
+    return 'No data yet'
+  }
+
+  return value.replace(/_/g, ' ')
+}
+
 export function formatText(value: string | null | undefined, fallback = 'No data yet') {
   if (!value) {
     return fallback
@@ -428,26 +436,11 @@ export function AdminMetricsGate({
 }: AdminMetricsGateProps) {
   const pathname = usePathname()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [state, setState] = useState<DashboardState>(() => {
-    if (typeof window !== 'undefined') {
-      const savedPassword = window.sessionStorage.getItem(SESSION_STORAGE_KEY)
-
-      if (savedPassword) {
-        return {
-          status: 'loading',
-          password: savedPassword,
-          metrics: null,
-          errorMessage: '',
-        }
-      }
-    }
-
-    return {
-      status: 'locked',
-      password: '',
-      metrics: null,
-      errorMessage: '',
-    }
+  const [state, setState] = useState<DashboardState>({
+    status: 'locked',
+    password: '',
+    metrics: null,
+    errorMessage: '',
   })
 
   const handleUnauthorized = useCallback(() => {
@@ -526,6 +519,33 @@ export function AdminMetricsGate({
     },
     [handleUnauthorized]
   )
+
+  useEffect(() => {
+    const savedPassword = window.sessionStorage.getItem(SESSION_STORAGE_KEY)
+
+    if (!savedPassword) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setState((current) => {
+        if (current.status !== 'locked' || current.password || current.metrics) {
+          return current
+        }
+
+        return {
+          status: 'loading',
+          password: savedPassword,
+          metrics: null,
+          errorMessage: '',
+        }
+      })
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [])
 
   useEffect(() => {
     if (state.status !== 'loading' || !state.password || state.metrics) {
@@ -1554,9 +1574,10 @@ function CategoriesTable({ categoryIntelligence }: { categoryIntelligence: Categ
             <th>Share</th>
             <th>Avg Confidence</th>
             <th>Avg Latency</th>
-            <th>Avg Sources</th>
+            <th>Top Source</th>
+            <th>Category Source Quality</th>
             <th>Top Source / Campaign</th>
-            <th>Latest Example</th>
+            <th>Recent Examples</th>
           </tr>
         </thead>
         <tbody>
@@ -1566,24 +1587,88 @@ function CategoriesTable({ categoryIntelligence }: { categoryIntelligence: Categ
                 <td>{formatCategoryLabel(row.category)}</td>
                 <td>{formatCount(row.count)}</td>
                 <td>{formatRate(row.percentage)}</td>
-                <td>{row.averageConfidence.toFixed(1)}</td>
+                <td>
+                  <div style={metricListStyle}>
+                    <span>{`${row.averageCategoryConfidenceLabel} (${row.averageCategoryConfidenceScore})`}</span>
+                    <span>{`Analyzer avg ${row.averageConfidence.toFixed(1)} / 100`}</span>
+                  </div>
+                </td>
                 <td>{formatLatency(row.averageLatencyMs)}</td>
                 <td>{formatDecimal(row.averageSourceCount)}</td>
+                <td>
+                  <div style={metricListStyle}>
+                    <span>{formatCategorySourceLabel(row.topCategorySource)}</span>
+                    <span>{row.categorySourceQuality}</span>
+                  </div>
+                </td>
                 <td>
                   {row.topSource || row.topCampaign
                     ? `${formatText(row.topSource, 'Unattributed')} / ${formatText(row.topCampaign, 'Not set')}`
                     : 'Unattributed'}
                 </td>
                 <td>
-                  <div style={metricListStyle}>
-                    <div style={claimTextClampStyle}>{formatText(row.latestClaimText)}</div>
-                    <span>{formatDateTime(row.latestClaimAt)}</span>
-                  </div>
+                  {row.recentExamples.length ? (
+                    <div className="dam-admin-analysis-list">
+                      {row.recentExamples.map((example) => (
+                        <div
+                          key={`${row.category}-${example.createdAt ?? 'unknown'}-${example.claimText}`}
+                          className="dam-admin-placeholder"
+                        >
+                          <div style={claimTextClampStyle}>{formatText(example.claimText)}</div>
+                          <span>{`${formatDateTime(example.createdAt)} • ${formatCategorySourceLabel(example.categorySource)} • ${example.categoryConfidence}`}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={metricListStyle}>
+                      <div style={claimTextClampStyle}>{formatText(row.latestClaimText)}</div>
+                      <span>{formatDateTime(row.latestClaimAt)}</span>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))
           ) : (
             <EmptyTableRow colSpan={8} copy="No data yet." />
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function OtherClaimsTable({ claims }: { claims: AdminClaimRecord[] }) {
+  return (
+    <div className="dam-admin-table-shell">
+      <table className="dam-admin-table">
+        <thead>
+          <tr>
+            <th>Created</th>
+            <th>Claim Preview</th>
+            <th>Verdict</th>
+            <th>Confidence</th>
+            <th>Latency</th>
+            <th>Suggested Category</th>
+            <th>Why It Stayed Other</th>
+          </tr>
+        </thead>
+        <tbody>
+          {claims.length ? (
+            claims.map((claim, index) => (
+              <tr key={`${claim.createdAt ?? 'unknown'}-${claim.claimText}-${index}`}>
+                <td>{formatDateTime(claim.createdAt)}</td>
+                <td>
+                  <div style={claimTextClampStyle}>{formatText(claim.claimText, 'No claim text logged.')}</div>
+                </td>
+                <td>{formatText(claim.verdict, 'Unknown')}</td>
+                <td>{claim.categoryConfidence}</td>
+                <td>{formatLatency(claim.latencyMs)}</td>
+                <td>{claim.suggestedCategory ? formatCategoryLabel(claim.suggestedCategory) : 'No weak match'}</td>
+                <td>{formatText(claim.categoryReason)}</td>
+              </tr>
+            ))
+          ) : (
+            <EmptyTableRow colSpan={7} copy="No Other-claims review rows yet." />
           )}
         </tbody>
       </table>
@@ -1636,6 +1721,8 @@ function ClaimsTable({
                       {claim.riskLabel}
                     </span>
                     <span>{formatCategoryLabel(claim.category)}</span>
+                    <span>{`${formatCategorySourceLabel(claim.categorySource)} • ${claim.categoryConfidence}`}</span>
+                    <span>{claim.categoryReason}</span>
                   </div>
                 </td>
                 <td>{formatLatency(claim.latencyMs)}</td>
@@ -2174,6 +2261,11 @@ export function CategoriesSection({ metrics }: { metrics: AdminMetricsResponse }
         ? formatLatency(categories.highestLatencyCategory.averageLatencyMs)
         : 'No category rows yet',
     },
+    {
+      label: 'Other pressure',
+      value: formatCount(categories.otherPressure.count),
+      note: `${formatRate(categories.otherPressure.share)} of claims`,
+    },
   ]
 
   return (
@@ -2190,7 +2282,33 @@ export function CategoriesSection({ metrics }: { metrics: AdminMetricsResponse }
           <MetricCard key={card.label} label={card.label} value={card.value} note={card.note} />
         ))}
       </section>
+      {categories.otherPressure.warning ? (
+        <div className="dam-admin-subcard" style={{ borderColor: 'rgba(214, 38, 38, 0.48)' }}>
+          <h3 style={{ margin: 0 }}>Unclassified pressure</h3>
+          <p style={helperCopyStyle}>
+            {`${categories.otherPressure.warning} Other share is ${formatRate(categories.otherPressure.share)} across ${formatCount(categories.otherPressure.count)} claims.`}
+          </p>
+        </div>
+      ) : null}
+      <SummaryList
+        title="Category source notes"
+        description="These notes explain how category provenance is currently being assigned."
+      >
+        <div className="dam-admin-analysis-list">
+          {categories.categorySourceNotes.map((note) => (
+            <div key={note} className="dam-admin-placeholder">
+              {note}
+            </div>
+          ))}
+        </div>
+      </SummaryList>
       <CategoriesTable categoryIntelligence={categories} />
+      <SummaryList
+        title="Claims Currently Classified As Other"
+        description="Latest review queue for uncategorized claims. Use this table to tighten deterministic rules without touching analyzer behavior."
+      >
+        <OtherClaimsTable claims={categories.otherClaims} />
+      </SummaryList>
     </section>
   )
 }

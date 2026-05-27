@@ -372,9 +372,27 @@ function buildValueShareRows(rows: AdminValueShare[]): string[][] {
   return rows.map((row) => [row.label, formatCount(row.count), formatRate(row.percentage)])
 }
 
+function sanitizePanelItems(items: string[]) {
+  return items.map((item) => item.trim()).filter((item) => item.length > 0)
+}
+
 function makeReport(input: Omit<BranchReport, 'summaryData'>): BranchReport {
+  const interpretation = sanitizePanelItems(input.interpretation)
+  const dataQuality = sanitizePanelItems(input.dataQuality)
+  const currentRisk = sanitizePanelItems(input.currentRisk)
+  const recommendedAction = sanitizePanelItems(input.recommendedAction)
+  const supplementalPanels = input.supplementalPanels?.map((panel) => ({
+    ...panel,
+    items: sanitizePanelItems(panel.items),
+  }))
+
   return {
     ...input,
+    interpretation,
+    dataQuality,
+    currentRisk,
+    recommendedAction,
+    supplementalPanels,
     summaryData: {
       branch: input.title,
       family: input.family,
@@ -384,12 +402,12 @@ function makeReport(input: Omit<BranchReport, 'summaryData'>): BranchReport {
       lastUpdated: input.lastUpdated,
       dataSourceBadges: input.dataSourceBadges,
       keyMetrics: input.keyMetrics,
-      interpretation: input.interpretation,
-      dataQuality: input.dataQuality,
-      currentRisk: input.currentRisk,
-      recommendedAction: input.recommendedAction,
+      interpretation,
+      dataQuality,
+      currentRisk,
+      recommendedAction,
       tables: input.tables,
-      supplementalPanels: input.supplementalPanels,
+      supplementalPanels,
       funnelOverview: input.funnelOverview,
       diagnostics: input.diagnostics,
     },
@@ -484,6 +502,7 @@ export function buildAdminBranchReport(
     case 'daily-intelligence': {
       const daily = metrics.automationIntelligence
       const status = recommendationTone(daily.recommendations)
+      const hasClaimsToday = daily.dailySnapshot.claimsToday > 0
 
       return makeReport({
         slug,
@@ -509,7 +528,9 @@ export function buildAdminBranchReport(
         interpretation: [
           daily.growthSignals.claimSubmissionsTrend.summary,
           daily.growthSignals.repeatSessionTrend.summary,
-          `Most tested category today: ${formatCategory(daily.productSignals.mostTestedCategory?.category)}.`,
+          hasClaimsToday
+            ? `Most tested category today: ${formatCategory(daily.productSignals.mostTestedCategory?.category)}.`
+            : 'No claim rows landed today, so category demand should remain unread until fresh activity appears.',
         ],
         dataQuality: [
           'This branch is derived from the daily automation layer already returned by `/api/admin/metrics`.',
@@ -523,9 +544,11 @@ export function buildAdminBranchReport(
           daily.reliabilitySignals.claimsOver8Seconds > 0
             ? `${formatCount(daily.reliabilitySignals.claimsOver8Seconds)} claims crossed 8 seconds today.`
             : 'No obvious 8-second latency spike is visible in today’s read.',
-          daily.reliabilitySignals.lowConfidenceClusters.length > 0
+          hasClaimsToday && daily.reliabilitySignals.lowConfidenceClusters.length > 0
             ? `${formatCategory(daily.reliabilitySignals.lowConfidenceClusters[0]?.category)} is the main low-confidence pressure point.`
-            : 'No low-confidence cluster is standing out today.',
+            : hasClaimsToday
+              ? 'No low-confidence cluster is standing out today.'
+              : 'No daily low-confidence pressure point exists yet because no claims were logged today.',
         ],
         recommendedAction:
           daily.recommendations.length > 0
@@ -926,6 +949,8 @@ export function buildAdminBranchReport(
       const status =
         categories.categoryBreakdown.length === 0
           ? { statusLabel: 'Partial', statusTone: 'muted' as const }
+          : categories.otherPressure.tooHigh
+            ? { statusLabel: 'Needs refinement', statusTone: 'warning' as const }
           : (weakestConfidence ?? 100) < 60
             ? { statusLabel: 'Quality watch', statusTone: 'warning' as const }
             : { statusLabel: 'Readable', statusTone: 'good' as const }
@@ -947,6 +972,12 @@ export function buildAdminBranchReport(
             note: formatRate(categories.mostTestedCategory?.percentage),
           },
           {
+            label: 'Other pressure',
+            value: formatCount(categories.otherPressure.count),
+            note: formatRate(categories.otherPressure.share),
+            tone: categories.otherPressure.tooHigh ? 'warning' : 'neutral',
+          },
+          {
             label: 'Lowest confidence',
             value: formatCategory(categories.lowestConfidenceCategory?.category),
             note: categories.lowestConfidenceCategory
@@ -963,6 +994,7 @@ export function buildAdminBranchReport(
         interpretation: categories.interpretation,
         dataQuality: [
           'Category derivation is analytics-only and does not change analyzer behavior.',
+          categories.otherPressure.warning ?? 'Other pressure is currently within the preferred range.',
           categories.categoryBreakdown.length === 0
             ? 'There are not enough categorized claims to read demand shape yet.'
             : `The category mix is currently driven by ${formatCount(categories.categoryBreakdown.length)} visible buckets.`,
@@ -971,6 +1003,9 @@ export function buildAdminBranchReport(
             : 'No category has a clear source/campaign concentration yet.',
         ],
         currentRisk: [
+          categories.otherPressure.tooHigh
+            ? `Other still holds ${formatRate(categories.otherPressure.share)} of claims, which limits strategic readability.`
+            : 'Other is no longer dominating the category mix.',
           (weakestConfidence ?? 100) < 60
             ? `${formatCategory(categories.lowestConfidenceCategory?.category)} is the clearest answer-quality risk today.`
             : 'No category is flashing extreme quality risk from the current averages.',
@@ -985,19 +1020,66 @@ export function buildAdminBranchReport(
                 .slice(0, 3)
                 .map((item) => item.title)
             : ['No category-specific action is available yet.'],
+        supplementalPanels: [
+          {
+            title: 'Category Source Notes',
+            items: categories.categorySourceNotes,
+          },
+          {
+            title: 'Unclassified Pressure',
+            items: [
+              `Other count: ${formatCount(categories.otherPressure.count)}`,
+              `Other share: ${formatRate(categories.otherPressure.share)}`,
+              categories.otherPressure.warning ?? 'No warning. Other share is acceptable.',
+            ],
+          },
+        ],
         tables: [
           {
             title: 'Category Breakdown',
-            columns: ['Category', 'Claims', 'Share', 'Avg confidence', 'Avg latency', 'Top source'],
+            columns: [
+              'Category',
+              'Claims',
+              'Share',
+              'Avg category confidence',
+              'Avg latency',
+              'Top source',
+              'Source quality',
+              'Recent example',
+            ],
             rows: categories.categoryBreakdown.map((row) => [
               formatCategory(row.category),
               formatCount(row.count),
               formatRate(row.percentage),
-              `${row.averageConfidence.toFixed(1)} / 100`,
+              `${row.averageCategoryConfidenceLabel} (${row.averageCategoryConfidenceScore})`,
               formatLatency(row.averageLatencyMs),
               formatText(row.topSource),
+              row.categorySourceQuality,
+              formatText(row.recentExamples[0]?.claimText ?? row.latestClaimText),
             ]),
             emptyCopy: 'No category rows yet.',
+          },
+          {
+            title: 'Claims Currently Classified As Other',
+            columns: [
+              'Created',
+              'Claim preview',
+              'Verdict',
+              'Category confidence',
+              'Latency',
+              'Suggested category',
+              'Why it stayed other',
+            ],
+            rows: categories.otherClaims.map((claim) => [
+              formatDateTime(claim.createdAt),
+              formatText(claim.claimText),
+              formatText(claim.verdict),
+              claim.categoryConfidence,
+              formatLatency(claim.latencyMs),
+              claim.suggestedCategory ? formatCategory(claim.suggestedCategory) : 'No weak match',
+              formatText(claim.categoryReason),
+            ]),
+            emptyCopy: 'No Other claims to review.',
           },
         ],
       })
@@ -1412,7 +1494,10 @@ export function buildLifetimeBranchReport(
         keyMetrics: [
           { label: 'First-time sessions', value: formatCount(lifetime.behavior.firstTimeSessions) },
           { label: 'Repeat sessions', value: formatCount(lifetime.behavior.repeatSessions) },
-          { label: 'Time before first claim', value: formatLatency(lifetime.behavior.averageTimeBeforeFirstClaimMs) },
+          {
+            label: 'Time from first tracked activity to first claim',
+            value: formatLatency(lifetime.behavior.averageTimeBeforeFirstClaimMs),
+          },
           { label: 'Most common flow', value: lifetime.behavior.mostCommonUserFlow?.label ?? 'No data yet' },
           { label: 'Example claim usage rate', value: formatRate(lifetime.behavior.exampleClaimUsageRate) },
           { label: 'Most valuable signal', value: lifetime.behavior.mostValuableBehavioralSignal },

@@ -76,9 +76,15 @@ function renderMetric(metric: BranchReport['keyMetrics'][number]) {
 }
 
 function renderPanel(title: string, items: string[]) {
+  const rows = items.map((item) => item.trim()).filter((item) => item.length > 0)
+
   return `<section class="panel">
     <h3>${escapeHtml(title)}</h3>
-    <ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+    <ul>${
+      rows.length > 0
+        ? rows.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
+        : `<li>${escapeHtml('No data yet.')}</li>`
+    }</ul>
   </section>`
 }
 
@@ -214,6 +220,8 @@ function renderRecentClaimsSection(metrics: AdminMetricsResponse) {
   const rows = metrics.recentClaims.map((claim: AdminClaimRecord) => [
     formatDateTime(claim.createdAt),
     claim.category.replace(/_/g, ' '),
+    claim.categorySource.replace(/_/g, ' '),
+    claim.categoryConfidence,
     claim.verdict,
     `${claim.confidence.toFixed(1)} / 100`,
     formatDecimal(claim.latencyMs),
@@ -223,10 +231,10 @@ function renderRecentClaimsSection(metrics: AdminMetricsResponse) {
 
   return renderTable(
     'Recent Claims',
-    ['At', 'Category', 'Verdict', 'Confidence', 'Latency', 'Source', 'Claim text'],
+    ['At', 'Category', 'Category source', 'Category confidence', 'Verdict', 'Confidence', 'Latency', 'Source', 'Claim text'],
     rows,
     'No recent claims yet.',
-    { claimTextColumns: [6] }
+    { claimTextColumns: [8] }
   )
 }
 
@@ -253,18 +261,61 @@ function renderCategoryBreakdownSection(metrics: AdminMetricsResponse) {
   const rows = metrics.categoryIntelligence.categoryBreakdown.map((item) => [
     item.category.replace(/_/g, ' '),
     formatCount(item.count),
-    formatRate(item.percentage / 100),
-    formatDecimal(item.averageConfidence),
+    formatRate(item.percentage),
+    `${item.averageCategoryConfidenceLabel} (${item.averageCategoryConfidenceScore})`,
     formatDecimal(item.averageLatencyMs),
     item.topSource ?? 'No data yet',
+    item.categorySourceQuality,
+    truncateText(item.recentExamples[0]?.claimText ?? item.latestClaimText ?? 'No data yet', 100),
   ])
 
   return renderTable(
     'Category Breakdown',
-    ['Category', 'Count', 'Share', 'Avg confidence', 'Avg latency', 'Top source'],
+    ['Category', 'Count', 'Share', 'Avg category confidence', 'Avg latency', 'Top source', 'Source quality', 'Recent example'],
     rows,
     'No category breakdown yet.'
   )
+}
+
+function renderOtherPressureSection(metrics: AdminMetricsResponse) {
+  const otherPressure = metrics.categoryIntelligence.otherPressure
+  const summaryRows = [
+    ['Other count', formatCount(otherPressure.count)],
+    ['Other share', formatRate(otherPressure.share)],
+    ['Warning', otherPressure.warning ?? 'No warning'],
+  ]
+  const reviewRows = metrics.categoryIntelligence.otherClaims.map((claim) => [
+    formatDateTime(claim.createdAt),
+    truncateText(claim.claimText, 120),
+    claim.verdict,
+    claim.categoryConfidence,
+    formatDecimal(claim.latencyMs),
+    claim.suggestedCategory ? claim.suggestedCategory.replace(/_/g, ' ') : 'No weak match',
+    truncateText(claim.categoryReason, 140),
+  ])
+
+  return `<section class="table-section">
+    <h3>Other Pressure</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          ${summaryRows
+            .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
+            .join('')}
+        </tbody>
+      </table>
+    </div>
+    ${renderTable(
+      'Claims Currently Classified As Other',
+      ['Created', 'Claim preview', 'Verdict', 'Category confidence', 'Latency', 'Suggested category', 'Why it stayed other'],
+      reviewRows,
+      'No Other claims to review.'
+    )}
+  </section>`
+}
+
+function renderCategorySourceNotesSection(metrics: AdminMetricsResponse) {
+  return renderPanel('Category source notes', metrics.categoryIntelligence.categorySourceNotes)
 }
 
 function renderSourceAttributionSection(metrics: AdminMetricsResponse) {
@@ -403,7 +454,7 @@ function renderVerclSupabaseTruth(metrics: AdminMetricsResponse) {
 function renderDataCoverage(metrics: AdminMetricsResponse) {
   const coverage = metrics.lifetimeIntelligence.dataCoverage
   const rows = [
-    ['Vercel project linked', coverage.vercelConnected ? 'Yes' : 'No'],
+    ['Vercel project linked', metrics.vercelAnalytics.projectLinked ? 'Yes' : 'No'],
     ['Vercel aggregate metrics available', metrics.vercelAnalytics.connected ? 'Yes' : 'No'],
     ['Vercel visitors', metrics.vercelAnalytics.visitors === null ? 'Unavailable' : formatCount(metrics.vercelAnalytics.visitors)],
     ['Vercel page views', metrics.vercelAnalytics.pageViews === null ? 'Unavailable' : formatCount(metrics.vercelAnalytics.pageViews)],
@@ -591,9 +642,11 @@ export function renderFullAdminReportHtml(metrics: AdminMetricsResponse) {
           ${renderRecentClaimsSection(metrics)}
           ${renderSlowestClaimsSection(metrics)}
           ${renderCategoryBreakdownSection(metrics)}
+          ${renderOtherPressureSection(metrics)}
           ${renderSourceAttributionSection(metrics)}
           ${renderFunnelAppendix(metrics)}
           ${renderRecommendationsSection(metrics)}
+          ${renderCategorySourceNotesSection(metrics)}
         </section>
 
         <div class="footer">

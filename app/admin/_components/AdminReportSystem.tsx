@@ -386,12 +386,14 @@ function ReportSummary({
 }
 
 function SummaryBlock({ title, items }: { title: string; items: string[] }) {
+  const rows = items.map((item) => item.trim()).filter((item) => item.length > 0)
+
   return (
     <article className="dam-report-summary-block">
       <h4>{title}</h4>
       <ul>
-        {items.length > 0 ? (
-          items.map((item) => <li key={`${title}-${item}`}>{item}</li>)
+        {rows.length > 0 ? (
+          rows.map((item) => <li key={`${title}-${item}`}>{item}</li>)
         ) : (
           <li>No strong signal.</li>
         )}
@@ -619,11 +621,13 @@ function FunnelSplitBody({ report }: { report: BranchReport }) {
 }
 
 function NarrativeBlock({ title, items }: { title: string; items: string[] }) {
+  const rows = items.map((item) => item.trim()).filter((item) => item.length > 0)
+
   return (
     <article className="dam-report-panel">
       <p className="dam-report-overline">{title}</p>
       <ul className="dam-report-bullet-list">
-        {items.length > 0 ? items.map((item) => <li key={`${title}-${item}`}>{item}</li>) : <li>No data yet.</li>}
+        {rows.length > 0 ? rows.map((item) => <li key={`${title}-${item}`}>{item}</li>) : <li>No data yet.</li>}
       </ul>
     </article>
   )

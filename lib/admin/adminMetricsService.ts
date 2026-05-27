@@ -3,6 +3,8 @@ import 'server-only'
 import type {
   AdminAutomationIntelligence,
   AdminClaimCategory,
+  AdminCategoryConfidence,
+  AdminCategorySource,
   AdminClaimRecord,
   AdminCategoryBreakdownRecord,
   AdminDeviceSplit,
@@ -46,6 +48,7 @@ import type {
   TrafficSourceIntelligence,
   VerdictBreakdown,
 } from '@/lib/admin/adminMetricsTypes'
+import { maybeApplyAdminAiCategorization } from '@/lib/admin/adminCategoryAi'
 import { getVercelAnalyticsSnapshot } from '@/lib/admin/vercelAnalyticsService'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 
@@ -70,95 +73,422 @@ const LOW_CONFIDENCE_THRESHOLD = 60
 const HIGH_LATENCY_THRESHOLD_MS = 8_000
 const VERY_HIGH_LATENCY_THRESHOLD_MS = 12_000
 const LOW_SOURCE_THRESHOLD = 1
-const CRYPTO_KEYWORDS = [
-  'crypto',
-  'bitcoin',
-  'trading',
-  'investment',
-  'guaranteed return',
-  'double money',
-  'wallet',
-] as const
-const SCAM_KEYWORDS = [
-  'kyc',
-  'otp',
-  'bank',
-  'account blocked',
-  'reward',
-  'lottery',
-  'urgent payment',
-  'verification',
-  'phishing',
-  'click link',
-  'credential harvesting',
-  'impersonation',
-] as const
-const HEALTH_KEYWORDS = [
-  'medicine',
-  'cure',
-  'diabetes',
-  'vaccine',
-  'hospital',
-  'doctor',
-  'disease',
-  'heart',
-  'cancer',
-  'health',
-] as const
-const POLITICAL_KEYWORDS = [
-  'election',
-  'party',
-  'minister',
-  ' mp ',
-  ' mla ',
-  ' cm ',
-  ' pm ',
-  'vote',
-  'lok sabha',
-  'rajya sabha',
-] as const
-const GOVERNMENT_KEYWORDS = [
-  'aadhaar',
-  'pan',
-  'rbi',
+const CATEGORY_PRIORITY: readonly AdminClaimCategory[] = [
+  'scam',
   'government',
-  'subsidy',
-  'scheme',
-  'tax',
-  'police',
-  'court',
-  'official notice',
-  'official circular',
-  'notice',
+  'health',
+  'politics',
+  'breaking_news',
+  'finance',
+  'crypto',
+  'statistics',
+  'technology_ai',
+  'education',
+  'legal',
+  'science',
+  'environment',
+  'social_rumor',
+  'celebrity_media',
+  'religion_community',
+  'product_consumer',
+  'general_fact',
+  'other',
 ] as const
-const STATISTICS_KEYWORDS = [
-  'percent',
-  '%',
-  'study',
-  'survey',
-  'report',
-  'data',
-  'research',
-  'rate',
-  'number',
-  'deaths',
-  'people',
+
+const CATEGORY_CONFIDENCE_SCORES = {
+  high: 100,
+  medium: 70,
+  low: 40,
+} as const satisfies Record<AdminCategoryConfidence, number>
+
+const CATEGORY_SOURCE_QUALITY_THRESHOLD = 0.7
+
+type CategorySignalDefinition = {
+  category: AdminClaimCategory
+  strongKeywords: readonly string[]
+  weakKeywords: readonly string[]
+  regexes?: readonly RegExp[]
+}
+
+const CATEGORY_SIGNAL_DEFINITIONS: readonly CategorySignalDefinition[] = [
+  {
+    category: 'scam',
+    strongKeywords: [
+      'phishing',
+      'otp',
+      'one time password',
+      'cvv',
+      'kyc',
+      'account blocked',
+      'suspended account',
+      'verify immediately',
+      'urgent payment',
+      'click link',
+      'suspicious link',
+      'impersonation',
+      'fake reward',
+      'fake job',
+      'job scam',
+      'lottery',
+      'telegram admin',
+      'credential harvesting',
+      'gift card',
+    ],
+    weakKeywords: ['bank', 'reward', 'refund', 'prize', 'cashback', 'payment', 'urgent', 'verify'],
+  },
+  {
+    category: 'government',
+    strongKeywords: [
+      'aadhaar',
+      'aadhar',
+      'pan card',
+      'rbi',
+      'income tax',
+      'gst',
+      'court order',
+      'police notice',
+      'official scheme',
+      'government scheme',
+      'subsidy',
+      'public authority',
+      'official circular',
+      'official notice',
+    ],
+    weakKeywords: ['government', 'ministry', 'tax', 'court', 'police', 'scheme', 'subsidy', 'notice'],
+  },
+  {
+    category: 'health',
+    strongKeywords: [
+      'vaccine',
+      'vaccines',
+      'world health organization',
+      'who declared',
+      'doctor',
+      'hospital',
+      'disease',
+      'cure',
+      'medicine',
+      'medical',
+      'nutrition',
+      'heart attack',
+      'cancer',
+      'diabetes',
+      'covid',
+      'dengue',
+      'infertility',
+      'antibiotic',
+    ],
+    weakKeywords: ['health', 'virus', 'symptom', 'treatment', 'diet', 'doctor', 'patient', 'who', 'pandemic'],
+  },
+  {
+    category: 'politics',
+    strongKeywords: [
+      'election',
+      'elections',
+      'voting',
+      'parliament',
+      'lok sabha',
+      'rajya sabha',
+      'prime minister',
+      'chief minister',
+      'political party',
+      'mp ',
+      'mla ',
+      'minister',
+      'manifesto',
+    ],
+    weakKeywords: ['vote', 'party', 'pm', 'cm', 'minister', 'mp', 'mla', 'political', 'president', 'vice president', 'governor'],
+  },
+  {
+    category: 'breaking_news',
+    strongKeywords: [
+      'breaking news',
+      'just in',
+      'developing story',
+      'news alert',
+      'right now',
+      'today',
+      'tonight',
+      'this morning',
+      'live updates',
+      'earthquake',
+      'cyclone',
+      'flood',
+      'explosion',
+      'plane crash',
+      'disaster',
+    ],
+    weakKeywords: ['breaking', 'recent', 'developing', 'alert', 'latest', 'news'],
+  },
+  {
+    category: 'finance',
+    strongKeywords: [
+      'upi',
+      'loan',
+      'emi',
+      'mutual fund',
+      'stock market',
+      'share market',
+      'investment',
+      'bank transfer',
+      'banking',
+      'interest rate',
+      'financial advice',
+      'tax return',
+      'insurance',
+      'credit card',
+      'debit card',
+    ],
+    weakKeywords: ['bank', 'finance', 'money', 'market', 'stocks', 'investment', 'returns', 'loan'],
+  },
+  {
+    category: 'crypto',
+    strongKeywords: [
+      'bitcoin',
+      'ethereum',
+      'usdt',
+      'token',
+      'wallet',
+      'blockchain',
+      'crypto',
+      'cryptocurrency',
+      'nft',
+      'airdrops',
+      'coin',
+      'trading wallet',
+      'guaranteed crypto returns',
+    ],
+    weakKeywords: ['trading', 'coin', 'token', 'wallet', 'crypto'],
+  },
+  {
+    category: 'statistics',
+    strongKeywords: [
+      'according to a study',
+      'survey found',
+      'research shows',
+      'report says',
+      'percentage',
+      'percent',
+      'per cent',
+      'rate',
+      'data shows',
+      'statistics',
+      'sample size',
+    ],
+    weakKeywords: ['study', 'survey', 'report', 'research', 'rate', 'average', 'data'],
+    regexes: [/\b\d+(?:\.\d+)?%/i, /\b\d+(?:\.\d+)?\s*(?:percent|percentage)\b/i],
+  },
+  {
+    category: 'technology_ai',
+    strongKeywords: [
+      'artificial intelligence',
+      'ai model',
+      'chatgpt',
+      'apple',
+      'google',
+      'microsoft',
+      'openai',
+      'tesla',
+      'deepfake',
+      'cybersecurity',
+      'data privacy',
+      'data leak',
+      'vpn',
+      'incognito mode',
+      'instagram',
+      'facebook',
+      'youtube',
+      'google drive',
+      'app',
+      'software',
+      'platform',
+      'microphone',
+    ],
+    weakKeywords: ['ai', 'tech', 'technology', 'privacy', 'app', 'platform', 'online', 'digital', 'ceo'],
+  },
+  {
+    category: 'education',
+    strongKeywords: [
+      'board exam',
+      'board exams',
+      'students',
+      'student',
+      'school',
+      'college',
+      'university',
+      'admission',
+      'scholarship',
+      'classroom',
+      'study',
+      'studying',
+      'exam',
+      'results',
+    ],
+    weakKeywords: ['exam', 'school', 'college', 'student', 'course', 'learning', 'score'],
+  },
+  {
+    category: 'legal',
+    strongKeywords: [
+      'legal notice',
+      'legal rights',
+      'court ruling',
+      'supreme court',
+      'high court',
+      'fir',
+      'bail',
+      'arrest',
+      'law says',
+      'illegal',
+    ],
+    weakKeywords: ['legal', 'law', 'court', 'rights', 'crime', 'judge'],
+  },
+  {
+    category: 'science',
+    strongKeywords: [
+      'nasa',
+      'space',
+      'physics',
+      'biology',
+      'chemistry',
+      'species',
+      'planet',
+      'black hole',
+      'evolution',
+      'genetics',
+      'scientists discovered',
+    ],
+    weakKeywords: ['science', 'scientist', 'researcher', 'space', 'planet', 'biology'],
+  },
+  {
+    category: 'environment',
+    strongKeywords: [
+      'climate change',
+      'global warming',
+      'pollution',
+      'air quality',
+      'heatwave',
+      'weather alert',
+      'rainfall',
+      'monsoon',
+      'temperature record',
+      'environmental',
+    ],
+    weakKeywords: ['weather', 'climate', 'pollution', 'environment', 'temperature'],
+  },
+  {
+    category: 'social_rumor',
+    strongKeywords: [
+      'whatsapp forward',
+      'forwarded as received',
+      'viral message',
+      'local rumor',
+      'community rumor',
+      'school group',
+      'family group',
+      'everyone says',
+      'share this',
+      'unsourced',
+    ],
+    weakKeywords: ['viral', 'whatsapp', 'forwarded', 'rumor', 'local', 'community', 'group'],
+  },
+  {
+    category: 'celebrity_media',
+    strongKeywords: [
+      'actor',
+      'actress',
+      'movie',
+      'film',
+      'celebrity',
+      'influencer',
+      'bollywood',
+      'hollywood',
+      'singer',
+      'album',
+    ],
+    weakKeywords: ['celeb', 'star', 'media', 'entertainment', 'viral video'],
+  },
+  {
+    category: 'religion_community',
+    strongKeywords: [
+      'temple',
+      'mosque',
+      'church',
+      'hindu',
+      'muslim',
+      'christian',
+      'sikh',
+      'communal',
+      'religious',
+      'caste',
+      'community clash',
+    ],
+    weakKeywords: ['religion', 'community', 'identity group', 'religious', 'communal'],
+  },
+  {
+    category: 'product_consumer',
+    strongKeywords: [
+      'product recall',
+      'consumer safety',
+      'brand',
+      'purchase',
+      'bought',
+      'buying',
+      'product review',
+      'counterfeit product',
+      'customer complaint',
+      'toxic product',
+    ],
+    weakKeywords: ['product', 'brand', 'consumer', 'purchase', 'buy', 'shopping'],
+  },
+  {
+    category: 'general_fact',
+    strongKeywords: [
+      'capital of',
+      'current ceo',
+      'current president',
+      'current vice president',
+      'invented',
+      'founded in',
+      'born in',
+      'located in',
+      'largest country',
+      'smallest country',
+      'historical fact',
+    ],
+    weakKeywords: ['fact', 'history', 'geography', 'definition', 'meaning'],
+  },
 ] as const
-const SOCIAL_RUMOR_KEYWORDS = [
-  'viral',
-  'whatsapp',
-  'forwarded',
-  'rumor',
-  'community',
-  'school',
-  'city',
-  'local',
-  'everyone says',
-] as const
+
+const GOVERNMENT_KEYWORDS =
+  CATEGORY_SIGNAL_DEFINITIONS.find((definition) => definition.category === 'government')?.strongKeywords ?? []
+const HEALTH_KEYWORDS =
+  CATEGORY_SIGNAL_DEFINITIONS.find((definition) => definition.category === 'health')?.strongKeywords ?? []
+const POLITICAL_KEYWORDS =
+  CATEGORY_SIGNAL_DEFINITIONS.find((definition) => definition.category === 'politics')?.strongKeywords ?? []
+const STATISTICS_KEYWORDS =
+  CATEGORY_SIGNAL_DEFINITIONS.find((definition) => definition.category === 'statistics')?.strongKeywords ?? []
+const SOCIAL_RUMOR_KEYWORDS =
+  CATEGORY_SIGNAL_DEFINITIONS.find((definition) => definition.category === 'social_rumor')?.strongKeywords ?? []
+const CRYPTO_KEYWORDS =
+  CATEGORY_SIGNAL_DEFINITIONS.find((definition) => definition.category === 'crypto')?.strongKeywords ?? []
+
+type DerivedCategoryDetails = {
+  category: AdminClaimCategory
+  categorySource: AdminCategorySource
+  categoryConfidence: AdminCategoryConfidence
+  categoryReason: string
+  suggestedCategory: AdminClaimCategory | null
+}
 
 type ClaimLogRow = Record<string, unknown>
 type EventRow = Record<string, unknown>
 type BetaUserRow = Record<string, unknown>
+
+type GetAdminMetricsOptions = {
+  aiCategorization?: {
+    enabled?: boolean
+  }
+}
 
 type ReadRowsResult<T extends Record<string, unknown>> = {
   rows: T[]
@@ -296,6 +626,14 @@ const emptyCategoryIntelligence: CategoryIntelligence = {
   highestLatencyCategory: null,
   lowestConfidenceCategory: null,
   highestSourceCampaignCategory: null,
+  otherPressure: {
+    count: 0,
+    share: 0,
+    tooHigh: false,
+    warning: null,
+  },
+  otherClaims: [],
+  categorySourceNotes: [],
   interpretation: ['Not enough data yet.'],
 }
 
@@ -628,47 +966,141 @@ function hasAnyKeyword(text: string, keywords: readonly string[]) {
   return keywords.some((keyword) => text.includes(keyword))
 }
 
-export function deriveClaimCategory(row: ClaimLogRow): AdminClaimCategory {
+function getCategoryPriorityRank(category: AdminClaimCategory) {
+  const rank = CATEGORY_PRIORITY.indexOf(category)
+  return rank === -1 ? CATEGORY_PRIORITY.length : rank
+}
+
+function classifyCategoryConfidence(score: number): AdminCategoryConfidence {
+  if (score >= 6) {
+    return 'high'
+  }
+
+  if (score >= 3) {
+    return 'medium'
+  }
+
+  return 'low'
+}
+
+function averageCategoryConfidenceLabel(score: number): AdminCategoryConfidence {
+  if (score >= 85) {
+    return 'high'
+  }
+
+  if (score >= 55) {
+    return 'medium'
+  }
+
+  return 'low'
+}
+
+function buildCategorySourceQualitySummary(sourceCounts: Map<AdminCategorySource, number>, totalCount: number) {
+  const topEntry = Array.from(sourceCounts.entries()).sort((left, right) => right[1] - left[1])[0] ?? null
+
+  if (!topEntry || totalCount <= 0) {
+    return {
+      topCategorySource: null,
+      categorySourceQuality: 'No category source data yet.',
+    } satisfies Pick<AdminCategoryBreakdownRecord, 'topCategorySource' | 'categorySourceQuality'>
+  }
+
+  const [source, count] = topEntry
+  const share = count / totalCount
+  const label =
+    share >= CATEGORY_SOURCE_QUALITY_THRESHOLD
+      ? `${source.replace(/_/g, ' ')} dominates (${Math.round(share * 100)}%).`
+      : `Mixed category sources; ${source.replace(/_/g, ' ')} leads (${Math.round(share * 100)}%).`
+
+  return {
+    topCategorySource: source,
+    categorySourceQuality: label,
+  } satisfies Pick<AdminCategoryBreakdownRecord, 'topCategorySource' | 'categorySourceQuality'>
+}
+
+function deriveClaimCategoryDetails(row: ClaimLogRow): DerivedCategoryDetails {
   const claimText = readString(row.claim_text)
   const riskLabel = readString(row.risk_label, 'unknown')
   const verdict = readString(row.verdict, 'unknown')
-  const combinedText = normalizeText(`${claimText} ${riskLabel} ${verdict}`)
+  const reason = readOptionalString(row.reason)
+  const evidenceQuality = readOptionalString(row.evidence_quality)
+  const combinedText = normalizeText(`${claimText} ${riskLabel} ${verdict} ${reason ?? ''} ${evidenceQuality ?? ''}`)
 
-  if (hasAnyKeyword(combinedText, CRYPTO_KEYWORDS)) {
-    return 'crypto'
+  const scoredCategories = CATEGORY_SIGNAL_DEFINITIONS.map((definition) => {
+    let score = 0
+    const matches: string[] = []
+
+    for (const keyword of definition.strongKeywords) {
+      if (combinedText.includes(` ${keyword.toLowerCase()} `)) {
+        score += 4
+        matches.push(keyword)
+      }
+    }
+
+    for (const keyword of definition.weakKeywords) {
+      if (combinedText.includes(` ${keyword.toLowerCase()} `)) {
+        score += 2
+        matches.push(keyword)
+      }
+    }
+
+    for (const expression of definition.regexes ?? []) {
+      if (expression.test(combinedText)) {
+        score += 3
+        matches.push(expression.source)
+      }
+    }
+
+    return {
+      category: definition.category,
+      score,
+      matches,
+    }
+  })
+    .filter((entry) => entry.score > 0)
+    .sort(
+      (left, right) =>
+        right.score - left.score || getCategoryPriorityRank(left.category) - getCategoryPriorityRank(right.category)
+    )
+
+  const strongest = scoredCategories[0] ?? null
+  const secondary = scoredCategories[1] ?? null
+
+  if (strongest && strongest.score >= 2) {
+    const confidence = classifyCategoryConfidence(strongest.score)
+    const margin = strongest.score - (secondary?.score ?? 0)
+    const reasonText = `Matched ${strongest.matches.slice(0, 3).join(', ')}${margin <= 1 && secondary ? ` ahead of ${secondary.category.replace(/_/g, ' ')}` : ''}.`
+
+    return {
+      category: strongest.category,
+      categorySource: 'deterministic',
+      categoryConfidence: confidence,
+      categoryReason: reasonText,
+      suggestedCategory: secondary?.score && secondary.score >= 2 ? secondary.category : null,
+    }
   }
 
-  if (
-    hasAnyKeyword(combinedText, SCAM_KEYWORDS) ||
-    combinedText.includes('phishing') ||
-    combinedText.includes('harvesting') ||
-    combinedText.includes('reward bait') ||
-    combinedText.includes('payment extraction')
-  ) {
-    return 'scam'
+  if (strongest) {
+    return {
+      category: 'other',
+      categorySource: 'fallback',
+      categoryConfidence: 'low',
+      categoryReason: `Weak ${strongest.category.replace(/_/g, ' ')} signal from ${strongest.matches.slice(0, 2).join(', ')}, but not enough evidence to classify safely.`,
+      suggestedCategory: strongest.category,
+    }
   }
 
-  if (hasAnyKeyword(combinedText, HEALTH_KEYWORDS)) {
-    return 'health'
+  return {
+    category: 'other',
+    categorySource: 'fallback',
+    categoryConfidence: 'low',
+    categoryReason: 'No meaningful category signal was found in the logged claim text, verdict, risk label, or reasoning.',
+    suggestedCategory: null,
   }
+}
 
-  if (hasAnyKeyword(combinedText, POLITICAL_KEYWORDS)) {
-    return 'political'
-  }
-
-  if (hasAnyKeyword(combinedText, GOVERNMENT_KEYWORDS)) {
-    return 'government'
-  }
-
-  if (hasAnyKeyword(combinedText, STATISTICS_KEYWORDS)) {
-    return 'statistics'
-  }
-
-  if (hasAnyKeyword(combinedText, SOCIAL_RUMOR_KEYWORDS)) {
-    return 'social_rumor'
-  }
-
-  return 'other'
+export function deriveClaimCategory(row: ClaimLogRow): AdminClaimCategory {
+  return deriveClaimCategoryDetails(row).category
 }
 
 function hasClaimAttribution(row: ClaimLogRow) {
@@ -755,6 +1187,10 @@ function buildValueShare(label: string, count: number, total: number) {
     count,
     percentage: total > 0 ? count / total : null,
   } satisfies AdminValueShare
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat('en-US').format(value)
 }
 
 function formatSourceLabel(source: string | null, medium: string | null, campaign: string | null) {
@@ -1029,6 +1465,8 @@ function shortenEmail(email: string) {
 }
 
 function normalizeClaimRecord(row: ClaimLogRow): AdminClaimRecord {
+  const categoryDetails = deriveClaimCategoryDetails(row)
+
   return {
     createdAt: readDateString(row.created_at),
     claimText: truncateClaimText(readString(row.claim_text)),
@@ -1048,7 +1486,11 @@ function normalizeClaimRecord(row: ClaimLogRow): AdminClaimRecord {
     utmCampaign: readOptionalString(row.utm_campaign),
     referrer: normalizeReferrerLabel(row.referrer),
     landingPath: readOptionalString(row.landing_path),
-    category: deriveClaimCategory(row),
+    category: categoryDetails.category,
+    categorySource: categoryDetails.categorySource,
+    categoryConfidence: categoryDetails.categoryConfidence,
+    categoryReason: categoryDetails.categoryReason,
+    suggestedCategory: categoryDetails.suggestedCategory,
     attributed: hasClaimAttribution(row),
   }
 }
@@ -1912,13 +2354,23 @@ export function computeCategoryIntelligence(normalizedClaims: AdminClaimRecord[]
       count: number
       totalConfidence: number
       totalLatencyMs: number
+      totalCategoryConfidenceScore: number
       totalSourceCount: number
       sourceCountSamples: number
       attributedClaimCount: number
       sourceCounts: Map<string, number>
       campaignCounts: Map<string, number>
+      categorySourceCounts: Map<AdminCategorySource, number>
       latestClaimAt: number | null
       latestClaimText: string | null
+      recentExamples: Array<{
+        createdAt: string | null
+        createdAtTs: number
+        claimText: string
+        verdict: string
+        categorySource: AdminCategorySource
+        categoryConfidence: AdminCategoryConfidence
+      }>
     }
   >()
 
@@ -1927,18 +2379,22 @@ export function computeCategoryIntelligence(normalizedClaims: AdminClaimRecord[]
       count: 0,
       totalConfidence: 0,
       totalLatencyMs: 0,
+      totalCategoryConfidenceScore: 0,
       totalSourceCount: 0,
       sourceCountSamples: 0,
       attributedClaimCount: 0,
       sourceCounts: new Map<string, number>(),
       campaignCounts: new Map<string, number>(),
+      categorySourceCounts: new Map<AdminCategorySource, number>(),
       latestClaimAt: null,
       latestClaimText: null,
+      recentExamples: [],
     }
 
     current.count += 1
     current.totalConfidence += claim.confidence
     current.totalLatencyMs += claim.latencyMs
+    current.totalCategoryConfidenceScore += CATEGORY_CONFIDENCE_SCORES[claim.categoryConfidence]
 
     if (claim.sourceCount !== null) {
       current.totalSourceCount += claim.sourceCount
@@ -1960,6 +2416,20 @@ export function computeCategoryIntelligence(normalizedClaims: AdminClaimRecord[]
       )
     }
 
+    current.categorySourceCounts.set(
+      claim.categorySource,
+      (current.categorySourceCounts.get(claim.categorySource) ?? 0) + 1
+    )
+
+    current.recentExamples.push({
+      createdAt: claim.createdAt,
+      createdAtTs: claim.createdAt ? Date.parse(claim.createdAt) : 0,
+      claimText: claim.claimText,
+      verdict: claim.verdict,
+      categorySource: claim.categorySource,
+      categoryConfidence: claim.categoryConfidence,
+    })
+
     if (claim.createdAt) {
       const timestamp = Date.parse(claim.createdAt)
 
@@ -1975,23 +2445,44 @@ export function computeCategoryIntelligence(normalizedClaims: AdminClaimRecord[]
   const totalClaims = normalizedClaims.length
 
   const categoryBreakdown = Array.from(categoryStats.entries())
-    .map<AdminCategoryBreakdownRecord>(([category, stats]) => ({
-      category,
-      count: stats.count,
-      percentage: totalClaims > 0 ? stats.count / totalClaims : 0,
-      averageConfidence: stats.count > 0 ? Number((stats.totalConfidence / stats.count).toFixed(1)) : 0,
-      averageLatencyMs: stats.count > 0 ? Math.round(stats.totalLatencyMs / stats.count) : 0,
-      averageSourceCount:
-        stats.sourceCountSamples > 0
-          ? Number((stats.totalSourceCount / stats.sourceCountSamples).toFixed(2))
-          : null,
-      topSource: Array.from(stats.sourceCounts.entries()).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null,
-      topCampaign:
-        Array.from(stats.campaignCounts.entries()).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null,
-      latestClaimText: stats.latestClaimText,
-      latestClaimAt: toIsoString(stats.latestClaimAt),
-      attributedClaimCount: stats.attributedClaimCount,
-    }))
+    .map<AdminCategoryBreakdownRecord>(([category, stats]) => {
+      const averageCategoryConfidenceScore =
+        stats.count > 0 ? Math.round(stats.totalCategoryConfidenceScore / stats.count) : 0
+      const sourceSummary = buildCategorySourceQualitySummary(stats.categorySourceCounts, stats.count)
+
+      return {
+        category,
+        count: stats.count,
+        percentage: totalClaims > 0 ? stats.count / totalClaims : 0,
+        averageConfidence: stats.count > 0 ? Number((stats.totalConfidence / stats.count).toFixed(1)) : 0,
+        averageLatencyMs: stats.count > 0 ? Math.round(stats.totalLatencyMs / stats.count) : 0,
+        averageCategoryConfidenceScore,
+        averageCategoryConfidenceLabel: averageCategoryConfidenceLabel(averageCategoryConfidenceScore),
+        averageSourceCount:
+          stats.sourceCountSamples > 0
+            ? Number((stats.totalSourceCount / stats.sourceCountSamples).toFixed(2))
+            : null,
+        topSource:
+          Array.from(stats.sourceCounts.entries()).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null,
+        topCampaign:
+          Array.from(stats.campaignCounts.entries()).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null,
+        topCategorySource: sourceSummary.topCategorySource,
+        categorySourceQuality: sourceSummary.categorySourceQuality,
+        latestClaimText: stats.latestClaimText,
+        latestClaimAt: toIsoString(stats.latestClaimAt),
+        attributedClaimCount: stats.attributedClaimCount,
+        recentExamples: [...stats.recentExamples]
+          .sort((left, right) => right.createdAtTs - left.createdAtTs)
+          .slice(0, 3)
+          .map((example) => ({
+            claimText: example.claimText,
+            createdAt: example.createdAt,
+            verdict: example.verdict,
+            categorySource: example.categorySource,
+            categoryConfidence: example.categoryConfidence,
+          })),
+      }
+    })
     .sort((left, right) => right.count - left.count || left.category.localeCompare(right.category))
 
   const mostTestedCategory = categoryBreakdown[0] ?? null
@@ -2014,10 +2505,19 @@ export function computeCategoryIntelligence(normalizedClaims: AdminClaimRecord[]
   const interpretation: string[] = []
   const otherCategory = categoryBreakdown.find((row) => row.category === 'other')
   const scamCategory = categoryBreakdown.find((row) => row.category === 'scam')
+  const otherCount = otherCategory?.count ?? 0
+  const otherShare = otherCategory?.percentage ?? 0
+  const otherTooHigh = otherShare > 0.2
+  const otherClaims = sortByCreatedAtDesc(
+    normalizedClaims.filter((claim) => claim.category === 'other')
+  ).slice(0, 20)
+  const fallbackCount = normalizedClaims.filter((claim) => claim.categorySource === 'fallback').length
+  const deterministicCount = normalizedClaims.filter((claim) => claim.categorySource === 'deterministic').length
+  const aiAssistedCount = normalizedClaims.filter((claim) => claim.categorySource === 'ai_assisted').length
 
   if (mostTestedCategory) {
     if (mostTestedCategory.category === 'other') {
-      interpretation.push('Users are mostly testing general curiosity claims.')
+      interpretation.push('Users are mostly testing claims that still land in Other, so the analytics read remains broad.')
     } else {
       interpretation.push(`Users are mostly testing ${mostTestedCategory.category.replace(/_/g, ' ')} claims.`)
     }
@@ -2043,8 +2543,8 @@ export function computeCategoryIntelligence(normalizedClaims: AdminClaimRecord[]
     )
   }
 
-  if (otherCategory && otherCategory.percentage >= 0.35) {
-    interpretation.push('Other category is too high; category derivation may need refinement.')
+  if (otherTooHigh) {
+    interpretation.push('Other category is still too high; review uncategorized claims and weak matches.')
   }
 
   return {
@@ -2053,6 +2553,24 @@ export function computeCategoryIntelligence(normalizedClaims: AdminClaimRecord[]
     highestLatencyCategory,
     lowestConfidenceCategory,
     highestSourceCampaignCategory,
+    otherPressure: {
+      count: otherCount,
+      share: otherShare,
+      tooHigh: otherTooHigh,
+      warning: otherTooHigh
+        ? 'Category derivation is still too broad. Review uncategorized claims.'
+        : null,
+    },
+    otherClaims,
+    categorySourceNotes: [
+      `${formatInteger(deterministicCount)} claims used deterministic category rules.`,
+      aiAssistedCount > 0
+        ? `${formatInteger(aiAssistedCount)} claims were refined with admin-only AI assistance.`
+        : 'AI-assisted categorization is disabled by default in this pass.',
+      fallbackCount > 0
+        ? `${formatInteger(fallbackCount)} claims fell back to low-confidence categorization or Other.`
+        : 'No claims needed fallback categorization in the current window.',
+    ],
     interpretation,
   } satisfies CategoryIntelligence
 }
@@ -2346,7 +2864,7 @@ export function computeOperatorRecommendations(input: {
     (row) => row.category === 'other'
   )
 
-  if (otherCategory && otherCategory.percentage >= 0.35) {
+  if (otherCategory && otherCategory.percentage > 0.2) {
     recommendations.push({
       priority: 'medium',
       title: 'Refine analytics-only category derivation',
@@ -2449,6 +2967,21 @@ function computeAutomationRecommendations(input: {
   emailCaptureIntelligence: EmailCaptureIntelligence
   executiveSnapshot: ExecutiveSnapshot
 }) {
+  if (input.dailySnapshot.claimsToday === 0) {
+    const detail =
+      input.dailySnapshot.sessionsToday > 0
+        ? 'Sessions are present today, but no claim rows have been logged yet, so category, latency, and recommendation pressure should not be inferred from older periods.'
+        : 'No sessions or claim rows have been logged today yet, so the daily branch should stay neutral until fresh activity arrives.'
+
+    return [
+      {
+        priority: 'low',
+        title: 'Wait for today-level claim activity',
+        detail,
+      },
+    ] satisfies OperatorRecommendation[]
+  }
+
   const recommendations: OperatorRecommendation[] = []
   const bestSourceByClaimsPerSession = input.trafficSourceIntelligence.bestSourceByClaimsPerSession
 
@@ -2546,6 +3079,7 @@ function computeAutomationIntelligence(input: {
   const todayClaimLatencies = todayClaims
     .map((claim) => claim.latencyMs)
     .filter((value) => value > 0)
+  const todayCategoryIntelligence = computeCategoryIntelligence(todayClaims)
   const todaySourceCounts = new Map<string, number>()
   const todayCategoryCounts = new Map<AdminClaimCategory, number>()
 
@@ -2566,7 +3100,11 @@ function computeAutomationIntelligence(input: {
   const sessionsToday = sessionAggregates.filter(
     (aggregate) => aggregate.lastSeenAt !== null && aggregate.lastSeenAt >= startOfToday
   )
+  const todaySessionIds = new Set(sessionsToday.map((aggregate) => aggregate.sessionId))
   const returningSessionsToday = sessionsToday.filter((aggregate) => isReturningSessionAggregate(aggregate))
+  const todayRecentHighIntentSessions = input.retentionIntelligence.highIntentSessions.filter((session) =>
+    todaySessionIds.has(session.sessionId)
+  )
 
   const currentWindowClaims = input.normalizedClaims.filter((claim) => {
     const timestamp = getClaimTimestamp(claim)
@@ -2591,13 +3129,13 @@ function computeAutomationIntelligence(input: {
       isReturningSessionAggregate(aggregate)
   ).length
 
-  const unknownVerdictRows = input.normalizedClaims.filter(
+  const unknownVerdictRows = todayClaims.filter(
     (claim) => claim.verdict.trim().toLowerCase() === 'unknown'
   ).length
-  const unknownRiskRows = input.normalizedClaims.filter(
+  const unknownRiskRows = todayClaims.filter(
     (claim) => claim.riskLabel.trim().toLowerCase() === 'unknown'
   ).length
-  const emptyClaimTextRows = input.normalizedClaims.filter((claim) => !claim.claimText.trim()).length
+  const emptyClaimTextRows = todayClaims.filter((claim) => !claim.claimText.trim()).length
 
   const dailySnapshot = {
     claimsToday: todayClaims.length,
@@ -2634,21 +3172,23 @@ function computeAutomationIntelligence(input: {
   } satisfies AdminGrowthSignals
 
   const productSignals = {
-    mostTestedCategory: input.categoryIntelligence.mostTestedCategory,
-    lowestConfidenceCategory: input.categoryIntelligence.lowestConfidenceCategory,
-    slowestCategory: input.categoryIntelligence.highestLatencyCategory,
-    recentHighIntentSessions: input.retentionIntelligence.highIntentSessions.slice(0, 5),
-    sessionsWithMultipleClaims: input.retentionIntelligence.sessionsWithTwoPlusClaims,
+    mostTestedCategory: todayCategoryIntelligence.mostTestedCategory,
+    lowestConfidenceCategory: todayCategoryIntelligence.lowestConfidenceCategory,
+    slowestCategory: todayCategoryIntelligence.highestLatencyCategory,
+    recentHighIntentSessions: todayRecentHighIntentSessions.slice(0, 5),
+    sessionsWithMultipleClaims: sessionsToday.filter((aggregate) => aggregate.claimCount >= 2).length,
   } satisfies AdminProductSignals
 
   const reliabilitySignals = {
-    slowestClaims: input.operationalHealth.slowestClaims.slice(0, 5),
-    claimsOver8Seconds: input.operationalHealth.claimsOver8s,
-    missingAttributionRows: input.trafficSourceIntelligence.unattributedClaims,
+    slowestClaims: [...todayClaims]
+      .sort((left, right) => right.latencyMs - left.latencyMs)
+      .slice(0, 5),
+    claimsOver8Seconds: todayClaims.filter((claim) => claim.latencyMs >= HIGH_LATENCY_THRESHOLD_MS).length,
+    missingAttributionRows: todayClaims.filter((claim) => !claim.attributed).length,
     unknownVerdictRows,
     unknownRiskRows,
     emptyClaimTextRows,
-    lowConfidenceClusters: computeLowConfidenceClusters(input.normalizedClaims),
+    lowConfidenceClusters: computeLowConfidenceClusters(todayClaims),
   } satisfies AdminReliabilitySignals
 
   const recommendations = computeAutomationRecommendations({
@@ -2921,7 +3461,9 @@ function computeScamVsMisinformationDistribution(normalizedClaims: AdminClaimRec
     (claim) => claim.category === 'scam' || claim.category === 'crypto'
   ).length
   const misinformationCount = normalizedClaims.filter((claim) =>
-    ['health', 'political', 'government', 'statistics', 'social_rumor'].includes(claim.category)
+    ['health', 'politics', 'government', 'statistics', 'social_rumor', 'breaking_news'].includes(
+      claim.category
+    )
   ).length
   const otherCount = Math.max(totalClaims - scamCount - misinformationCount, 0)
 
@@ -2978,7 +3520,9 @@ function deriveCurrentUserIntent(categoryIntelligence: CategoryIntelligence) {
     .reduce((sum, row) => sum + row.percentage, 0)
   const verificationShare = rows
     .filter((row) =>
-      ['health', 'political', 'government', 'statistics', 'social_rumor'].includes(row.category)
+      ['health', 'politics', 'government', 'statistics', 'social_rumor', 'breaking_news'].includes(
+        row.category
+      )
     )
     .reduce((sum, row) => sum + row.percentage, 0)
   const otherShare = rows.find((row) => row.category === 'other')?.percentage ?? 0
@@ -2991,7 +3535,7 @@ function deriveCurrentUserIntent(categoryIntelligence: CategoryIntelligence) {
     return 'News-verification-heavy usage'
   }
 
-  if (otherShare >= 0.45) {
+  if (otherShare > 0.2) {
     return 'Curiosity-heavy usage'
   }
 
@@ -3528,7 +4072,9 @@ function computeLifetimeIntelligence(input: {
     ]),
     recurringMisinformationThemes: computeKeywordSignals(
       input.normalizedClaims.filter((claim) =>
-        ['health', 'political', 'government', 'statistics', 'social_rumor'].includes(claim.category)
+        ['health', 'politics', 'government', 'statistics', 'social_rumor', 'breaking_news'].includes(
+          claim.category
+        )
       ),
       [
         { label: 'Government notices', keywords: GOVERNMENT_KEYWORDS },
@@ -3752,7 +4298,9 @@ async function readAllRows<T extends Record<string, unknown>>(table: string) {
   } satisfies ReadRowsResult<T>
 }
 
-export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
+export async function getAdminMetrics(
+  options?: GetAdminMetricsOptions
+): Promise<AdminMetricsResponse> {
   const supabaseAdmin = getSupabaseAdminClient()
 
   if (!supabaseAdmin) {
@@ -3783,7 +4331,11 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
   }
 
   const claimRows = claimResult.rows
-  const normalizedClaims = sortByCreatedAtDesc(claimRows.map((row) => normalizeClaimRecord(row)))
+  const aiCategorizedClaims = await maybeApplyAdminAiCategorization(
+    claimRows.map((row) => normalizeClaimRecord(row)),
+    options?.aiCategorization
+  )
+  const normalizedClaims = sortByCreatedAtDesc(aiCategorizedClaims)
   const betaUsers = betaUserResult.rows.map((row) => normalizeBetaUserRecord(row))
   const verdictCounts = new Map<string, number>()
   const riskLabelCounts = new Map<string, number>()
