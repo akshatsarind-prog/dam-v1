@@ -744,7 +744,7 @@ export default function SharedAnalyzerLayout({
           <p>
             {publicScamOfTheDay
               ? publicScamOfTheDay.summary
-              : 'Scam of the Day is being reviewed. Check back soon.'}
+              : "Today's warning is under review."}
           </p>
         </div>
         <div
@@ -757,17 +757,55 @@ export default function SharedAnalyzerLayout({
         >
           <article
             style={{
+              position: 'relative',
               display: 'grid',
               gap: 14,
               padding: isMobile ? 18 : 22,
-              border: '1px solid var(--line)',
-              borderRadius: 18,
-              background: 'rgba(17, 17, 20, 0.96)',
+              border: publicScamOfTheDay
+                ? '1px solid rgba(214, 38, 38, 0.18)'
+                : '1px solid rgba(245, 158, 11, 0.16)',
+              borderRadius: 22,
+              background: publicScamOfTheDay
+                ? 'linear-gradient(180deg, rgba(28, 13, 16, 0.9), rgba(17, 17, 20, 0.98))'
+                : 'linear-gradient(180deg, rgba(37, 24, 10, 0.88), rgba(17, 17, 20, 0.98))',
               boxShadow: 'var(--shadow)',
+              overflow: 'hidden',
             }}
           >
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                inset: '0 auto 0 0',
+                width: 4,
+                background: publicScamOfTheDay
+                  ? 'linear-gradient(180deg, #ff7a7d, #f59e0b)'
+                  : 'linear-gradient(180deg, #fbbf24, #f59e0b)',
+              }}
+            />
             {publicScamOfTheDay ? (
               <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      minHeight: 28,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 11px',
+                      borderRadius: 999,
+                      border: '1px solid rgba(125, 211, 252, 0.3)',
+                      background: 'rgba(11, 43, 58, 0.88)',
+                      color: '#b9edff',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Source-backed warning
+                  </span>
+                </div>
                 <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
                   {publicScamOfTheDay.sourceNote}
                 </p>
@@ -781,26 +819,49 @@ export default function SharedAnalyzerLayout({
                         gap: 10,
                         alignItems: 'start',
                       }}
-                    >
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 999,
-                          background: 'var(--accent)',
-                          marginTop: 7,
-                        }}
-                      />
+                      >
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 999,
+                            background: '#f59e0b',
+                            marginTop: 7,
+                          }}
+                        />
                       <p style={{ margin: 0, lineHeight: 1.65 }}>{warning}</p>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <p style={{ margin: 0, color: 'var(--muted)', lineHeight: 1.7 }}>
-                DAM only shows scam warnings after manual approval and source-complete review.
-              </p>
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      minHeight: 28,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 11px',
+                      borderRadius: 999,
+                      border: '1px solid rgba(245, 158, 11, 0.32)',
+                      background: 'rgba(56, 33, 8, 0.92)',
+                      color: '#ffd694',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Under review
+                  </span>
+                </div>
+                <p style={{ margin: 0, color: 'var(--muted)', lineHeight: 1.7 }}>
+                  Public warnings appear only after manual review and source-backed approval.
+                </p>
+              </>
             )}
             <div
               style={{
@@ -824,9 +885,13 @@ export default function SharedAnalyzerLayout({
               display: 'grid',
               gap: 10,
               padding: isMobile ? 16 : 18,
-              border: '1px solid var(--line)',
-              borderRadius: 18,
-              background: '#080809',
+              border: publicScamOfTheDay
+                ? '1px solid rgba(125, 211, 252, 0.14)'
+                : '1px solid rgba(245, 158, 11, 0.12)',
+              borderRadius: 22,
+              background: publicScamOfTheDay
+                ? 'linear-gradient(180deg, rgba(8, 15, 24, 0.98), rgba(8, 8, 9, 0.98))'
+                : 'linear-gradient(180deg, rgba(23, 16, 9, 0.96), rgba(8, 8, 9, 0.98))',
             }}
           >
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
