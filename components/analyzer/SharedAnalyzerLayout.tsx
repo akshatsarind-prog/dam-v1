@@ -750,7 +750,7 @@ export default function SharedAnalyzerLayout({
         <div
           style={{
             display: 'grid',
-            gap: 18,
+            gap: isMobile ? 12 : 18,
             gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.6fr) minmax(260px, 0.9fr)',
             alignItems: 'start',
           }}
@@ -759,12 +759,12 @@ export default function SharedAnalyzerLayout({
             style={{
               position: 'relative',
               display: 'grid',
-              gap: 14,
-              padding: isMobile ? 18 : 22,
+              gap: isMobile ? 10 : 14,
+              padding: isMobile ? 14 : 22,
               border: publicScamOfTheDay
                 ? '1px solid rgba(214, 38, 38, 0.18)'
                 : '1px solid rgba(245, 158, 11, 0.16)',
-              borderRadius: 22,
+              borderRadius: isMobile ? 18 : 22,
               background: publicScamOfTheDay
                 ? 'linear-gradient(180deg, rgba(28, 13, 16, 0.9), rgba(17, 17, 20, 0.98))'
                 : 'linear-gradient(180deg, rgba(37, 24, 10, 0.88), rgba(17, 17, 20, 0.98))',
@@ -807,29 +807,29 @@ export default function SharedAnalyzerLayout({
                   </span>
                 </div>
                 <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
-                  {publicScamOfTheDay.sourceNote}
+                  {`Reviewed against ${publicScamOfTheDay.sourceCount} reputable source${publicScamOfTheDay.sourceCount === 1 ? '' : 's'} before being shown publicly.`}
                 </p>
-                <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'grid', gap: isMobile ? 6 : 8 }}>
                   {publicScamOfTheDay.warningSigns.slice(0, 2).map((warning) => (
                     <div
                       key={warning}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '12px 1fr',
-                        gap: 10,
+                        gridTemplateColumns: '10px 1fr',
+                        gap: isMobile ? 8 : 10,
                         alignItems: 'start',
                       }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: 999,
-                            background: '#f59e0b',
-                            marginTop: 7,
-                          }}
-                        />
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: 999,
+                          background: '#f59e0b',
+                          marginTop: 6,
+                        }}
+                      />
                       <p style={{ margin: 0, lineHeight: 1.65 }}>{warning}</p>
                     </div>
                   ))}
@@ -865,14 +865,14 @@ export default function SharedAnalyzerLayout({
             )}
             <div
               style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 12,
-                alignItems: 'center',
-              }}
-            >
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: isMobile ? 10 : 12,
+              alignItems: 'center',
+            }}
+          >
               <Link className="primary-link" href="/scam-of-the-day">
-                Read today&apos;s scam warning
+                {publicScamOfTheDay ? "Read today's scam warning" : 'View scam warning status'}
               </Link>
               <Link className="secondary-link" href="/?focus=claim-input#verify">
                 Check your own message
@@ -884,11 +884,11 @@ export default function SharedAnalyzerLayout({
             style={{
               display: 'grid',
               gap: 10,
-              padding: isMobile ? 16 : 18,
+              padding: isMobile ? 14 : 18,
               border: publicScamOfTheDay
                 ? '1px solid rgba(125, 211, 252, 0.14)'
                 : '1px solid rgba(245, 158, 11, 0.12)',
-              borderRadius: 22,
+              borderRadius: isMobile ? 18 : 22,
               background: publicScamOfTheDay
                 ? 'linear-gradient(180deg, rgba(8, 15, 24, 0.98), rgba(8, 8, 9, 0.98))'
                 : 'linear-gradient(180deg, rgba(23, 16, 9, 0.96), rgba(8, 8, 9, 0.98))',
