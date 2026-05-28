@@ -5,6 +5,7 @@ import { startTransition, useEffect, useId, useRef, useState } from 'react'
 import DamBrandMark from '@/components/brand/DamBrandMark'
 import DamUseCasesDropdown from '@/components/navigation/DamUseCasesDropdown'
 import { useCaseLinks } from '@/components/navigation/useCaseLinks'
+import type { PublicScamOfTheDay } from '@/lib/scam-of-the-day/publicScamOfTheDay'
 import {
   exampleClaimDomains,
   flowSteps,
@@ -19,6 +20,7 @@ import SharedResultView from './SharedResultView'
 
 type SharedAnalyzerLayoutProps = AnalyzeClaimViewModel & {
   isMobile?: boolean
+  publicScamOfTheDay: PublicScamOfTheDay | null
 }
 
 const sectionNavItems = [
@@ -218,6 +220,7 @@ export default function SharedAnalyzerLayout({
   handleSubmit,
   handleKeyDown,
   trackLandingCtaClick,
+  publicScamOfTheDay,
   isMobile = false,
 }: SharedAnalyzerLayoutProps) {
   const router = useRouter()
@@ -402,6 +405,7 @@ export default function SharedAnalyzerLayout({
                   {item.label}
                 </a>
               ))}
+              <Link href="/scam-of-the-day">Scam of the Day</Link>
               <DamUseCasesDropdown />
               <Link href={thisCouldBeYouHref}>This Could Be You</Link>
             </nav>
@@ -447,6 +451,13 @@ export default function SharedAnalyzerLayout({
                   <span>{item.label}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => handleMobileRouteNavigation('/scam-of-the-day')}
+                style={mobileNavMenuItemStyle}
+              >
+                <span>Scam of the Day</span>
+              </button>
               {useCaseLinks.map((item) => (
                 <button
                   key={item.href}
@@ -718,6 +729,115 @@ export default function SharedAnalyzerLayout({
               suppressLoadingState={isMobile}
             />
           </div>
+        </div>
+      </section>
+
+      <section className="section-frame" aria-labelledby="scam-of-the-day-preview-title">
+        <div className="section-heading wide restrained">
+          <p className="system-label">
+            <span aria-hidden="true" />
+            Scam of the Day
+          </p>
+          <h2 id="scam-of-the-day-preview-title">
+            {publicScamOfTheDay ? publicScamOfTheDay.title : "Today's scam warning is being reviewed."}
+          </h2>
+          <p>
+            {publicScamOfTheDay
+              ? publicScamOfTheDay.summary
+              : 'Scam of the Day is being reviewed. Check back soon.'}
+          </p>
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gap: 18,
+            gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.6fr) minmax(260px, 0.9fr)',
+            alignItems: 'start',
+          }}
+        >
+          <article
+            style={{
+              display: 'grid',
+              gap: 14,
+              padding: isMobile ? 18 : 22,
+              border: '1px solid var(--line)',
+              borderRadius: 18,
+              background: 'rgba(17, 17, 20, 0.96)',
+              boxShadow: 'var(--shadow)',
+            }}
+          >
+            {publicScamOfTheDay ? (
+              <>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13, lineHeight: 1.6 }}>
+                  {publicScamOfTheDay.sourceNote}
+                </p>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {publicScamOfTheDay.warningSigns.slice(0, 2).map((warning) => (
+                    <div
+                      key={warning}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '12px 1fr',
+                        gap: 10,
+                        alignItems: 'start',
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          background: 'var(--accent)',
+                          marginTop: 7,
+                        }}
+                      />
+                      <p style={{ margin: 0, lineHeight: 1.65 }}>{warning}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p style={{ margin: 0, color: 'var(--muted)', lineHeight: 1.7 }}>
+                DAM only shows scam warnings after manual approval and source-complete review.
+              </p>
+            )}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 12,
+                alignItems: 'center',
+              }}
+            >
+              <Link className="primary-link" href="/scam-of-the-day">
+                Read today&apos;s scam warning
+              </Link>
+              <Link className="secondary-link" href="/?focus=claim-input#verify">
+                Check your own message
+              </Link>
+            </div>
+          </article>
+
+          <aside
+            style={{
+              display: 'grid',
+              gap: 10,
+              padding: isMobile ? 16 : 18,
+              border: '1px solid var(--line)',
+              borderRadius: 18,
+              background: '#080809',
+            }}
+          >
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Why it matters
+            </p>
+            <p style={{ margin: 0, lineHeight: 1.7 }}>
+              {publicScamOfTheDay
+                ? 'DAM turns repeated scam checks into a public warning only after human review and source-backed verification.'
+                : 'Public scam warnings stay hidden until they clear review and source checks.'}
+            </p>
+          </aside>
         </div>
       </section>
 
