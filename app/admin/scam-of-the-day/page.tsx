@@ -4,8 +4,6 @@ import { startTransition, useEffect, useState } from 'react'
 import { AdminMetricsGate, MetricCard, SectionHeading, SummaryList } from '@/app/admin/_components/AdminShell'
 import type { ScamOfTheDayDraft, ScamOfTheDayStatus } from '@/lib/admin/scamOfTheDayTypes'
 
-const SESSION_STORAGE_KEY = 'dam_admin_password'
-
 const gridStyle = {
   display: 'grid',
   gap: 16,
@@ -69,14 +67,6 @@ type RouteResponse =
       }
     }
 
-function getAdminPassword() {
-  if (typeof window === 'undefined') {
-    return ''
-  }
-
-  return window.sessionStorage.getItem(SESSION_STORAGE_KEY) ?? ''
-}
-
 function formatDateTime(value: string) {
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? 'No data yet' : parsed.toLocaleString()
@@ -90,11 +80,11 @@ function readApiError(payload: RouteResponse | null, fallback: string) {
   return fallback
 }
 
-async function requestDraft(method: 'GET' | 'POST') {
+async function requestDraft(method: 'GET' | 'POST', password: string) {
   const response = await fetch('/api/admin/scam-of-the-day', {
     method,
     headers: {
-      'x-admin-password': getAdminPassword(),
+      'x-admin-password': password,
     },
     cache: 'no-store',
   })
@@ -108,12 +98,12 @@ async function requestDraft(method: 'GET' | 'POST') {
   return payload.draft
 }
 
-async function updateDraftStatus(slug: string, status: ScamOfTheDayStatus) {
+async function updateDraftStatus(slug: string, status: ScamOfTheDayStatus, password: string) {
   const response = await fetch('/api/admin/scam-of-the-day', {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      'x-admin-password': getAdminPassword(),
+      'x-admin-password': password,
     },
     body: JSON.stringify({ slug, status }),
   })
@@ -161,6 +151,25 @@ function ApprovalActions({
 }
 
 export default function AdminScamOfTheDayPage() {
+  return (
+    <AdminMetricsGate
+      title="Scam of the Day Draft"
+      description="Generate one private daily scam-pattern draft from recent DAM claim logs. This workflow never publishes automatically."
+      showPageIntro
+      render={(_, adminState) => (
+        <ScamOfTheDayDraftPanel password={adminState.password} onUnauthorized={adminState.logout} />
+      )}
+    />
+  )
+}
+
+function ScamOfTheDayDraftPanel({
+  password,
+  onUnauthorized,
+}: {
+  password: string
+  onUnauthorized: () => void
+}) {
   const [draft, setDraft] = useState<ScamOfTheDayDraft | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -168,47 +177,85 @@ export default function AdminScamOfTheDayPage() {
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
+    if (!password) {
+      return
+    }
+
     startTransition(() => {
       void (async () => {
         try {
-          const latestDraft = await requestDraft('GET')
+          const latestDraft = await requestDraft('GET', password)
           setDraft(latestDraft)
         } catch (loadError) {
-          setError(loadError instanceof Error ? loadError.message : 'Unable to load latest draft.')
+          const message =
+            loadError instanceof Error ? loadError.message : 'Unable to load latest draft.'
+
+          if (message === 'Invalid admin password.') {
+            onUnauthorized()
+            return
+          }
+
+          setError(message)
         } finally {
           setLoading(false)
         }
       })()
     })
-  }, [])
+  }, [onUnauthorized, password])
 
   async function handleGenerate() {
+    if (!password) {
+      setError('Admin session is missing. Re-open the admin dashboard and authenticate again.')
+      return
+    }
+
     setBusy(true)
     setError('')
     setNotice('')
 
     try {
-      const nextDraft = await requestDraft('POST')
+      const nextDraft = await requestDraft('POST', password)
       setDraft(nextDraft)
       setNotice('Draft generated and saved with default status `draft`.')
     } catch (generateError) {
-      setError(generateError instanceof Error ? generateError.message : 'Unable to generate draft.')
+      const message =
+        generateError instanceof Error ? generateError.message : 'Unable to generate draft.'
+
+      if (message === 'Invalid admin password.') {
+        onUnauthorized()
+        return
+      }
+
+      setError(message)
     } finally {
       setBusy(false)
     }
   }
 
   async function handleRefresh() {
+    if (!password) {
+      setError('Admin session is missing. Re-open the admin dashboard and authenticate again.')
+      return
+    }
+
     setBusy(true)
     setError('')
     setNotice('')
 
     try {
-      const nextDraft = await requestDraft('GET')
+      const nextDraft = await requestDraft('GET', password)
       setDraft(nextDraft)
       setNotice(nextDraft ? 'Latest draft reloaded.' : 'No draft has been generated yet.')
     } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : 'Unable to reload draft.')
+      const message =
+        refreshError instanceof Error ? refreshError.message : 'Unable to reload draft.'
+
+      if (message === 'Invalid admin password.') {
+        onUnauthorized()
+        return
+      }
+
+      setError(message)
     } finally {
       setBusy(false)
     }
@@ -231,7 +278,8 @@ export default function AdminScamOfTheDayPage() {
   }
 
   async function handleStatusChange(status: ScamOfTheDayStatus) {
-    if (!draft) {
+    if (!draft || !password) {
+      setError('Admin session is missing. Re-open the admin dashboard and authenticate again.')
       return
     }
 
@@ -240,126 +288,132 @@ export default function AdminScamOfTheDayPage() {
     setNotice('')
 
     try {
-      const updatedDraft = await updateDraftStatus(draft.slug, status)
+      const updatedDraft = await updateDraftStatus(draft.slug, status, password)
       setDraft(updatedDraft)
       setNotice(`Internal state updated to \`${status}\`. Manual publish is still required.`)
     } catch (statusError) {
-      setError(statusError instanceof Error ? statusError.message : 'Unable to update draft status.')
+      const message =
+        statusError instanceof Error ? statusError.message : 'Unable to update draft status.'
+
+      if (message === 'Invalid admin password.') {
+        onUnauthorized()
+        return
+      }
+
+      setError(message)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <AdminMetricsGate
-      title="Scam of the Day Draft"
-      description="Generate one private daily scam-pattern draft from recent DAM claim logs. This workflow never publishes automatically."
-      showPageIntro
-      render={() => (
-        <div style={gridStyle}>
-          <SectionHeading
-            id="scam-of-the-day"
-            eyebrow="Editorial workflow"
-            title="Scam of the Day Draft"
-            description="Claims are used as pattern signals only. Public context must come from reputable sources, and publication remains manual."
-          />
+    <div style={gridStyle}>
+      <SectionHeading
+        id="scam-of-the-day"
+        eyebrow="Editorial workflow"
+        title="Scam of the Day Draft"
+        description="Claims are used as pattern signals only. Public context must come from reputable sources, and publication remains manual."
+      />
 
-          <div className="dam-admin-alert dam-admin-alert--warning">
-            Manual publish only. Internal approval changes draft state, but nothing here publishes, emails, or posts anywhere.
-          </div>
+      <div className="dam-admin-alert dam-admin-alert--warning">
+        Manual publish only. Internal approval changes draft state, but nothing here publishes, emails, or posts anywhere.
+      </div>
 
-          <div style={buttonRowStyle}>
-            <button type="button" style={buttonStyle} disabled={busy} onClick={handleGenerate}>
-              {busy ? 'Working...' : "Generate today's draft"}
-            </button>
-            <button type="button" style={buttonStyle} disabled={busy} onClick={handleRefresh}>
-              {busy ? 'Working...' : 'Refresh latest draft'}
-            </button>
-            <button type="button" style={buttonStyle} disabled={busy || !draft} onClick={handleCopy}>
-              Copy draft
-            </button>
-          </div>
+      <div style={buttonRowStyle}>
+        <button type="button" style={buttonStyle} disabled={busy} onClick={handleGenerate}>
+          {busy ? 'Working...' : "Generate today's draft"}
+        </button>
+        <button type="button" style={buttonStyle} disabled={busy} onClick={handleRefresh}>
+          {busy ? 'Working...' : 'Refresh latest draft'}
+        </button>
+        <button type="button" style={buttonStyle} disabled={busy || !draft} onClick={handleCopy}>
+          Copy draft
+        </button>
+      </div>
 
-          {error ? <div className="dam-admin-alert">{error}</div> : null}
-          {notice ? <div className="dam-admin-alert dam-admin-alert--warning">{notice}</div> : null}
-
-          <div style={metricsGridStyle}>
-            <MetricCard
-              label="Approval state"
-              value={draft?.status ?? 'draft'}
-              note="Default is draft. Approval is internal only."
-              emphasize={draft?.status === 'rejected'}
-            />
-            <MetricCard
-              label="Candidate pattern"
-              value={draft?.patternName ?? (loading ? 'Loading...' : 'No draft yet')}
-              note="Chosen from recent clustered claim signals."
-            />
-            <MetricCard
-              label="Recent claims used"
-              value={draft ? String(draft.claimCount) : '0'}
-              note="Recent claim rows that matched the selected pattern."
-            />
-            <MetricCard
-              label="Source check"
-              value={draft?.sourceCheckStatus ?? 'incomplete'}
-              note={draft?.sourceCheckMessage ?? 'At least two reputable sources are required before publish.'}
-              emphasize={draft?.sourceCheckStatus !== 'complete'}
-            />
-          </div>
-
-          {draft ? (
-            <>
-              <SummaryList
-                title="Draft status"
-                description="Internal approval gate only. Publishing must still be handled manually outside this workflow."
-              >
-                <p style={helperStyle}>Stored at: {draft.storagePath}</p>
-                <p style={helperStyle}>Generated: {formatDateTime(draft.generatedAt)}</p>
-                <p style={helperStyle}>Updated: {formatDateTime(draft.updatedAt)}</p>
-                <p style={warningStyle}>{draft.sourceCheckMessage ?? 'Source check complete enough for internal review.'}</p>
-                <ApprovalActions busy={busy} onStatusChange={handleStatusChange} />
-              </SummaryList>
-
-              <SummaryList
-                title="Source summary"
-                description="Official and reputable source support used for context only. Logged claims do not prove the public claim."
-              >
-                {draft.sources.length ? (
-                  <ul style={{ margin: 0, paddingLeft: 18 }}>
-                    {draft.sources.map((source) => (
-                      <li key={source.url}>
-                        <a href={source.url} target="_blank" rel="noreferrer">
-                          {source.name}
-                        </a>{' '}
-                        - {source.support}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p style={warningStyle}>Source check incomplete — do not publish yet.</p>
-                )}
-              </SummaryList>
-
-              <SummaryList
-                title="Generated draft"
-                description="Exact fixed editorial template, saved as markdown draft content only."
-              >
-                <pre style={bodyStyle}>{draft.body}</pre>
-              </SummaryList>
-            </>
-          ) : (
-            <SummaryList
-              title="No draft yet"
-              description="Generate today's draft to scan recent claim clusters, redact sensitive details, and save a private markdown draft."
-            >
-              <p style={helperStyle}>
-                The generator only produces draft content and starts every file in the `draft` state.
-              </p>
-            </SummaryList>
-          )}
+      {!password ? (
+        <div className="dam-admin-alert">
+          Admin session is missing. Re-open the admin dashboard and authenticate again.
         </div>
+      ) : null}
+      {error ? <div className="dam-admin-alert">{error}</div> : null}
+      {notice ? <div className="dam-admin-alert dam-admin-alert--warning">{notice}</div> : null}
+
+      <div style={metricsGridStyle}>
+        <MetricCard
+          label="Approval state"
+          value={draft?.status ?? 'draft'}
+          note="Default is draft. Approval is internal only."
+          emphasize={draft?.status === 'rejected'}
+        />
+        <MetricCard
+          label="Candidate pattern"
+          value={draft?.patternName ?? (password && loading ? 'Loading...' : 'No draft yet')}
+          note="Chosen from recent clustered claim signals."
+        />
+        <MetricCard
+          label="Recent claims used"
+          value={draft ? String(draft.claimCount) : '0'}
+          note="Recent claim rows that matched the selected pattern."
+        />
+        <MetricCard
+          label="Source check"
+          value={draft?.sourceCheckStatus ?? 'incomplete'}
+          note={draft?.sourceCheckMessage ?? 'At least two reputable sources are required before publish.'}
+          emphasize={draft?.sourceCheckStatus !== 'complete'}
+        />
+      </div>
+
+      {draft ? (
+        <>
+          <SummaryList
+            title="Draft status"
+            description="Internal approval gate only. Publishing must still be handled manually outside this workflow."
+          >
+            <p style={helperStyle}>Stored at: {draft.storagePath}</p>
+            <p style={helperStyle}>Generated: {formatDateTime(draft.generatedAt)}</p>
+            <p style={helperStyle}>Updated: {formatDateTime(draft.updatedAt)}</p>
+            <p style={warningStyle}>{draft.sourceCheckMessage ?? 'Source check complete enough for internal review.'}</p>
+            <ApprovalActions busy={busy} onStatusChange={handleStatusChange} />
+          </SummaryList>
+
+          <SummaryList
+            title="Source summary"
+            description="Official and reputable source support used for context only. Logged claims do not prove the public claim."
+          >
+            {draft.sources.length ? (
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {draft.sources.map((source) => (
+                  <li key={source.url}>
+                    <a href={source.url} target="_blank" rel="noreferrer">
+                      {source.name}
+                    </a>{' '}
+                    - {source.support}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={warningStyle}>Source check incomplete — do not publish yet.</p>
+            )}
+          </SummaryList>
+
+          <SummaryList
+            title="Generated draft"
+            description="Exact fixed editorial template, saved as markdown draft content only."
+          >
+            <pre style={bodyStyle}>{draft.body}</pre>
+          </SummaryList>
+        </>
+      ) : (
+        <SummaryList
+          title="No draft yet"
+          description="Generate today's draft to scan recent claim clusters, redact sensitive details, and save a private markdown draft."
+        >
+          <p style={helperStyle}>
+            The generator only produces draft content and starts every file in the `draft` state.
+          </p>
+        </SummaryList>
       )}
-    />
+    </div>
   )
 }

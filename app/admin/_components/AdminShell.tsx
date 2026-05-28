@@ -30,6 +30,7 @@ type DashboardState = {
 type AdminMetricsGateRenderState = {
   isRefreshing: boolean
   errorMessage: string
+  password: string
   logout: () => void
   refresh: () => void
 }
@@ -785,6 +786,7 @@ export function AdminMetricsGate({
         {render(metrics, {
           isRefreshing: state.status === 'loading',
           errorMessage: state.errorMessage,
+          password: state.password,
           logout: handleLogout,
           refresh: () =>
             void loadMetrics(state.password, {
