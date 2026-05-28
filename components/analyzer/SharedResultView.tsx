@@ -15,6 +15,8 @@ import {
 } from './analyzerData'
 
 type SharedResultViewProps = {
+  claim: string
+  error: string
   loading: boolean
   loadingStage: number
   reportMeta: ReportMeta | null
@@ -66,7 +68,74 @@ const mobileAccordionPanelStyle = {
     'opacity 180ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1), padding 240ms cubic-bezier(0.22, 1, 0.36, 1)',
 } as const
 
+function formatSummarySection(title: string, items: string[]) {
+  if (!items.length) {
+    return ''
+  }
+
+  return `${title}:\n${items.map((item) => `- ${item}`).join('\n')}`
+}
+
+function buildResultSummary({
+  claim,
+  analysis,
+  reportMeta,
+  displayScope,
+}: {
+  claim: string
+  analysis: Analysis
+  reportMeta: ReportMeta | null
+  displayScope: string
+}) {
+  const headerLines = [
+    'DAM Result Summary',
+    '',
+    `Claim: ${claim || 'Not captured'}`,
+    `Verdict: ${analysis.verdict}`,
+    `Operational headline: ${getOperationalHeadline(analysis)}`,
+    `Distribution risk: ${analysis.risk}`,
+    `Confidence: ${analysis.confidence.score}% (${analysis.confidence.label})`,
+    `Evidence scope: ${displayScope}`,
+    `Sources reviewed: ${analysis.corroborationLevel.sourceCount}`,
+    `High-credibility sources: ${analysis.corroborationLevel.highCredibilityCount}`,
+    `Contradiction level: ${analysis.contradictions.level}`,
+    `Trace ID: ${reportMeta?.traceId ?? 'Unavailable'}`,
+    `Retrieved: ${reportMeta?.timestamp ?? analysis.retrievedAt ?? 'Unavailable'}`,
+    '',
+    `Recommended action: ${analysis.operationalGuidance.action}`,
+    `Distribution guidance: ${analysis.operationalGuidance.distribution}`,
+    `Escalation: ${analysis.operationalGuidance.escalation}`,
+    '',
+    `Reasoning: ${analysis.reasoning}`,
+  ]
+
+  return [
+    ...headerLines,
+    formatSummarySection('Confidence drivers', analysis.confidence.drivers),
+    formatSummarySection(
+      'Corroboration indicators',
+      analysis.corroborationLevel.indicators
+    ),
+    formatSummarySection('Next steps', analysis.operationalGuidance.nextSteps),
+    formatSummarySection(
+      'Evidence citations',
+      analysis.evidence.map(
+        (item) => `[${item.id}] ${item.domain} | ${item.title} | ${item.url || 'No URL provided'}`
+      )
+    ),
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function buildSummaryFilename(traceId: string | undefined) {
+  const safeTraceId = (traceId || 'summary').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()
+  return `dam-result-${safeTraceId}.txt`
+}
+
 export default function SharedResultView({
+  claim,
+  error,
   loading,
   loadingStage,
   reportMeta,
@@ -89,12 +158,168 @@ export default function SharedResultView({
     details: false,
     signals: false,
   })
+  const [actionMessage, setActionMessage] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [actionScope, setActionScope] = useState('')
+  const currentActionScope = analysis ? `${reportMeta?.traceId ?? 'no-trace'}:${claim.trim()}` : ''
 
   function toggleMobileAccordion(key: MobileAccordionKey) {
     setMobileAccordions((current) => ({
       ...current,
       [key]: !current[key],
     }))
+  }
+
+  function fallbackCopySummary(summary: string) {
+    const textarea = document.createElement('textarea')
+    textarea.value = summary
+    textarea.setAttribute('readonly', 'true')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    textarea.style.pointerEvents = 'none'
+    document.body.appendChild(textarea)
+    textarea.select()
+    textarea.setSelectionRange(0, textarea.value.length)
+
+    const copied = document.execCommand('copy')
+    textarea.remove()
+
+    if (!copied) {
+      throw new Error('Copy failed')
+    }
+  }
+
+  async function copySummary(summary: string) {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(summary)
+      } else {
+        fallbackCopySummary(summary)
+      }
+
+      setActionScope(currentActionScope)
+      setActionError('')
+      setActionMessage('Summary copied.')
+    } catch {
+      setActionScope(currentActionScope)
+      setActionMessage('')
+      setActionError('Copy failed. Try the TXT download instead.')
+    }
+  }
+
+  async function handleShare(summary: string) {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({
+          title: 'DAM result summary',
+          text: summary,
+        })
+        setActionScope(currentActionScope)
+        setActionError('')
+        setActionMessage('Summary shared.')
+        return
+      }
+
+      await copySummary(summary)
+    } catch (shareError) {
+      if (shareError instanceof DOMException && shareError.name === 'AbortError') {
+        return
+      }
+
+      setActionScope(currentActionScope)
+      setActionMessage('')
+      setActionError('Share failed. Copy the summary instead.')
+    }
+  }
+
+  function handleDownload(summary: string, traceId?: string) {
+    const blob = new Blob([summary], { type: 'text/plain;charset=utf-8' })
+    const downloadUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+
+    anchor.href = downloadUrl
+    anchor.download = buildSummaryFilename(traceId)
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(downloadUrl)
+
+    setActionScope(currentActionScope)
+    setActionError('')
+    setActionMessage('TXT summary downloaded.')
+  }
+
+  function renderSummaryActions(stateLabel: string, summary?: string) {
+    const controlsDisabled = !summary
+    const shouldShowActionFeedback = currentActionScope !== '' && actionScope === currentActionScope
+    const statusMessage = shouldShowActionFeedback
+      ? actionError || actionMessage || stateLabel
+      : stateLabel
+
+    return (
+      <div className="report-share-panel" aria-label="Share and download result">
+        <div className="report-share-panel__copy">
+          <h3>Share or Save</h3>
+          <p>
+            Copy, share, or download a plain-text summary with the claim, verdict,
+            confidence, trace metadata, guidance, and evidence citations.
+          </p>
+        </div>
+        <div className="report-share-panel__actions">
+          <button
+            type="button"
+            className="report-action-button"
+            disabled={controlsDisabled}
+            onClick={() => {
+              if (!summary) {
+                return
+              }
+
+              void copySummary(summary)
+            }}
+          >
+            Copy summary
+          </button>
+          <button
+            type="button"
+            className="report-action-button"
+            disabled={controlsDisabled}
+            onClick={() => {
+              if (!summary) {
+                return
+              }
+
+              void handleShare(summary)
+            }}
+          >
+            Share summary
+          </button>
+          <button
+            type="button"
+            className="report-action-button"
+            disabled={controlsDisabled}
+            onClick={() => {
+              if (!summary) {
+                return
+              }
+
+              handleDownload(summary, reportMeta?.traceId)
+            }}
+          >
+            Download TXT
+          </button>
+        </div>
+        <p
+          className={
+            shouldShowActionFeedback && actionError
+              ? 'report-share-panel__status is-error'
+              : 'report-share-panel__status'
+          }
+        >
+          {statusMessage}
+        </p>
+      </div>
+    )
   }
 
   function renderMobileAccordion(
@@ -201,12 +426,19 @@ export default function SharedResultView({
               Processing
             </span>
           </div>
+          {renderSummaryActions('Summary actions unlock after the analysis finishes.')}
           {loadingMetaContent}
           {loadingStageContent}
         </section>
       )
     }
   } else if (analysis) {
+    const resultSummary = buildResultSummary({
+      claim: claim.trim(),
+      analysis: activeAnalysis,
+      reportMeta,
+      displayScope,
+    })
     const signalsSection = (
       <div className="report-section">
         <h3>Evidence Signals</h3>
@@ -468,6 +700,8 @@ export default function SharedResultView({
           </div>
         </div>
 
+        {renderSummaryActions('Summary ready to copy, share, or download.', resultSummary)}
+
         {!isMobile ? (
           <>
             {reasoningSection}
@@ -502,6 +736,21 @@ export default function SharedResultView({
         {!isMobile ? nextStepsCredibilitySection : null}
       </section>
     )
+  } else if (error) {
+    content = (
+      <section className="report-card empty-report">
+        <div className="panel-topline">
+          <p>Intelligence Briefing</p>
+          <span className="status-badge muted">Analysis error</span>
+        </div>
+        {renderSummaryActions('No summary available because the analysis did not complete.')}
+        <div className="empty-state">
+          <span aria-hidden="true" />
+          <h3>Briefing unavailable.</h3>
+          <p>{error}</p>
+        </div>
+      </section>
+    )
   } else if (!loading) {
     content = (
       <section className="report-card empty-report">
@@ -509,6 +758,7 @@ export default function SharedResultView({
           <p>Intelligence Briefing</p>
           <span className="status-badge muted">Awaiting claim</span>
         </div>
+        {renderSummaryActions('Run a claim to enable copy, share, and TXT download.')}
         <div className="empty-system-grid">
           <div>
             <span>Trace ID</span>

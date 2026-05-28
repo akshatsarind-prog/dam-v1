@@ -797,6 +797,73 @@ a {
   padding: 18px;
 }
 
+.report-share-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: #0c0c0e;
+}
+
+.report-share-panel__copy h3 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.report-share-panel__copy p,
+.report-share-panel__status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.report-share-panel__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.report-action-button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: #080809;
+  color: var(--text);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 820;
+  cursor: pointer;
+  transition: border-color 180ms ease, background-color 180ms ease, opacity 180ms ease;
+}
+
+.report-action-button:hover:not(:disabled) {
+  border-color: rgba(214, 38, 38, 0.42);
+  background: rgba(214, 38, 38, 0.08);
+}
+
+.report-action-button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.report-action-button:focus-visible {
+  outline: 2px solid rgba(214, 38, 38, 0.62);
+  outline-offset: 2px;
+}
+
+.report-share-panel__status.is-error {
+  color: #ff9a9a;
+}
+
 .report-ready {
   animation: reportFade 240ms ease-out both;
 }
@@ -1952,6 +2019,15 @@ a {
 
   .primary-link,
   .check-button {
+    width: 100%;
+  }
+
+  .report-share-panel__actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .report-action-button {
     width: 100%;
   }
 

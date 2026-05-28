@@ -659,6 +659,8 @@ export default function SharedAnalyzerLayout({
               belowTextareaContent={
                 isMobile && loading ? (
                   <SharedResultView
+                    claim={claim}
+                    error={error}
                     loading={loading}
                     loadingStage={loadingStage}
                     reportMeta={reportMeta}
@@ -678,6 +680,8 @@ export default function SharedAnalyzerLayout({
               afterFooterContent={
                 isMobile && loading ? (
                   <SharedResultView
+                    claim={claim}
+                    error={error}
                     loading={loading}
                     loadingStage={loadingStage}
                     reportMeta={reportMeta}
@@ -698,6 +702,8 @@ export default function SharedAnalyzerLayout({
           </div>
           <div ref={resultPanelRef} style={isMobile ? mobileResultWrapStyle : undefined}>
             <SharedResultView
+              claim={claim}
+              error={error}
               loading={loading}
               loadingStage={loadingStage}
               reportMeta={reportMeta}

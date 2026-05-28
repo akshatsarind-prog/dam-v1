@@ -1001,15 +1001,12 @@ function getCurrentOfficeHolderEvidenceMetrics(
 type CurrentOfficeHolderSupportSignal = {
   directSupport: boolean
   officialSourceCount: number
-  supportingSourceIds: string[]
   reason: string
 }
 
 type CurrentOfficeHolderSupportEvidence = {
   id?: string
   title?: string
-  content?: string
-  rawContent?: string
   excerpt?: string
   domain: string
   credibility: CredibilityLabel
@@ -1029,7 +1026,6 @@ function getCurrentOfficeHolderSupportSignal(
     return {
       directSupport: false,
       officialSourceCount: 0,
-      supportingSourceIds: [],
       reason: '',
     }
   }
@@ -1043,7 +1039,6 @@ function getCurrentOfficeHolderSupportSignal(
     return {
       directSupport: false,
       officialSourceCount: 0,
-      supportingSourceIds: [],
       reason: '',
     }
   }
@@ -1127,10 +1122,6 @@ function getCurrentOfficeHolderSupportSignal(
   return {
     directSupport: supportingSources.length > 0,
     officialSourceCount: supportingSources.length,
-    supportingSourceIds: supportingSources
-      .slice(0, 3)
-      .map((item) => item.id)
-      .filter((id): id is string => Boolean(id)),
     reason: supportingSources.length
       ? 'Retrieved official current-office sources directly support the claim.'
       : '',
@@ -7688,6 +7679,28 @@ function applyPass4FinalConsistencyGuard<T extends Analysis>(
 
   const misleadingStatisticTrap = hasMisleadingStatisticTrap(context.claim, context.claimCategory)
 
+  function hasConflictingCurrentOfficeHolderSupportText(value: string) {
+    const normalized = normalizeStableFactText(value)
+
+    return (
+      /retrieved evidence conflicts with established factual records/.test(normalized) ||
+      /direct stable[-\s]fact support is absent/.test(normalized) ||
+      /direct contradiction detected/.test(normalized) ||
+      /evidence remains insufficient for confirmation/.test(normalized) ||
+      /do not distribute as verified/.test(normalized) ||
+      /does not provide direct support|do not provide direct support/.test(normalized) ||
+      /official current office source (?:was not found|missing)/.test(normalized) ||
+      /retrieved current office sources do not yet provide direct support/.test(normalized) ||
+      /weak retrieval/.test(normalized)
+    )
+  }
+
+  function sanitizeCurrentOfficeHolderSupportList(values: string[]) {
+    return Array.from(
+      new Set(values.filter((value) => !hasConflictingCurrentOfficeHolderSupportText(value)))
+    )
+  }
+
   if (
     currentOfficeHolder &&
     currentOfficeHolderSupport?.directSupport &&
@@ -7697,6 +7710,10 @@ function applyPass4FinalConsistencyGuard<T extends Analysis>(
     const confidenceScore = Math.max(readNumber(final.confidence.score, 0), 82)
     const officialSourceCount = currentOfficeHolderSupport.officialSourceCount
     const usableEvidenceCount = final.evidence?.length ?? 0
+    const sanitizedDrivers = sanitizeCurrentOfficeHolderSupportList(final.confidence.drivers ?? [])
+    const sanitizedIndicators = sanitizeCurrentOfficeHolderSupportList(
+      final.corroborationLevel?.indicators ?? []
+    )
 
     final = {
       ...final,
@@ -7713,7 +7730,7 @@ function applyPass4FinalConsistencyGuard<T extends Analysis>(
         rationale: supportReason,
         drivers: Array.from(
           new Set([
-            ...(final.confidence.drivers ?? []),
+            ...sanitizedDrivers,
             'Direct official current-office support detected.',
           ])
         ),
@@ -7732,7 +7749,7 @@ function applyPass4FinalConsistencyGuard<T extends Analysis>(
         highCredibilityCount: officialSourceCount,
         indicators: Array.from(
           new Set([
-            ...(final.corroborationLevel?.indicators ?? []),
+            ...sanitizedIndicators,
             'Direct official current-office support detected.',
           ])
         ),
@@ -7750,6 +7767,15 @@ function applyPass4FinalConsistencyGuard<T extends Analysis>(
         items: [],
       },
       contradictionSummary: 'No direct contradiction was identified in retrieved evidence.',
+      operationalGuidance: {
+        ...final.operationalGuidance,
+        action: 'Evidence supports this claim.',
+        distribution: 'May be distributed as verified with the cited official current-office sources.',
+        escalation: 'No escalation is required unless newer authoritative reporting creates a contradiction.',
+        nextSteps: [
+          'Keep the cited official current-office sources attached if sharing this result.',
+        ],
+      },
     }
   }
 
@@ -9742,3 +9768,5 @@ export async function POST(request: Request) {
     }
   }
 }
+
+

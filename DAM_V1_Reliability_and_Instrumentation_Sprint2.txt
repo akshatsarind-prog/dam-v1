@@ -1,0 +1,142 @@
+DAM V1 Reliability + Instrumentation Sprint
+
+Outcome
+
+DAM V1 was built, deployed, benchmarked, and instrumented as a retrieval-backed claim analysis system for checking risky messages before users trust, forward, click, or act on them.
+
+Over this sprint, DAM moved from a live reliability prototype into an instrumented private-beta system with real behavioral usage.
+
+The core product behavior I am trying to create is simple:
+
+before I click,
+before I forward,
+before I trust,
+before I act,
+I check DAM.
+
+What Was Built
+
+- Live DAM V1 product
+- Retrieval-backed evidence pipeline
+- Source credibility ranking
+- Structured verdict output
+- Contradiction handling
+- Confidence calibration
+- Deterministic response normalization
+- Timeout and fallback safeguards
+- Claim logging
+- Session telemetry
+- Returning-session tracking
+- Email capture
+- Source attribution foundations
+- Category intelligence
+- Admin analytics dashboard
+- Downloadable internal report
+
+Reliability Work
+
+I personally tested 1000+ claims across:
+
+- misinformation
+- scams
+- health claims
+- manipulated statistics
+- fake quotes
+- breaking-news-style claims
+- civic/political rumors
+- government-style claims
+- adversarial prompts
+
+Latest 300-claim benchmark:
+
+- 0 bad verdicts
+- 0 overconfidence cases
+- 0 major hallucinations
+- 0 false stable-fact corroborations
+- 299/300 adjusted contradiction consistency
+- ~5.1s average benchmark latency
+- 100% API success rate
+
+The core reliability objective was to make DAM fail conservatively instead of confidently. In a trust system, a cautious answer is much better than a confident false one.
+
+Execution Loop
+
+Thought retrieval-backed verification was the missing layer → executed live evidence retrieval, source ranking, and contradiction handling → got major hallucinations and dangerous confident outputs down to 0.
+
+Thought misinformation products fail on trust calibration, not just UI → executed confidence caps, stable-fact routing, and operational uncertainty handling → got overconfidence cases down from 7 to 0.
+
+Thought speed mattered more than long explanations → simplified the runtime into a fast single-pass retrieval + reasoning pipeline → got stable benchmark latency around ~5–6 seconds.
+
+Thought product learning required real telemetry → added claim/session logging, returning-session tracking, source attribution foundations, email capture, category intelligence, and an internal admin dashboard.
+
+Thought DAM needed to learn from real users, not just synthetic tests → built the logging and admin layer so every real claim can become a future benchmark candidate or product-learning signal after review.
+
+Current Usage
+
+Current product telemetry:
+
+- 195 claims tested
+- 389 tracked sessions
+- 343 Supabase page-view events
+- 129 returning sessions
+- 33.2% returning session rate
+- 50.1% app-session → claim-submission rate
+- 2 email captures
+- 5.83s average latency
+- 7.81s P95 latency
+- 0 zero-source claims
+
+Vercel Analytics measures external traffic and page views.
+Supabase/admin telemetry measures product behavior inside DAM.
+
+The strongest current signal is repeat behavior. DAM is no longer only getting one-off curiosity; a meaningful subset of sessions are returning and testing claims.
+
+The biggest current weakness is still post-verdict conversion. Users are willing to test claims, but email/signup conversion is still weak, so the next focus is improving retention, re-engagement, and trust after value is delivered.
+
+Category Intelligence
+
+Current claim-category mix:
+
+- Other: 82 claims
+- Statistics: 54 claims
+- Political: 33 claims
+- Scam: 17 claims
+- Government: 6 claims
+- Health: 3 claims
+
+The category data is still early and imperfect. The “Other” bucket is too high, so I am refining analytics-only categorization without changing the analyzer behavior.
+
+The strongest early wedge still appears to be scam/KYC/bank/government-style risk messages, because users have immediate uncertainty and real downside before acting.
+
+Key Insight
+
+DAM is not just a generic fact-checking tool.
+
+The stronger behavior is operational:
+
+before I click,
+before I forward,
+before I trust,
+before I act.
+
+That shifts DAM from “AI fact checker” toward an operational trust layer for risky online information.
+
+Current Status
+
+DAM V1 is live and in controlled private beta.
+
+Current focus:
+
+- increase repeat claim submissions
+- improve email/signup conversion
+- improve attribution coverage through tracked links
+- identify which claim categories create strongest repeat behavior
+- reduce “Other” category overload in analytics
+- turn DAM from an interesting tool into a habitual check-before-acting layer for scams and risky information
+
+Product:
+https://app.usedam.com/
+
+Landing page:
+https://usedam.com/
+

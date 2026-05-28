@@ -4,14 +4,14 @@ title: "Scam of the Day: Fake bank KYC update link"
 status: "draft"
 patternName: "Fake bank KYC update link"
 patternKey: "bank-kyc-link"
-sourceCheckStatus: "incomplete"
-sourceCheckMessage: "Source check incomplete — do not publish yet."
-sourceCount: 0
+sourceCheckStatus: "complete"
+sourceCheckMessage: ""
+sourceCount: 3
 claimCount: 8
 sessionCount: 8
-generatedAt: "2026-05-28T06:19:56.133Z"
-updatedAt: "2026-05-28T06:19:56.133Z"
-sourcesJson: "[]"
+generatedAt: "2026-05-28T06:34:25.720Z"
+updatedAt: "2026-05-28T06:34:25.720Z"
+sourcesJson: "[{\"name\":\"FAQs on Master Direction on KYC - Reserve Bank of India\",\"url\":\"https://www.rbi.org.in/commonman/English/Scripts/FAQs.aspx?Id=3782\",\"support\":\"updated records of identity) from the customers, failing which the RE shall close the account of the customers after giving due notice. Q...\"},{\"name\":\"Cyber Security - Personal Banking - SBI Bank\",\"url\":\"https://www.sbi.co.in/web/personal-banking/cyber-security\",\"support\":\"Income TAX Refund Fraud - Cyber criminals targets bank customers through phone calls luring them to receive Income Tax refunds and are th...\"},{\"name\":\"Reserve Bank of India\",\"url\":\"https://www.rbi.org.in/commonman/english/scripts/PressReleases.aspx?Id=2441\",\"support\":\"are illegal and any resident in India collecting and effecting/remitting such payments directly/indirectly outside India is liable to be...\"}]"
 ---
 
 Title:
@@ -36,7 +36,9 @@ What DAM observed:
 In the last 7 days, DAM logged 8 recent claims across 8 sessions that matched this scam pattern. Related sessions also produced 117 tracked events, which suggests repeated user interaction around the same pattern. Common non-sensitive cues included bank, kyc. Redacted examples included "Your bank account will be blocked tonight unless KYC is updated immediately" and "Your bank account will be blocked tonight unless KYC is updated immediately.". These repeated submissions indicate a user-reported pattern only; they do not confirm the underlying claim as true on their own.
 
 Reputable source check:
-- Source check incomplete — do not publish yet.
+- FAQs on Master Direction on KYC - Reserve Bank of India — updated records of identity) from the customers, failing which the RE shall close the account of the customers after giving due notice. Q...
+- Cyber Security - Personal Banking - SBI Bank — Income TAX Refund Fraud - Cyber criminals targets bank customers through phone calls luring them to receive Income Tax refunds and are th...
+- Reserve Bank of India — are illegal and any resident in India collecting and effecting/remitting such payments directly/indirectly outside India is liable to be...
 
 What users should do:
 - Do not click unknown links.
