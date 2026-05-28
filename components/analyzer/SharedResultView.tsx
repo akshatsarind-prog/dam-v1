@@ -13,6 +13,8 @@ import {
   processingStages,
   riskStyles,
 } from './analyzerData'
+import ResultCommandCenter from './result-v2/ResultCommandCenter'
+import { adaptResultToV2ViewModel } from './result-v2/resultV2Adapter'
 
 type SharedResultViewProps = {
   claim: string
@@ -34,6 +36,8 @@ type SharedResultViewProps = {
 }
 
 type MobileAccordionKey = 'sources' | 'evidence' | 'details' | 'signals'
+
+const ENABLE_RESULT_V2 = true
 
 const mobileAccordionButtonStyle = {
   width: '100%',
@@ -376,7 +380,7 @@ export default function SharedResultView({
 
   if (loading && !suppressLoadingState) {
     const loadingMetaContent = (
-      <div className="report-meta-strip" aria-label="Analysis trace metadata">
+      <div className="report-meta-strip report-meta-strip--loading" aria-label="Analysis trace metadata">
         <div>
           <span>Trace ID</span>
           <strong>{reportMeta?.traceId ?? 'DAM-PENDING'}</strong>
@@ -421,7 +425,7 @@ export default function SharedResultView({
         <section className="report-card loading-card" aria-label="Analysis in progress">
           <div className="panel-topline">
             <p>Intelligence Briefing</p>
-            <span className="status-badge">
+            <span className="status-badge status-badge-processing">
               <span className="badge-spinner" aria-hidden="true" />
               Processing
             </span>
@@ -435,6 +439,12 @@ export default function SharedResultView({
   } else if (analysis) {
     const resultSummary = buildResultSummary({
       claim: claim.trim(),
+      analysis: activeAnalysis,
+      reportMeta,
+      displayScope,
+    })
+    const resultV2ViewModel = adaptResultToV2ViewModel({
+      claim,
       analysis: activeAnalysis,
       reportMeta,
       displayScope,
@@ -622,7 +632,33 @@ export default function SharedResultView({
       </div>
     )
 
-    content = (
+    content = ENABLE_RESULT_V2 ? (
+      <section className="report-card report-ready">
+        <div className="panel-topline">
+          <p>Intelligence Briefing</p>
+          <span className={`badge ${getVerdictBadgeClass(activeAnalysis.verdict)}`}>
+            {activeAnalysis.verdict}
+          </span>
+        </div>
+        <ResultCommandCenter
+          claim={claim}
+          analysis={activeAnalysis}
+          mode={mode}
+          viewModel={resultV2ViewModel}
+          actionStatus={currentActionScope !== '' && actionScope === currentActionScope ? actionMessage : ''}
+          actionError={currentActionScope !== '' && actionScope === currentActionScope ? actionError : ''}
+          onCopySummary={(summary) => {
+            void copySummary(summary)
+          }}
+          onShareSummary={(summary) => {
+            void handleShare(summary)
+          }}
+          onDownloadSummary={(summary) => {
+            handleDownload(summary, reportMeta?.traceId)
+          }}
+        />
+      </section>
+    ) : (
       <section className="report-card report-ready">
         <div className="panel-topline">
           <p>Intelligence Briefing</p>
@@ -796,7 +832,7 @@ export default function SharedResultView({
   return (
     <aside className="report-panel" aria-live="polite" aria-busy={loading}>
       {content}
-      {analysis ? <BetaSignupCard /> : null}
+      {analysis && !ENABLE_RESULT_V2 ? <BetaSignupCard /> : null}
     </aside>
   )
 }
