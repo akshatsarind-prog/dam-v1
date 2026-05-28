@@ -118,18 +118,32 @@ async function updateDraftStatus(slug: string, status: ScamOfTheDayStatus, passw
 }
 
 function ApprovalActions({
+  draft,
   busy,
   onStatusChange,
 }: {
+  draft: ScamOfTheDayDraft
   busy: boolean
   onStatusChange: (status: ScamOfTheDayStatus) => void
 }) {
+  const approvalBlocked = draft.sourceCheckStatus !== 'complete' || draft.sourceCount < 2
+
   return (
     <div style={buttonRowStyle}>
       <button type="button" style={buttonStyle} disabled={busy} onClick={() => onStatusChange('needs_review')}>
         Mark needs_review
       </button>
-      <button type="button" style={buttonStyle} disabled={busy} onClick={() => onStatusChange('approved')}>
+      <button
+        type="button"
+        style={buttonStyle}
+        disabled={busy || approvalBlocked}
+        onClick={() => onStatusChange('approved')}
+        title={
+          approvalBlocked
+            ? 'At least two reputable sources and a complete source check are required before approval.'
+            : undefined
+        }
+      >
         Mark approved
       </button>
       <button type="button" style={buttonStyle} disabled={busy} onClick={() => onStatusChange('rejected')}>
@@ -370,11 +384,16 @@ function ScamOfTheDayDraftPanel({
             title="Draft status"
             description="Internal approval gate only. Publishing must still be handled manually outside this workflow."
           >
-            <p style={helperStyle}>Stored at: {draft.storagePath}</p>
+            <p style={helperStyle}>Stored in: {draft.storageLocation}</p>
             <p style={helperStyle}>Generated: {formatDateTime(draft.generatedAt)}</p>
             <p style={helperStyle}>Updated: {formatDateTime(draft.updatedAt)}</p>
             <p style={warningStyle}>{draft.sourceCheckMessage ?? 'Source check complete enough for internal review.'}</p>
-            <ApprovalActions busy={busy} onStatusChange={handleStatusChange} />
+            {draft.sourceCheckStatus !== 'complete' || draft.sourceCount < 2 ? (
+              <p style={warningStyle}>
+                Approval is blocked until at least two reputable sources are attached and the source check is complete.
+              </p>
+            ) : null}
+            <ApprovalActions draft={draft} busy={busy} onStatusChange={handleStatusChange} />
           </SummaryList>
 
           <SummaryList

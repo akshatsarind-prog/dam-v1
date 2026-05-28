@@ -17,6 +17,8 @@ export type ScamOfTheDaySource = {
 }
 
 export type ScamOfTheDayDraft = {
+  id: string
+  draftDate: string
   slug: string
   title: string
   status: ScamOfTheDayStatus
@@ -30,6 +32,6 @@ export type ScamOfTheDayDraft = {
   sessionCount: number
   generatedAt: string
   updatedAt: string
-  storagePath: string
+  storageLocation: 'supabase'
   sources: ScamOfTheDaySource[]
 }

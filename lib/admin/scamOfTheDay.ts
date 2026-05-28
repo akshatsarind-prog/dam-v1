@@ -1,25 +1,23 @@
 import 'server-only'
 
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 import { tavily } from '@tavily/core'
 import { getSupabaseAdminClient } from '@/lib/server/supabaseAdmin'
 import type {
   ScamOfTheDayDraft,
   ScamOfTheDaySource,
   ScamOfTheDayStatus,
-  ScamSourceCheckStatus,
 } from '@/lib/admin/scamOfTheDayTypes'
 import { SCAM_OF_THE_DAY_STATUSES } from '@/lib/admin/scamOfTheDayTypes'
 
 const CLAIMS_TABLE = 'dam_claim_logs'
 const EVENTS_TABLE = 'dam_events'
+const DRAFTS_TABLE = 'dam_scam_of_day_drafts'
 const RECENT_WINDOW_DAYS = 7
 const MAX_CLAIMS_TO_SCAN = 250
 const MAX_EVENTS_TO_SCAN = 500
-const DRAFTS_DIRECTORY = path.join(process.cwd(), 'drafts', 'scam-of-the-day')
 
 type EventRow = Record<string, unknown>
+type DraftRow = Record<string, unknown>
 
 type RecentClaim = {
   createdAt: string
@@ -55,27 +53,20 @@ type PatternCluster = {
   engagementEventCount: number
 }
 
-type DraftFrontmatter = {
-  slug: string
-  title: string
-  status: ScamOfTheDayStatus
-  patternName: string
-  patternKey: string
-  sourceCheckStatus: ScamSourceCheckStatus
-  sourceCheckMessage: string | null
-  sourceCount: number
-  claimCount: number
-  sessionCount: number
-  generatedAt: string
-  updatedAt: string
-  sources: ScamOfTheDaySource[]
-}
-
 type TavilySearchResult = {
   title?: string
   url?: string
   content?: string
   score?: number
+}
+
+type ScamDraftMetadata = {
+  patternKey: string
+  sourceCheckMessage: string | null
+  sources: ScamOfTheDaySource[]
+  sourceQueries: string[]
+  engagementEventCount: number
+  recentWindowDays: number
 }
 
 const PATTERN_DEFINITIONS: readonly PatternDefinition[] = [
@@ -105,7 +96,11 @@ const PATTERN_DEFINITIONS: readonly PatternDefinition[] = [
       'suspended account',
       're-kyc',
     ],
-    regexSignals: [/\bkyc\b/i, /\baccount\s+(?:blocked|frozen|suspended)\b/i, /\bverify\b.{0,24}\blink\b/i],
+    regexSignals: [
+      /\bkyc\b/i,
+      /\baccount\s+(?:blocked|frozen|suspended)\b/i,
+      /\bverify\b.{0,24}\blink\b/i,
+    ],
     preferredDomains: ['rbi.org.in', 'cybercrime.gov.in', 'sbi.co.in', 'hdfcbank.com', 'icicibank.com'],
     sourceQueries: [
       'bank kyc scam warning official',
@@ -216,6 +211,13 @@ const PATTERN_DEFINITIONS: readonly PatternDefinition[] = [
   },
 ] as const
 
+export class ScamOfTheDayApprovalError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ScamOfTheDayApprovalError'
+  }
+}
+
 function readString(value: unknown) {
   return typeof value === 'string' ? value : ''
 }
@@ -240,6 +242,10 @@ function readIsoDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
+function readNumber(value: unknown, fallback = 0) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -247,16 +253,8 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, '')
 }
 
-function escapeFrontmatterValue(value: string) {
-  return JSON.stringify(value)
-}
-
-function unescapeFrontmatterValue(value: string) {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
+function getDraftDate(value: Date) {
+  return value.toISOString().slice(0, 10)
 }
 
 function clampText(value: string, limit: number) {
@@ -281,7 +279,7 @@ function redactSensitiveText(value: string) {
     .replace(/\bhttps?:\/\/\S+\b/gi, '[redacted link]')
     .replace(/\bwww\.\S+\b/gi, '[redacted link]')
     .replace(/\b(?:address|addr)\b[:\s-]*[^,.;]{6,}/gi, '[redacted address]')
-}
+  }
 
 function sanitizeObservationSnippet(value: string) {
   const redacted = redactSensitiveText(value)
@@ -394,14 +392,14 @@ function buildSourceCheck(sources: ScamOfTheDaySource[]) {
     return {
       status: 'complete' as const,
       message: null,
-      lines: sources.map((source) => `- ${source.name} — ${source.support}`),
+      lines: sources.map((source) => `- ${source.name} \u2014 ${source.support}`),
     }
   }
 
   return {
     status: 'incomplete' as const,
-    message: 'Source check incomplete — do not publish yet.',
-    lines: ['- Source check incomplete — do not publish yet.'],
+    message: 'Source check incomplete \u2014 do not publish yet.',
+    lines: ['- Source check incomplete \u2014 do not publish yet.'],
   }
 }
 
@@ -417,7 +415,7 @@ function buildDraftBody(input: {
     input.title,
     '',
     'Status:',
-    'Draft only — requires human approval before publish.',
+    'Draft only \u2014 requires human approval before publish.',
     '',
     'Scam pattern:',
     input.cluster.pattern.patternDescription,
@@ -442,7 +440,7 @@ function buildDraftBody(input: {
     '- Use DAM before forwarding or acting.',
     '',
     'DAM CTA:',
-    'Before you click, forward, trust, or act — test the message on DAM.',
+    'Before you click, forward, trust, or act \u2014 test the message on DAM.',
     '',
     'Approval checklist:',
     '- [ ] Claim pattern is based on logged user behavior',
@@ -457,85 +455,60 @@ function buildDraftBody(input: {
   ].join('\n')
 }
 
-function serializeDraft(frontmatter: DraftFrontmatter, body: string) {
-  return [
-    '---',
-    `slug: ${escapeFrontmatterValue(frontmatter.slug)}`,
-    `title: ${escapeFrontmatterValue(frontmatter.title)}`,
-    `status: ${escapeFrontmatterValue(frontmatter.status)}`,
-    `patternName: ${escapeFrontmatterValue(frontmatter.patternName)}`,
-    `patternKey: ${escapeFrontmatterValue(frontmatter.patternKey)}`,
-    `sourceCheckStatus: ${escapeFrontmatterValue(frontmatter.sourceCheckStatus)}`,
-    `sourceCheckMessage: ${escapeFrontmatterValue(frontmatter.sourceCheckMessage ?? '')}`,
-    `sourceCount: ${frontmatter.sourceCount}`,
-    `claimCount: ${frontmatter.claimCount}`,
-    `sessionCount: ${frontmatter.sessionCount}`,
-    `generatedAt: ${escapeFrontmatterValue(frontmatter.generatedAt)}`,
-    `updatedAt: ${escapeFrontmatterValue(frontmatter.updatedAt)}`,
-    `sourcesJson: ${escapeFrontmatterValue(JSON.stringify(frontmatter.sources))}`,
-    '---',
-    '',
-    body,
-    '',
-  ].join('\n')
-}
-
-function parseDraftFile(fileContents: string, storagePath: string): ScamOfTheDayDraft | null {
-  const match = fileContents.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
-  if (!match) {
-    return null
+function readMetadata(value: unknown): ScamDraftMetadata {
+  const fallback: ScamDraftMetadata = {
+    patternKey: 'unknown',
+    sourceCheckMessage: null,
+    sources: [],
+    sourceQueries: [],
+    engagementEventCount: 0,
+    recentWindowDays: RECENT_WINDOW_DAYS,
   }
 
-  const [, rawFrontmatter, body] = match
-  const values = new Map<string, string>()
-
-  for (const line of rawFrontmatter.split('\n')) {
-    const separatorIndex = line.indexOf(':')
-    if (separatorIndex <= 0) {
-      continue
-    }
-
-    const key = line.slice(0, separatorIndex).trim()
-    const value = line.slice(separatorIndex + 1).trim()
-    values.set(key, value)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return fallback
   }
 
-  const status = unescapeFrontmatterValue(values.get('status') ?? '')
-  if (!SCAM_OF_THE_DAY_STATUSES.includes(status as ScamOfTheDayStatus)) {
-    return null
-  }
-
-  const rawSources = unescapeFrontmatterValue(values.get('sourcesJson') ?? '[]')
-  let parsedSources: unknown[] = []
-  if (typeof rawSources === 'string') {
-    try {
-      const parsed = JSON.parse(rawSources) as unknown
-      parsedSources = Array.isArray(parsed) ? parsed : []
-    } catch {
-      parsedSources = []
-    }
-  }
-  const sources = Array.isArray(parsedSources) ? parsedSources.filter(isScamOfTheDaySource) : []
+  const record = value as Record<string, unknown>
+  const sourceList = Array.isArray(record.sources) ? record.sources.filter(isScamOfTheDaySource) : []
+  const sourceQueries = Array.isArray(record.sourceQueries)
+    ? record.sourceQueries.filter((item): item is string => typeof item === 'string')
+    : []
 
   return {
-    slug: String(unescapeFrontmatterValue(values.get('slug') ?? '')),
-    title: String(unescapeFrontmatterValue(values.get('title') ?? '')),
-    status: status as ScamOfTheDayStatus,
-    body: body.trim(),
-    patternName: String(unescapeFrontmatterValue(values.get('patternName') ?? '')),
-    patternKey: String(unescapeFrontmatterValue(values.get('patternKey') ?? '')),
+    patternKey: readString(record.patternKey) || fallback.patternKey,
+    sourceCheckMessage: readOptionalString(record.sourceCheckMessage),
+    sources: sourceList,
+    sourceQueries,
+    engagementEventCount: readNumber(record.engagementEventCount, 0),
+    recentWindowDays: readNumber(record.recentWindowDays, RECENT_WINDOW_DAYS),
+  }
+}
+
+function mapDraftRow(row: DraftRow): ScamOfTheDayDraft {
+  const metadata = readMetadata(row.metadata)
+
+  return {
+    id: readString(row.id),
+    draftDate: readString(row.draft_date),
+    slug: readString(row.slug),
+    title: readString(row.title),
+    status: SCAM_OF_THE_DAY_STATUSES.includes(readString(row.status) as ScamOfTheDayStatus)
+      ? (readString(row.status) as ScamOfTheDayStatus)
+      : 'draft',
+    body: readString(row.body),
+    patternName: readOptionalString(row.candidate_pattern) ?? 'Unknown pattern',
+    patternKey: metadata.patternKey,
     sourceCheckStatus:
-      String(unescapeFrontmatterValue(values.get('sourceCheckStatus') ?? 'incomplete')) === 'complete'
-        ? 'complete'
-        : 'incomplete',
-    sourceCheckMessage: String(unescapeFrontmatterValue(values.get('sourceCheckMessage') ?? '') || '') || null,
-    sourceCount: Number(values.get('sourceCount') ?? '0') || 0,
-    claimCount: Number(values.get('claimCount') ?? '0') || 0,
-    sessionCount: Number(values.get('sessionCount') ?? '0') || 0,
-    generatedAt: String(unescapeFrontmatterValue(values.get('generatedAt') ?? '')),
-    updatedAt: String(unescapeFrontmatterValue(values.get('updatedAt') ?? '')),
-    storagePath,
-    sources,
+      readString(row.source_check_status) === 'complete' ? 'complete' : 'incomplete',
+    sourceCheckMessage: metadata.sourceCheckMessage,
+    sourceCount: readNumber(row.source_count, 0),
+    claimCount: readNumber(row.recent_claims_used, 0),
+    sessionCount: readNumber(row.sessions_used, 0),
+    generatedAt: readIsoDate(row.created_at) ?? new Date().toISOString(),
+    updatedAt: readIsoDate(row.updated_at) ?? new Date().toISOString(),
+    storageLocation: 'supabase',
+    sources: metadata.sources,
   }
 }
 
@@ -552,13 +525,16 @@ function isScamOfTheDaySource(value: unknown): value is ScamOfTheDaySource {
   )
 }
 
-async function ensureDraftDirectory() {
-  await mkdir(DRAFTS_DIRECTORY, { recursive: true })
-}
+function assertApprovalAllowed(draft: ScamOfTheDayDraft, nextStatus: ScamOfTheDayStatus) {
+  if (nextStatus !== 'approved') {
+    return
+  }
 
-async function readDraftFromPath(storagePath: string) {
-  const fileContents = await readFile(storagePath, 'utf8')
-  return parseDraftFile(fileContents, storagePath)
+  if (draft.sourceCheckStatus !== 'complete' || draft.sourceCount < 2) {
+    throw new ScamOfTheDayApprovalError(
+      'Incomplete source checks cannot be approved. Confirm at least two reputable sources first.'
+    )
+  }
 }
 
 async function getRecentClaims() {
@@ -583,6 +559,7 @@ async function getRecentClaims() {
     .map((row) => {
       const createdAt = readIsoDate(row.created_at)
       const claimText = normalizeSpaces(readString(row.claim_text))
+
       if (!createdAt || !claimText) {
         return null
       }
@@ -653,6 +630,7 @@ function clusterClaims(claims: RecentClaim[], events: EventRow[]) {
   }
 
   const eventCounts = new Map<string, number>()
+
   for (const event of events) {
     const sessionId = readOptionalString(event.session_id)
     if (!sessionId) {
@@ -681,7 +659,8 @@ function chooseTopCluster(clusters: PatternCluster[]) {
   return [...clusters].sort((left, right) => {
     const leftFreshness = Math.min(...left.claims.map((row) => getClaimAgeHours(row.claim.createdAt)))
     const rightFreshness = Math.min(...right.claims.map((row) => getClaimAgeHours(row.claim.createdAt)))
-    const leftScore = left.claims.length * 20 + left.sourceSessionCount * 8 + left.pattern.priority * 5 - leftFreshness
+    const leftScore =
+      left.claims.length * 20 + left.sourceSessionCount * 8 + left.pattern.priority * 5 - leftFreshness
     const rightScore =
       right.claims.length * 20 + right.sourceSessionCount * 8 + right.pattern.priority * 5 - rightFreshness
 
@@ -726,26 +705,44 @@ async function lookupReputableSources(pattern: PatternDefinition) {
   )
 }
 
-async function writeDraftFile(draft: ScamOfTheDayDraft) {
-  await ensureDraftDirectory()
-
-  const frontmatter: DraftFrontmatter = {
-    slug: draft.slug,
-    title: draft.title,
-    status: draft.status,
-    patternName: draft.patternName,
-    patternKey: draft.patternKey,
-    sourceCheckStatus: draft.sourceCheckStatus,
-    sourceCheckMessage: draft.sourceCheckMessage,
-    sourceCount: draft.sourceCount,
-    claimCount: draft.claimCount,
-    sessionCount: draft.sessionCount,
-    generatedAt: draft.generatedAt,
-    updatedAt: draft.updatedAt,
-    sources: draft.sources,
+async function upsertDraft(draft: ScamOfTheDayDraft, metadata: ScamDraftMetadata) {
+  const supabaseAdmin = getSupabaseAdminClient()
+  if (!supabaseAdmin) {
+    throw new Error('Supabase admin client is not configured for draft persistence.')
   }
 
-  await writeFile(draft.storagePath, serializeDraft(frontmatter, draft.body), 'utf8')
+  const payload = {
+    draft_date: draft.draftDate,
+    slug: draft.slug,
+    title: draft.title,
+    candidate_pattern: draft.patternName,
+    status: draft.status,
+    source_check_status: draft.sourceCheckStatus,
+    source_count: draft.sourceCount,
+    recent_claims_used: draft.claimCount,
+    sessions_used: draft.sessionCount,
+    body: draft.body,
+    metadata,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from(DRAFTS_TABLE)
+    .upsert(payload, {
+      onConflict: 'draft_date',
+    })
+    .select('*')
+    .single()
+
+  if (error || !data) {
+    throw new Error(
+      error?.message
+        ? `Unable to save Scam of the Day draft to Supabase. ${error.message}`
+        : 'Unable to save Scam of the Day draft to Supabase.'
+    )
+  }
+
+  return mapDraftRow(data as DraftRow)
 }
 
 export async function generateScamOfTheDayDraft() {
@@ -764,7 +761,8 @@ export async function generateScamOfTheDayDraft() {
   const sources = await lookupReputableSources(topCluster.pattern)
   const sourceCheck = buildSourceCheck(sources)
   const generatedAt = new Date().toISOString()
-  const slug = `${generatedAt.slice(0, 10)}-${slugify(topCluster.pattern.key)}`
+  const draftDate = getDraftDate(new Date(generatedAt))
+  const slug = `${draftDate}-${slugify(topCluster.pattern.key)}`
   const title = `Scam of the Day: ${topCluster.pattern.shortName}`
   const body = buildDraftBody({
     title,
@@ -772,77 +770,102 @@ export async function generateScamOfTheDayDraft() {
     sources,
   })
 
-  const draft: ScamOfTheDayDraft = {
-    slug,
-    title,
-    status: 'draft',
-    body,
-    patternName: topCluster.pattern.shortName,
-    patternKey: topCluster.pattern.key,
-    sourceCheckStatus: sourceCheck.status,
-    sourceCheckMessage: sourceCheck.message,
-    sourceCount: sources.length,
-    claimCount: topCluster.claims.length,
-    sessionCount: topCluster.sourceSessionCount,
-    generatedAt,
-    updatedAt: generatedAt,
-    storagePath: path.join(DRAFTS_DIRECTORY, `${slug}.md`),
-    sources,
-  }
-
-  await writeDraftFile(draft)
-  return draft
+  return upsertDraft(
+    {
+      id: '',
+      draftDate,
+      slug,
+      title,
+      status: 'draft',
+      body,
+      patternName: topCluster.pattern.shortName,
+      patternKey: topCluster.pattern.key,
+      sourceCheckStatus: sourceCheck.status,
+      sourceCheckMessage: sourceCheck.message,
+      sourceCount: sources.length,
+      claimCount: topCluster.claims.length,
+      sessionCount: topCluster.sourceSessionCount,
+      generatedAt,
+      updatedAt: generatedAt,
+      storageLocation: 'supabase',
+      sources,
+    },
+    {
+      patternKey: topCluster.pattern.key,
+      sourceCheckMessage: sourceCheck.message,
+      sources,
+      sourceQueries: [...topCluster.pattern.sourceQueries],
+      engagementEventCount: topCluster.engagementEventCount,
+      recentWindowDays: RECENT_WINDOW_DAYS,
+    }
+  )
 }
 
 export async function getLatestScamOfTheDayDraft() {
-  await ensureDraftDirectory()
-  const entries = await readdir(DRAFTS_DIRECTORY)
-  const markdownFiles = entries.filter((entry) => entry.endsWith('.md'))
-
-  if (!markdownFiles.length) {
-    return null
+  const supabaseAdmin = getSupabaseAdminClient()
+  if (!supabaseAdmin) {
+    throw new Error('Supabase admin client is not configured for draft retrieval.')
   }
 
-  const fileStats = await Promise.all(
-    markdownFiles.map(async (entry) => {
-      const storagePath = path.join(DRAFTS_DIRECTORY, entry)
-      const details = await stat(storagePath)
-      return {
-        storagePath,
-        modifiedAt: details.mtimeMs,
-      }
-    })
-  )
+  const { data, error } = await supabaseAdmin
+    .from(DRAFTS_TABLE)
+    .select('*')
+    .order('draft_date', { ascending: false })
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-  fileStats.sort((left, right) => right.modifiedAt - left.modifiedAt)
-
-  for (const file of fileStats) {
-    const draft = await readDraftFromPath(file.storagePath)
-    if (draft) {
-      return draft
-    }
+  if (error) {
+    throw new Error(
+      error.message
+        ? `Unable to read Scam of the Day drafts from Supabase. ${error.message}`
+        : 'Unable to read Scam of the Day drafts from Supabase.'
+    )
   }
 
-  return null
+  return data ? mapDraftRow(data as DraftRow) : null
 }
 
 export async function updateScamOfTheDayDraftStatus(input: {
   slug: string
   status: ScamOfTheDayStatus
 }) {
-  const targetPath = path.join(DRAFTS_DIRECTORY, `${input.slug}.md`)
-  const draft = await readDraftFromPath(targetPath).catch(() => null)
-
-  if (!draft) {
-    throw new Error('Draft not found.')
+  const supabaseAdmin = getSupabaseAdminClient()
+  if (!supabaseAdmin) {
+    throw new Error('Supabase admin client is not configured for draft updates.')
   }
 
-  const updatedDraft: ScamOfTheDayDraft = {
-    ...draft,
-    status: input.status,
-    updatedAt: new Date().toISOString(),
+  const { data, error } = await supabaseAdmin
+    .from(DRAFTS_TABLE)
+    .select('*')
+    .eq('slug', input.slug)
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) {
+    throw new Error(error?.message ? `Draft not found. ${error.message}` : 'Draft not found.')
   }
 
-  await writeDraftFile(updatedDraft)
-  return updatedDraft
+  const draft = mapDraftRow(data as DraftRow)
+  assertApprovalAllowed(draft, input.status)
+
+  const { data: updatedData, error: updateError } = await supabaseAdmin
+    .from(DRAFTS_TABLE)
+    .update({
+      status: input.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('slug', input.slug)
+    .select('*')
+    .single()
+
+  if (updateError || !updatedData) {
+    throw new Error(
+      updateError?.message
+        ? `Unable to update draft approval state. ${updateError.message}`
+        : 'Unable to update draft approval state.'
+    )
+  }
+
+  return mapDraftRow(updatedData as DraftRow)
 }

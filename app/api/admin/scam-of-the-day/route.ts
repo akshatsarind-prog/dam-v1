@@ -2,6 +2,7 @@ import { isValidAdminPassword } from '@/lib/admin/adminAuth'
 import {
   generateScamOfTheDayDraft,
   getLatestScamOfTheDayDraft,
+  ScamOfTheDayApprovalError,
   updateScamOfTheDayDraftStatus,
 } from '@/lib/admin/scamOfTheDay'
 import type { ScamOfTheDayStatus } from '@/lib/admin/scamOfTheDayTypes'
@@ -132,6 +133,18 @@ export async function PATCH(request: Request) {
 
     return jsonResponse({ draft })
   } catch (error) {
+    if (error instanceof ScamOfTheDayApprovalError) {
+      return jsonResponse(
+        {
+          error: {
+            code: 'bad_request',
+            message: error.message,
+          },
+        },
+        400
+      )
+    }
+
     return jsonResponse(
       {
         error: {
