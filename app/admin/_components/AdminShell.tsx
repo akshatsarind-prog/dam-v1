@@ -119,6 +119,12 @@ const healthUnavailableListStyle = {
 
 export const adminSectionLinks: AdminSectionLink[] = [
   {
+    href: '/admin/scam-of-the-day',
+    title: 'Scam of the Day Draft',
+    eyebrow: 'Editorial draft',
+    description: 'Private daily draft generator with redaction, source checks, and manual approval only.',
+  },
+  {
     href: '/admin/executive',
     title: 'Executive Snapshot',
     eyebrow: 'Core read',
