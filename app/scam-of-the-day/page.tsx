@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { connection } from 'next/server'
 import { getPublicScamOfTheDay } from '@/lib/scam-of-the-day/publicScamOfTheDay'
 
 function formatDate(value: string) {
@@ -100,6 +101,7 @@ function ActionLink({
 }
 
 export default async function ScamOfTheDayPage() {
+  await connection()
   const publicScamOfTheDay = await getPublicScamOfTheDay()
 
   return (
