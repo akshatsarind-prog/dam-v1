@@ -47,10 +47,13 @@ type AdminMetricsGateProps = {
 
 export type AdminSectionLink = {
   href: string
+  group: 'Core' | 'Growth' | 'Product' | 'System'
   title: string
   eyebrow: string
   description: string
 }
+
+const ADMIN_NAV_GROUP_ORDER: AdminSectionLink['group'][] = ['Core', 'Growth', 'Product', 'System']
 
 const shellStyle = {
   paddingBottom: 48,
@@ -120,67 +123,85 @@ const healthUnavailableListStyle = {
 
 export const adminSectionLinks: AdminSectionLink[] = [
   {
-    href: '/admin/scam-of-the-day',
-    title: 'Scam of the Day Draft',
-    eyebrow: 'Editorial draft',
-    description: 'Private daily draft generator with redaction, source checks, and manual approval only.',
-  },
-  {
     href: '/admin/executive',
+    group: 'Core',
     title: 'Executive Snapshot',
     eyebrow: 'Core read',
     description: 'Top-line health, usage volume, repeat behavior, and current system state.',
   },
   {
     href: '/admin/daily',
+    group: 'Core',
     title: 'Daily Intelligence',
     eyebrow: 'Automation layer',
     description: 'Today-only operating read across growth, product, and reliability signals.',
   },
   {
+    href: '/admin/ai-hq',
+    group: 'Core',
+    title: 'DAM-AI-HQ',
+    eyebrow: 'Daily operating intelligence',
+    description: 'Daily operating intelligence / task command center',
+  },
+  {
+    href: '/admin/scam-of-the-day',
+    group: 'Core',
+    title: 'Scam of the Day',
+    eyebrow: 'Daily editorial workflow',
+    description: 'Draft, review, approve, and publish daily scam item',
+  },
+  {
     href: '/admin/funnel',
+    group: 'Growth',
     title: 'Funnel',
     eyebrow: 'Acquisition path',
     description: 'Tracked and manual stages from distributed reach through claim and signup.',
   },
   {
     href: '/admin/sources',
+    group: 'Growth',
     title: 'Traffic Sources',
     eyebrow: 'Attribution',
     description: 'Source, medium, campaign, session quality, and email capture linkage.',
   },
   {
     href: '/admin/retention',
+    group: 'Growth',
     title: 'Retention',
     eyebrow: 'Repeat behavior',
     description: 'Returning sessions, claim depth, high-intent sessions, and repeat usage signals.',
   },
   {
     href: '/admin/categories',
+    group: 'Product',
     title: 'Claim Categories',
     eyebrow: 'Usage mix',
     description: 'What people are testing, confidence by category, and latest category examples.',
   },
   {
-    href: '/admin/health',
-    title: 'Operational Health',
-    eyebrow: 'Reliability',
-    description: 'Latency, evidence retrieval quality, low-confidence rows, and slowest claims.',
-  },
-  {
     href: '/admin/claims',
+    group: 'Product',
     title: 'Recent Claims',
     eyebrow: 'Latest rows',
     description: 'Newest claim logs with verdict, confidence, risk, latency, and attribution.',
   },
   {
+    href: '/admin/health',
+    group: 'System',
+    title: 'Operational Health',
+    eyebrow: 'Reliability',
+    description: 'Latency, evidence retrieval quality, low-confidence rows, and slowest claims.',
+  },
+  {
     href: '/admin/recommendations',
+    group: 'System',
     title: 'Recommendations',
     eyebrow: 'Operator guidance',
     description: 'Metrics-derived next actions from the current admin intelligence layer.',
   },
   {
     href: '/admin/lifetime',
+    group: 'System',
     title: 'Lifetime Intelligence',
     eyebrow: 'Founder system',
     description: 'Company-wide lifetime view across growth, behavior, trust, reliability, and coverage.',
@@ -890,24 +911,39 @@ function AdminNavigationDrawer({
             </Link>
           ) : null}
 
-          {adminSectionLinks.map((section) => {
-            const isActive =
-              pathname === section.href ||
-              (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
+          {ADMIN_NAV_GROUP_ORDER.map((group) => {
+            const sections = adminSectionLinks.filter((section) => section.group === group)
+
+            if (!sections.length) {
+              return null
+            }
 
             return (
-              <Link
-                key={section.href}
-                href={section.href}
-                onClick={onClose}
-                className="dam-admin-menu-link"
-                data-active={isActive}
-              >
-                <div>
-                  <strong>{section.title}</strong>
-                  <span>{section.description}</span>
+              <div key={group} className="dam-admin-menu-group">
+                <p className="dam-admin-menu-group__title">{group}</p>
+                <div className="dam-admin-menu-group__links">
+                  {sections.map((section) => {
+                    const isActive =
+                      pathname === section.href ||
+                      (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
+
+                    return (
+                      <Link
+                        key={section.href}
+                        href={section.href}
+                        onClick={onClose}
+                        className="dam-admin-menu-link"
+                        data-active={isActive}
+                      >
+                        <div>
+                          <strong>{section.title}</strong>
+                          <span>{section.description}</span>
+                        </div>
+                      </Link>
+                    )
+                  })}
                 </div>
-              </Link>
+              </div>
             )
           })}
         </nav>
@@ -1177,13 +1213,32 @@ function AdminShellStyles() {
 
       .dam-admin-menu-nav {
         display: grid;
-        gap: 10px;
+        gap: 14px;
+      }
+
+      .dam-admin-menu-group {
+        display: grid;
+        gap: 8px;
+      }
+
+      .dam-admin-menu-group__title {
+        margin: 0;
+        color: rgba(184, 198, 228, 0.56);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .dam-admin-menu-group__links {
+        display: grid;
+        gap: 8px;
       }
 
       .dam-admin-menu-link {
         display: grid;
         gap: 6px;
-        padding: 16px 18px;
+        padding: 14px 16px;
         border: 1px solid rgba(165, 188, 230, 0.12);
         border-radius: 18px;
         background: rgba(255, 255, 255, 0.03);
@@ -1203,7 +1258,7 @@ function AdminShellStyles() {
       .dam-admin-menu-link strong {
         display: block;
         margin: 0 0 4px;
-        font-size: 15px;
+        font-size: 14px;
         letter-spacing: 0.02em;
       }
 

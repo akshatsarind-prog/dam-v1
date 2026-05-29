@@ -9,6 +9,7 @@ import {
   type FormEvent,
 } from 'react'
 import AdminBrand from './AdminBrand'
+import { adminSectionLinks } from './AdminShell'
 import type { AdminMetricsResponse } from '@/lib/admin/adminMetricsTypes'
 import {
   buildAdminBranchReport,
@@ -115,15 +116,17 @@ function Menu({
   onDownloadFullReport: () => void
   onLogout: () => void
 }) {
-  const linkMeta = [
+  const reportLinks = [
     {
       href: '/admin/report',
-      label: 'Admin Report',
+      title: 'Admin Report',
+      description: 'Branch-level founder report and export workspace.',
       active: pathname.startsWith('/admin/report'),
     },
     {
       href: '/admin/lifetime',
-      label: 'Lifetime Report',
+      title: 'Lifetime Report',
+      description: 'Long-horizon company view and lifetime branch index.',
       active: pathname.startsWith('/admin/lifetime'),
     },
   ]
@@ -165,17 +168,58 @@ function Menu({
         </div>
 
         <nav className="dam-report-menu__nav" aria-label="Admin menu">
-          {linkMeta.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="dam-report-menu__link"
-              data-active={item.active}
-              onClick={onClose}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {(['Core', 'Growth', 'Product', 'System'] as const).map((group) => {
+            const sections = adminSectionLinks.filter((section) => section.group === group)
+
+            return (
+              <div key={group} className="dam-report-menu__group">
+                <p className="dam-report-menu__group-title">{group}</p>
+                <div className="dam-report-menu__group-links">
+                  {sections.map((section) => {
+                    const isActive =
+                      pathname === section.href ||
+                      (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
+
+                    return (
+                      <Link
+                        key={section.href}
+                        href={section.href}
+                        className="dam-report-menu__link"
+                        data-active={isActive}
+                        onClick={onClose}
+                      >
+                        <div className="dam-report-menu__link-copy">
+                          <strong>{section.title}</strong>
+                          <span>{section.description}</span>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+
+          <div className="dam-report-menu__group">
+            <p className="dam-report-menu__group-title">Reports</p>
+            <div className="dam-report-menu__group-links">
+              {reportLinks.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="dam-report-menu__link"
+                  data-active={item.active}
+                  onClick={onClose}
+                >
+                  <div className="dam-report-menu__link-copy">
+                    <strong>{item.title}</strong>
+                    <span>{item.description}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+
           <button
             type="button"
             className="dam-report-menu__link dam-report-menu__link--button"
@@ -651,6 +695,14 @@ function LandingPage({ metrics }: { metrics: AdminMetricsResponse }) {
           </Link>
           <Link href="/admin/lifetime" className="dam-report-button">
             Open Lifetime Report
+          </Link>
+        </div>
+        <div className="dam-report-hero__quick-actions" aria-label="Daily operator tools">
+          <Link href="/admin/ai-hq" className="dam-report-button dam-report-button--compact">
+            Open DAM-AI-HQ
+          </Link>
+          <Link href="/admin/scam-of-the-day" className="dam-report-button dam-report-button--compact">
+            Manage Scam of the Day
           </Link>
         </div>
         <div className="dam-report-footnote dam-report-footnote--hero">
@@ -1363,20 +1415,55 @@ function ReportSystemStyles() {
 
       .dam-report-menu__nav {
         display: grid;
+        gap: 14px;
+      }
+
+      .dam-report-menu__group {
+        display: grid;
+        gap: 8px;
+      }
+
+      .dam-report-menu__group-title {
+        margin: 0;
+        color: rgba(188, 200, 217, 0.52);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .dam-report-menu__group-links {
+        display: grid;
         gap: 6px;
       }
 
       .dam-report-menu__link {
-        min-height: 40px;
-        display: flex;
-        align-items: center;
+        min-height: 0;
+        display: block;
         border: 1px solid rgba(140, 157, 185, 0.12);
         border-radius: 12px;
         background: rgba(255, 255, 255, 0.02);
         color: rgba(240, 245, 250, 0.9);
-        padding: 0 12px;
+        padding: 10px 12px;
         font-size: 13px;
         text-decoration: none;
+      }
+
+      .dam-report-menu__link-copy {
+        display: grid;
+        gap: 4px;
+      }
+
+      .dam-report-menu__link-copy strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .dam-report-menu__link-copy span {
+        color: rgba(188, 200, 217, 0.68);
+        font-size: 11px;
+        line-height: 1.45;
       }
 
       .dam-report-menu__link[data-active='true'] {
@@ -1516,6 +1603,12 @@ function ReportSystemStyles() {
         text-decoration: none;
       }
 
+      .dam-report-button--compact {
+        min-height: 36px;
+        padding: 0 14px;
+        font-size: 12px;
+      }
+
       .dam-report-button--primary {
         border-color: rgba(214, 77, 77, 0.34);
         background: linear-gradient(180deg, rgba(176, 51, 51, 0.96), rgba(150, 38, 38, 0.96));
@@ -1595,6 +1688,12 @@ function ReportSystemStyles() {
       }
 
       .dam-report-hero__actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .dam-report-hero__quick-actions {
         display: flex;
         gap: 10px;
         flex-wrap: wrap;
