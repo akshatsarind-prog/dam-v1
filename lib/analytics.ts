@@ -16,6 +16,8 @@ export const DAM_TRACK_EVENT_NAMES = [
   'campaign_scam_checker_cta_click',
   'campaign_whatsapp_checker_cta_click',
   'campaign_govt_checker_cta_click',
+  'email_capture_shown',
+  'email_capture_submitted',
   'email_capture_success',
 ] as const
 

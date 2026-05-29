@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import {
   DAM_SESSION_STORAGE_KEY,
   getDamSessionSignalMetadata,
@@ -31,6 +31,13 @@ const betaSubtitleStyle = {
   color: 'var(--muted)',
   fontSize: '14px',
   lineHeight: 1.55,
+} as const
+
+const betaPrivacyNoteStyle = {
+  margin: '12px 0 0',
+  color: 'rgba(235, 235, 240, 0.72)',
+  fontSize: '12px',
+  lineHeight: 1.5,
 } as const
 
 const betaFormStyle = {
@@ -103,10 +110,64 @@ function getDamSessionId() {
   }
 }
 
-export default function BetaSignupCard() {
+type BetaSignupCardProps = {
+  title?: string
+  description?: string
+  buttonLabel?: string
+  privacyNote?: string
+  source?: string
+  captureVariant?: string
+  claimCategory?: string
+  riskLabel?: string
+  verdict?: string
+  sourceResultType?: string
+  hideHeading?: boolean
+  variant?: 'card' | 'inline'
+}
+
+export default function BetaSignupCard({
+  title = 'Want beta updates?',
+  description = 'Leave your email if you want updates or want to help test DAM.',
+  buttonLabel = 'Join private beta',
+  privacyNote,
+  source = 'result_signup',
+  captureVariant,
+  claimCategory,
+  riskLabel,
+  verdict,
+  sourceResultType,
+  hideHeading = false,
+  variant = 'card',
+}: BetaSignupCardProps) {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success'>('idle')
   const [error, setError] = useState('')
+  const formStyle = {
+    ...betaFormStyle,
+    marginTop: hideHeading ? 14 : betaFormStyle.marginTop,
+  }
+
+  useEffect(() => {
+    const sessionId = getDamSessionId() ?? getOrCreateDamSessionId()
+
+    if (!sessionId || !captureVariant) {
+      return
+    }
+
+    sendDamTrackEvent({
+      event_name: 'email_capture_shown',
+      session_id: sessionId,
+      metadata: getDamSessionSignalMetadata(sessionId, {
+        page: 'home',
+        source,
+        email_capture_variant: captureVariant,
+        claim_category: claimCategory,
+        risk_label: riskLabel,
+        verdict,
+        source_result_type: sourceResultType,
+      }),
+    })
+  }, [captureVariant, claimCategory, riskLabel, source, sourceResultType, verdict])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -130,7 +191,11 @@ export default function BetaSignupCard() {
         body: JSON.stringify({
           email: normalizedEmail,
           session_id: getDamSessionId(),
-          source: 'result_signup',
+          source,
+          capture_variant: captureVariant,
+          source_result_type: sourceResultType,
+          risk_label: riskLabel,
+          claim_category: claimCategory,
         }),
       })
 
@@ -150,11 +215,30 @@ export default function BetaSignupCard() {
       const sessionId = getDamSessionId() ?? getOrCreateDamSessionId()
 
       sendDamTrackEvent({
+        event_name: 'email_capture_submitted',
+        session_id: sessionId,
+        metadata: getDamSessionSignalMetadata(sessionId, {
+          page: 'home',
+          source,
+          email_capture_variant: captureVariant,
+          claim_category: claimCategory,
+          risk_label: riskLabel,
+          verdict,
+          source_result_type: sourceResultType,
+        }),
+      })
+
+      sendDamTrackEvent({
         event_name: 'email_capture_success',
         session_id: sessionId,
         metadata: getDamSessionSignalMetadata(sessionId, {
           page: 'home',
-          source: 'result_signup',
+          source,
+          email_capture_variant: captureVariant,
+          claim_category: claimCategory,
+          risk_label: riskLabel,
+          verdict,
+          source_result_type: sourceResultType,
         }),
       })
     } catch (requestError) {
@@ -166,15 +250,16 @@ export default function BetaSignupCard() {
   }
 
   return (
-    <section style={betaCardStyle} aria-live="polite">
-      <h3 style={betaTitleStyle}>Want beta updates?</h3>
-      <p style={betaSubtitleStyle}>
-        Leave your email if you want updates or want to help test DAM.
-      </p>
+    <section style={variant === 'card' ? betaCardStyle : undefined} aria-live="polite">
+      {!hideHeading ? <h3 style={betaTitleStyle}>{title}</h3> : null}
+      {!hideHeading ? <p style={betaSubtitleStyle}>{description}</p> : null}
       {status === 'success' ? (
-        <p style={betaMessageStyle}>You&apos;re on the beta list.</p>
+        <>
+          <p style={betaMessageStyle}>You&apos;re on the beta list.</p>
+          {privacyNote ? <p style={betaPrivacyNoteStyle}>{privacyNote}</p> : null}
+        </>
       ) : (
-        <form style={betaFormStyle} onSubmit={handleSubmit}>
+        <form style={formStyle} onSubmit={handleSubmit}>
           <label className="sr-only" htmlFor="dam-beta-email">
             Email address
           </label>
@@ -195,8 +280,9 @@ export default function BetaSignupCard() {
             aria-invalid={error ? 'true' : undefined}
           />
           <button type="submit" disabled={status === 'submitting'} style={betaButtonStyle}>
-            {status === 'submitting' ? 'Joining...' : 'Join private beta'}
+            {status === 'submitting' ? 'Submitting...' : buttonLabel}
           </button>
+          {privacyNote ? <p style={betaPrivacyNoteStyle}>{privacyNote}</p> : null}
           {error ? (
             <p className="form-error" role="alert">
               {error}

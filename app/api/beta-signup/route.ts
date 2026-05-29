@@ -37,6 +37,16 @@ export async function POST(request: Request) {
   const email = emailValue.trim().toLowerCase()
   const sessionId = normalizeOptionalString((body as { session_id?: unknown })?.session_id)
   const source = normalizeOptionalString((body as { source?: unknown })?.source)
+  const captureVariant = normalizeOptionalString(
+    (body as { capture_variant?: unknown })?.capture_variant
+  )
+  const sourceResultType = normalizeOptionalString(
+    (body as { source_result_type?: unknown })?.source_result_type
+  )
+  const riskLabel = normalizeOptionalString((body as { risk_label?: unknown })?.risk_label)
+  const claimCategory = normalizeOptionalString(
+    (body as { claim_category?: unknown })?.claim_category
+  )
 
   if (!email || !EMAIL_PATTERN.test(email)) {
     return Response.json({ error: 'Invalid email.' }, { status: 400 })
@@ -49,11 +59,38 @@ export async function POST(request: Request) {
   let insertErrorCode: string | null = null
 
   try {
-    const { error } = await supabase.from('dam_beta_users').insert({
+    const baseInsertPayload = {
       email,
       session_id: sessionId,
       source,
-    })
+    }
+    const extendedInsertPayload = {
+      ...baseInsertPayload,
+      capture_variant: captureVariant,
+      source_result_type: sourceResultType,
+      risk_label: riskLabel,
+      claim_category: claimCategory,
+      created_at: new Date().toISOString(),
+    }
+
+    const shouldAttemptExtendedInsert = Boolean(
+      captureVariant || sourceResultType || riskLabel || claimCategory
+    )
+
+    let error = null
+
+    if (shouldAttemptExtendedInsert) {
+      const extendedInsertResult = await supabase.from('dam_beta_users').insert(extendedInsertPayload)
+      error = extendedInsertResult.error
+
+      if (error && error.code !== '23505') {
+        const baseInsertResult = await supabase.from('dam_beta_users').insert(baseInsertPayload)
+        error = baseInsertResult.error
+      }
+    } else {
+      const baseInsertResult = await supabase.from('dam_beta_users').insert(baseInsertPayload)
+      error = baseInsertResult.error
+    }
 
     insertErrorCode = error?.code ?? null
   } catch {
