@@ -2,6 +2,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { startTransition, useEffect, useId, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import DamBrandMark from '@/components/brand/DamBrandMark'
 import DamUseCasesDropdown from '@/components/navigation/DamUseCasesDropdown'
 import { useCaseLinks } from '@/components/navigation/useCaseLinks'
@@ -93,6 +94,15 @@ const examplePanelStyle = {
   borderRadius: 14,
 } as const
 
+const desktopExamplePanelStyle = {
+  marginBottom: 12,
+  padding: 10,
+  border: '1px solid var(--line)',
+  background: 'rgba(17, 17, 20, 0.9)',
+  boxShadow: 'var(--shadow)',
+  borderRadius: 14,
+} as const
+
 const exampleDomainGridStyle = {
   display: 'grid',
   gridTemplateColumns: '1fr',
@@ -136,6 +146,57 @@ const examplePanelToggleStyle = {
   transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
 } as const
 
+const desktopExamplePanelToggleStyle = {
+  minHeight: 40,
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '10px 12px',
+  border: '1px solid var(--line)',
+  background: '#080809',
+  color: 'var(--text)',
+  font: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left',
+  borderRadius: 10,
+  transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
+} as const
+
+const desktopExampleDomainButtonStyle = {
+  minHeight: 40,
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '12px 14px',
+  border: '1px solid var(--line)',
+  background: '#080809',
+  color: 'var(--text)',
+  font: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left',
+  borderRadius: 10,
+  transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
+} as const
+
+const desktopExamplePanelBodyShellStyle = {
+  overflow: 'hidden',
+  transformOrigin: 'top center',
+  willChange: 'max-height, opacity, margin-top',
+  transition:
+    'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out, margin-top 240ms cubic-bezier(0.22, 1, 0.36, 1)',
+} as const
+
+const desktopExamplePanelBodyStyle = {
+  transformOrigin: 'top center',
+  willChange: 'transform, opacity, padding',
+  transition:
+    'opacity 180ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1), padding 240ms cubic-bezier(0.22, 1, 0.36, 1)',
+} as const
+
 const examplePanelBodyShellStyle = {
   overflow: 'hidden',
   transformOrigin: 'top center',
@@ -167,6 +228,90 @@ const mobileResultWrapStyle = {
   minWidth: 0,
   marginTop: 2,
 } as const
+
+type ExampleClaimsPanelMode = 'mobile' | 'desktop'
+
+type ExampleClaimsPanelProps = {
+  mode: ExampleClaimsPanelMode
+  isOpen: boolean
+  loading: boolean
+  panelRef: RefObject<HTMLElement | null>
+  onToggle: () => void
+  onSelectDomain: (domainId: string) => void
+}
+
+function ExampleClaimsPanel({
+  mode,
+  isOpen,
+  loading,
+  panelRef,
+  onToggle,
+  onSelectDomain,
+}: ExampleClaimsPanelProps) {
+  const isDesktop = mode === 'desktop'
+  const panelStyle = isDesktop ? desktopExamplePanelStyle : examplePanelStyle
+  const toggleStyle = isDesktop ? desktopExamplePanelToggleStyle : examplePanelToggleStyle
+  const bodyShellStyle = isDesktop ? desktopExamplePanelBodyShellStyle : examplePanelBodyShellStyle
+  const bodyStyle = isDesktop ? desktopExamplePanelBodyStyle : examplePanelBodyStyle
+  const domainButtonStyle = isDesktop ? desktopExampleDomainButtonStyle : exampleDomainButtonStyle
+  const panelId = isDesktop ? 'desktop-example-claims' : 'mobile-example-claims'
+
+  return (
+    <section ref={panelRef} style={panelStyle} aria-label="Try example claims">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls={panelId}
+        onClick={onToggle}
+        style={toggleStyle}
+      >
+        <span>Try Example Claims</span>
+        <span aria-hidden="true">{isOpen ? '-' : '+'}</span>
+      </button>
+      <div
+        aria-hidden={!isOpen}
+        inert={!isOpen}
+        style={{
+          ...bodyShellStyle,
+          maxHeight: isOpen ? (isDesktop ? 560 : 760) : 0,
+          opacity: isOpen ? 1 : 0,
+          marginTop: isOpen ? 10 : 0,
+        }}
+      >
+        <div
+          id={panelId}
+          style={{
+            ...bodyStyle,
+            opacity: isOpen ? 1 : 0,
+            transform: isOpen ? 'translateY(0) scaleY(1)' : 'translateY(-14px) scaleY(0.94)',
+            paddingTop: isOpen ? 2 : 0,
+            pointerEvents: isOpen ? 'auto' : 'none',
+          }}
+        >
+          <p>
+            Choose a domain to auto-fill a believable claim and run a live analysis through the
+            existing evidence pipeline.
+          </p>
+          <div style={exampleDomainGridStyle}>
+            {exampleClaimDomains.map((domain) => (
+              <button
+                key={domain.id}
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  onSelectDomain(domain.id)
+                }}
+                style={domainButtonStyle}
+              >
+                <span>{domain.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
 
 function scrollToElement(
   target: HTMLElement | null,
@@ -598,63 +743,30 @@ export default function SharedAnalyzerLayout({
 
         <div className="console-grid" style={isMobile ? mobileConsoleGridStyle : undefined}>
           {isMobile ? (
-            <section ref={examplePanelRef} style={examplePanelStyle} aria-label="Try example claims">
-              <button
-                type="button"
-                aria-expanded={isExamplePanelOpen}
-                aria-controls="mobile-example-claims"
-                onClick={() => setIsExamplePanelOpen((open) => !open)}
-                style={examplePanelToggleStyle}
-              >
-                <span>Try Example Claims</span>
-                <span aria-hidden="true">{isExamplePanelOpen ? '-' : '+'}</span>
-              </button>
-              <div
-                aria-hidden={!isExamplePanelOpen}
-                inert={!isExamplePanelOpen}
-                style={{
-                  ...examplePanelBodyShellStyle,
-                  maxHeight: isExamplePanelOpen ? 760 : 0,
-                  opacity: isExamplePanelOpen ? 1 : 0,
-                  marginTop: isExamplePanelOpen ? 10 : 0,
-                }}
-              >
-                <div
-                  id="mobile-example-claims"
-                  style={{
-                    ...examplePanelBodyStyle,
-                    opacity: isExamplePanelOpen ? 1 : 0,
-                    transform: isExamplePanelOpen
-                      ? 'translateY(0) scaleY(1)'
-                      : 'translateY(-14px) scaleY(0.94)',
-                    paddingTop: isExamplePanelOpen ? 2 : 0,
-                    pointerEvents: isExamplePanelOpen ? 'auto' : 'none',
-                  }}
-                >
-                  <p>
-                    Choose a domain to auto-fill a believable claim and run a live analysis
-                    through the existing evidence pipeline.
-                  </p>
-                  <div style={exampleDomainGridStyle}>
-                    {exampleClaimDomains.map((domain) => (
-                      <button
-                        key={domain.id}
-                        type="button"
-                        disabled={loading}
-                        onClick={() => {
-                          void handleExampleDomainSelect(domain.id)
-                        }}
-                        style={exampleDomainButtonStyle}
-                      >
-                        <span>{domain.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
+            <ExampleClaimsPanel
+              mode="mobile"
+              isOpen={isExamplePanelOpen}
+              loading={loading}
+              panelRef={examplePanelRef}
+              onToggle={() => setIsExamplePanelOpen((open) => !open)}
+              onSelectDomain={(domainId) => {
+                void handleExampleDomainSelect(domainId)
+              }}
+            />
           ) : null}
           <div ref={claimPanelRef} style={isMobile ? mobileInputWrapStyle : undefined}>
+            {!isMobile ? (
+              <ExampleClaimsPanel
+                mode="desktop"
+                isOpen={isExamplePanelOpen}
+                loading={loading}
+                panelRef={examplePanelRef}
+                onToggle={() => setIsExamplePanelOpen((open) => !open)}
+                onSelectDomain={(domainId) => {
+                  void handleExampleDomainSelect(domainId)
+                }}
+              />
+            ) : null}
             <SharedAnalyzeInput
               textareaRef={claimInputRef}
               claim={claim}
