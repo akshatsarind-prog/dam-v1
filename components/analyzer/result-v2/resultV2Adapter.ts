@@ -14,6 +14,71 @@ const FALLBACK_REASON =
 const FALLBACK_PROBLEM =
   'DAM could not identify strong warning signs from the available evidence.'
 
+type EmailCaptureVariantConfig = {
+  variant: string
+  claimCategory: string
+  summary: string
+  title: string
+  description: string
+  buttonLabel: string
+}
+
+const DEFAULT_EMAIL_CAPTURE_PRIVACY_NOTE =
+  'No spam. Used only for DAM alerts and product updates.'
+
+const EMAIL_CAPTURE_VARIANTS: Record<string, EmailCaptureVariantConfig> = {
+  scam_alerts: {
+    variant: 'scam_alerts',
+    claimCategory: 'scam',
+    summary: 'Scam alerts and suspicious-message updates',
+    title: 'Get scam alerts like this',
+    description: 'Leave your email to get updates when DAM detects new scam patterns.',
+    buttonLabel: 'Get scam alerts',
+  },
+  health_alerts: {
+    variant: 'health_alerts',
+    claimCategory: 'health',
+    summary: 'Health misinformation alerts',
+    title: 'Get health claim alerts like this',
+    description: 'Leave your email to get updates when DAM detects risky health misinformation.',
+    buttonLabel: 'Get health claim alerts',
+  },
+  civic_alerts: {
+    variant: 'civic_alerts',
+    claimCategory: 'civic',
+    summary: 'Civic rumor and notice alerts',
+    title: 'Get civic claim alerts like this',
+    description: 'Leave your email to get updates on civic rumors, fake notices, and public-claim confusion.',
+    buttonLabel: 'Get civic alerts',
+  },
+  statistic_alerts: {
+    variant: 'statistic_alerts',
+    claimCategory: 'statistics',
+    summary: 'Misleading statistic alerts',
+    title: 'Get statistic alerts like this',
+    description:
+      'Leave your email to get updates when DAM detects misleading charts, numbers, or research claims.',
+    buttonLabel: 'Get statistic alerts',
+  },
+  uncertainty_alerts: {
+    variant: 'uncertainty_alerts',
+    claimCategory: 'breaking_news',
+    summary: 'Developing-claim and uncertainty updates',
+    title: 'Get claim-check updates like this',
+    description: 'Leave your email to get updates when DAM detects fast-moving claims that are still unverified.',
+    buttonLabel: 'Get claim-check updates',
+  },
+  dam_alerts: {
+    variant: 'dam_alerts',
+    claimCategory: 'general',
+    summary: 'Claim-check and trust updates',
+    title: 'Get trust updates like this',
+    description:
+      'Leave your email to get updates on suspicious claims, forwards, and misinformation patterns DAM is seeing.',
+    buttonLabel: 'Get trust updates',
+  },
+}
+
 function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) {
     return value
@@ -26,8 +91,20 @@ function uniqueItems(items: string[]) {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))]
 }
 
+function cleanDisplayText(value: string) {
+  return value
+    .replace(/\bverifcation\b/gi, 'verification')
+    .replace(/\baccomodate\b/gi, 'accommodate')
+    .replace(/\brecieve\b/gi, 'receive')
+    .replace(/\bfic\b/gi, 'fix')
+}
+
+function cleanDisplayItems(items: string[]) {
+  return items.map((item) => cleanDisplayText(item))
+}
+
 function toListItems(items: string[]) {
-  return uniqueItems(items).map<ResultV2ListItem>((text, index) => ({
+  return uniqueItems(cleanDisplayItems(items)).map<ResultV2ListItem>((text, index) => ({
     id: `item-${index + 1}`,
     text,
   }))
@@ -43,7 +120,7 @@ function includesAny(value: string, terms: string[]) {
 function getDetectedClaimType(claim: string, analysis?: Analysis | null) {
   const subject = `${claim} ${analysis?.verdict ?? ''} ${analysis?.risk ?? ''}`.toLowerCase()
 
-  if (/(otp|kyc|bank|refund|account|login|password|credential|link|payment|upi|reward|gift|phish|impersonat)/.test(subject)) {
+  if (/\b(otp|kyc|bank|refund|account|login|password|credential|link|payment|upi|reward|gift|phish|impersonat\w*)\b/.test(subject)) {
     return 'Scam or account-security claim'
   }
 
@@ -109,25 +186,25 @@ function getToneLabel(tone: ResultV2Tone) {
 
 function getShortReason(analysis?: Analysis | null) {
   if (!analysis) {
-    return FALLBACK_REASON
+    return cleanDisplayText(FALLBACK_REASON)
   }
 
   const action = analysis.operationalGuidance?.action?.trim()
   if (action) {
-    return action
+    return cleanDisplayText(action)
   }
 
   const contradictionSummary = analysis.contradictions?.summary?.trim()
   if (contradictionSummary) {
-    return contradictionSummary
+    return cleanDisplayText(contradictionSummary)
   }
 
   const reasoning = analysis.reasoning?.trim()
   if (reasoning) {
-    return truncateText(reasoning, 180)
+    return cleanDisplayText(truncateText(reasoning, 180))
   }
 
-  return FALLBACK_REASON
+  return cleanDisplayText(FALLBACK_REASON)
 }
 
 function getClaimTypeActions(claimType: string | undefined) {
@@ -160,9 +237,164 @@ function getClaimTypeActions(claimType: string | undefined) {
   }
 }
 
+function countMatches(value: string, patterns: readonly RegExp[]) {
+  return patterns.reduce((count, pattern) => (pattern.test(value) ? count + 1 : count), 0)
+}
+
+function classifyEmailCaptureVariant({
+  claim,
+  analysis,
+  evidenceQuality,
+  mainProblems,
+}: {
+  claim: string
+  analysis?: Analysis | null
+  evidenceQuality: string
+  mainProblems: ResultV2ListItem[]
+}) {
+  const summaryText = [
+    claim,
+    analysis?.verdict ?? '',
+    analysis?.risk ?? '',
+    analysis?.reasoning ?? '',
+    analysis?.operationalGuidance?.action ?? '',
+    analysis?.operationalGuidance?.distribution ?? '',
+    analysis?.operationalGuidance?.escalation ?? '',
+    analysis?.operationalGuidance?.nextSteps?.join(' ') ?? '',
+    analysis?.contradictions?.summary ?? '',
+    analysis?.confidence?.drivers?.join(' ') ?? '',
+    evidenceQuality,
+    ...mainProblems.map((item) => item.text),
+  ]
+    .join(' ')
+    .toLowerCase()
+
+  const detectedClaimType = getDetectedClaimType(claim, analysis)
+  const scamScore = countMatches(summaryText, [
+    /\bscam\b/i,
+    /\bkyc\b/i,
+    /\botp\b/i,
+    /\bbank(?:ing)?\b/i,
+    /\baccount\b/i,
+    /\bwallet\b/i,
+    /\bdebit card\b/i,
+    /\bcredit card\b/i,
+    /\bupi\b/i,
+    /\bphish(?:ing)?\b/i,
+    /\bcredential\b/i,
+    /\blogin\b/i,
+    /\bpassword\b/i,
+    /\bpayment\b/i,
+    /\brefund\b/i,
+    /\bimpersonat(?:e|ion)\b/i,
+    /\brbi\b/i,
+  ])
+
+  if (
+    [
+      'Fake KYC urgency',
+      'Credential harvesting pattern',
+      'Likely phishing attempt',
+      'Impersonation risk',
+      'Suspicious payment extraction',
+      'Payment extraction pattern',
+      'Reward bait pattern',
+      'Suspicious link behavior',
+      'Guaranteed-return scam pattern',
+    ].includes(analysis?.verdict ?? '') ||
+    (
+      detectedClaimType === 'Scam or account-security claim' &&
+      (scamScore > 0 || analysis?.risk === 'High' || analysis?.risk === 'Severe')
+    ) ||
+    scamScore > 1
+  ) {
+    return EMAIL_CAPTURE_VARIANTS.scam_alerts
+  }
+
+  const civicScore = countMatches(summaryText, [
+    /\bcivic\b/i,
+    /\bgovernment\b/i,
+    /\bminister\b/i,
+    /\belection\b/i,
+    /\bvote\b/i,
+    /\baadha(?:a)?r\b/i,
+    /\bnotice\b/i,
+    /\bscheme\b/i,
+    /\bparliament\b/i,
+    /\bprime minister\b/i,
+    /\bchief minister\b/i,
+    /\bunsupported civic claim\b/i,
+  ])
+
+  if (
+    [
+      'Unsupported civic claim',
+      'Fake government notice',
+    ].includes(analysis?.verdict ?? '') ||
+    civicScore > 0
+  ) {
+    return EMAIL_CAPTURE_VARIANTS.civic_alerts
+  }
+
+  if (
+    countMatches(summaryText, [
+      /\bhealth\b/i,
+      /\bmedical\b/i,
+      /\bdoctor\b/i,
+      /\bhospital\b/i,
+      /\bvaccine\b/i,
+      /\btreatment\b/i,
+      /\bmedicine\b/i,
+      /\bcure\b/i,
+      /\bdisease\b/i,
+      /\bsymptom\b/i,
+      /\bvirus\b/i,
+    ]) > 0
+  ) {
+    return EMAIL_CAPTURE_VARIANTS.health_alerts
+  }
+
+  const statisticsScore = countMatches(summaryText, [
+    /\bstatistics?\b/i,
+    /\bnumber(?:s)?\b/i,
+    /\bdata\b/i,
+    /\bpercent(?:age)?\b/i,
+    /\bsurvey\b/i,
+    /\bresearch\b/i,
+    /\bstudy\b/i,
+    /\bgraph\b/i,
+    /\bchart\b/i,
+    /\bsample\b/i,
+  ])
+
+  if (statisticsScore > 0) {
+    return EMAIL_CAPTURE_VARIANTS.statistic_alerts
+  }
+
+  const breakingScore = countMatches(summaryText, [
+    /\bbreaking\b/i,
+    /\bdeveloping\b/i,
+    /\bheadline\b/i,
+    /\bnews\b/i,
+    /\balert\b/i,
+    /\btoday\b/i,
+    /\btomorrow\b/i,
+    /\blive\b/i,
+    /\bunverified\b/i,
+    /\bverification incomplete\b/i,
+    /\bevidence insufficient\b/i,
+  ])
+
+  if (breakingScore > 1) {
+    return EMAIL_CAPTURE_VARIANTS.uncertainty_alerts
+  }
+
+  return EMAIL_CAPTURE_VARIANTS.dam_alerts
+}
+
 function buildMainProblems(claim: string, analysis?: Analysis | null) {
   if (!analysis) {
-    return toListItems([FALLBACK_PROBLEM])
+    return toListItems([cleanDisplayText(FALLBACK_PROBLEM)])
   }
 
   const subject =
@@ -282,6 +514,12 @@ export function adaptResultToV2ViewModel({
     analysis?.sourceCredibility?.label && analysis?.corroborationLevel?.label
       ? `${analysis.sourceCredibility.label} credibility, ${analysis.corroborationLevel.label.toLowerCase()}`
       : 'Limited evidence'
+  const emailCaptureVariant = classifyEmailCaptureVariant({
+    claim: trimmedClaim,
+    analysis,
+    evidenceQuality,
+    mainProblems,
+  })
   const plainTextExport = buildPlainTextExport(
     trimmedClaim,
     analysis,
@@ -363,8 +601,17 @@ export function adaptResultToV2ViewModel({
       submitDisabledReason: 'Review submission is coming soon.',
     },
     emailCapture: {
-      title: 'Get alerts like this',
-      description: 'Get scam and suspicious-message alerts.',
+      eyebrow: 'Post-result alerts',
+      summary: emailCaptureVariant.summary,
+      title: emailCaptureVariant.title,
+      description: cleanDisplayText(emailCaptureVariant.description),
+      buttonLabel: cleanDisplayText(emailCaptureVariant.buttonLabel),
+      privacyNote: cleanDisplayText(DEFAULT_EMAIL_CAPTURE_PRIVACY_NOTE),
+      variant: emailCaptureVariant.variant,
+      claimCategory: emailCaptureVariant.claimCategory,
+      sourceResultType: 'post_result_adaptive_capture',
+      riskLabel: analysis?.risk,
+      verdict: analysis?.verdict,
       reuseExistingSignup: true,
     },
   }

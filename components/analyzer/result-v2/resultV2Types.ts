@@ -69,8 +69,17 @@ export type ResultV2Review = {
 }
 
 export type ResultV2EmailCapture = {
+  eyebrow: string
+  summary: string
   title: string
   description: string
+  buttonLabel: string
+  privacyNote: string
+  variant: string
+  claimCategory: string
+  sourceResultType: string
+  riskLabel?: string
+  verdict?: string
   reuseExistingSignup: boolean
 }
 

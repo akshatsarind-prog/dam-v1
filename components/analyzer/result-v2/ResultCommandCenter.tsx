@@ -34,8 +34,10 @@ function SecondaryPanel({
   defaultOpen?: boolean
   children: React.ReactNode
 }) {
+  const detailsProps = defaultOpen ? { open: true } : {}
+
   return (
-    <details className="result-v2-secondary" open={defaultOpen}>
+    <details className="result-v2-secondary" {...detailsProps}>
       <summary>
         <span className="result-v2-secondary__copy">
           <span className="result-v2-secondary__title">{title}</span>
@@ -96,7 +98,7 @@ export default function ResultCommandCenter({
             onDownload={() => onDownloadSummary(viewModel.download.plainTextExport)}
           />
         </SecondaryPanel>
-        <SecondaryPanel title="Alerts" summary="Scam and suspicious-message alerts">
+        <SecondaryPanel title="Alerts" summary={viewModel.emailCapture.summary} defaultOpen={false}>
           <ResultEmailCapturePanel emailCapture={viewModel.emailCapture} />
         </SecondaryPanel>
         <SecondaryPanel title="Review" summary="Feedback coming soon">
