@@ -891,70 +891,73 @@ function AdminNavigationDrawer({
           </button>
         </div>
 
-        <div className="dam-admin-menu-drawer__meta">
-          <span>Private admin</span>
-          <span>Updated {formatDateTime(generatedAt)}</span>
-        </div>
+        <div className="dam-admin-menu-body">
+          <div className="dam-admin-menu-drawer__meta">
+            <span>Private admin</span>
+            <span>Updated {formatDateTime(generatedAt)}</span>
+          </div>
 
-        <nav className="dam-admin-menu-nav" aria-label="Admin sections">
-          {showHomeLink ? (
-            <Link
-              href={homeHref}
-              onClick={onClose}
-              className="dam-admin-menu-link"
-              data-active={pathname === homeHref}
-            >
-              <div>
-                <strong>Admin Home</strong>
-                <span>Centered control lobby</span>
-              </div>
-            </Link>
-          ) : null}
-
-          {ADMIN_NAV_GROUP_ORDER.map((group) => {
-            const sections = adminSectionLinks.filter((section) => section.group === group)
-
-            if (!sections.length) {
-              return null
-            }
-
-            return (
-              <div key={group} className="dam-admin-menu-group">
-                <p className="dam-admin-menu-group__title">{group}</p>
-                <div className="dam-admin-menu-group__links">
-                  {sections.map((section) => {
-                    const isActive =
-                      pathname === section.href ||
-                      (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
-
-                    return (
-                      <Link
-                        key={section.href}
-                        href={section.href}
-                        onClick={onClose}
-                        className="dam-admin-menu-link"
-                        data-active={isActive}
-                      >
-                        <div>
-                          <strong>{section.title}</strong>
-                          <span>{section.description}</span>
-                        </div>
-                      </Link>
-                    )
-                  })}
+          <nav className="dam-admin-menu-nav" aria-label="Admin sections">
+            {showHomeLink ? (
+              <Link
+                href={homeHref}
+                onClick={onClose}
+                className="dam-admin-menu-link"
+                data-active={pathname === homeHref}
+              >
+                <div>
+                  <strong>Admin Home</strong>
+                  <span>Centered control lobby</span>
                 </div>
-              </div>
-            )
-          })}
-        </nav>
+              </Link>
+            ) : null}
 
-        <div className="dam-admin-menu-actions">
-          <button type="button" className="dam-admin-menu-action" onClick={onRefresh}>
-            {isRefreshing ? 'Refreshing metrics...' : 'Refresh metrics'}
-          </button>
-          <button type="button" className="dam-admin-menu-action dam-admin-menu-action--danger" onClick={onLogout}>
-            Logout
-          </button>
+            {ADMIN_NAV_GROUP_ORDER.map((group) => {
+              const sections = adminSectionLinks.filter((section) => section.group === group)
+
+              if (!sections.length) {
+                return null
+              }
+
+              return (
+                <div key={group} className="dam-admin-menu-group">
+                  <p className="dam-admin-menu-group__title">{group}</p>
+                  <div className="dam-admin-menu-group__links">
+                    {sections.map((section) => {
+                      const isActive =
+                        pathname === section.href ||
+                        (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
+
+                      return (
+                        <Link
+                          key={section.href}
+                          href={section.href}
+                          onClick={onClose}
+                          className="dam-admin-menu-link"
+                          data-active={isActive}
+                        >
+                          <div>
+                            <strong>{section.title}</strong>
+                            <span>{section.description}</span>
+                          </div>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </nav>
+
+          <div className="dam-admin-menu-actions">
+            <p className="dam-admin-menu-group__title">Actions</p>
+            <button type="button" className="dam-admin-menu-action" onClick={onRefresh}>
+              {isRefreshing ? 'Refreshing metrics...' : 'Refresh metrics'}
+            </button>
+            <button type="button" className="dam-admin-menu-action dam-admin-menu-action--danger" onClick={onLogout}>
+              Logout
+            </button>
+          </div>
         </div>
       </aside>
     </>
@@ -1146,8 +1149,9 @@ function AdminShellStyles() {
         bottom: 18px;
         z-index: 1201;
         width: min(420px, calc(100vw - 36px));
-        display: grid;
-        align-content: start;
+        max-height: calc(100svh - 36px);
+        display: flex;
+        flex-direction: column;
         gap: 18px;
         padding: 22px;
         border: 1px solid rgba(165, 188, 230, 0.18);
@@ -1161,7 +1165,7 @@ function AdminShellStyles() {
         transition:
           transform 240ms ease,
           opacity 240ms ease;
-        overflow-y: auto;
+        overflow: hidden;
       }
 
       .dam-admin-menu-drawer--open {
@@ -1169,11 +1173,36 @@ function AdminShellStyles() {
         opacity: 1;
       }
 
+      .dam-admin-menu-body {
+        min-height: 0;
+        flex: 1 1 auto;
+        display: grid;
+        align-content: start;
+        gap: 18px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(165, 188, 230, 0.28) transparent;
+      }
+
+      .dam-admin-menu-body::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .dam-admin-menu-body::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .dam-admin-menu-body::-webkit-scrollbar-thumb {
+        background: rgba(165, 188, 230, 0.24);
+        border-radius: 999px;
+      }
+
       .dam-admin-menu-drawer__header {
         display: grid;
         grid-template-columns: 1fr auto;
         align-items: center;
         gap: 12px;
+        flex: 0 0 auto;
       }
 
       .dam-admin-menu-drawer__brand {

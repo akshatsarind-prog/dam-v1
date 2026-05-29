@@ -167,90 +167,95 @@ function Menu({
           </button>
         </div>
 
-        <nav className="dam-report-menu__nav" aria-label="Admin menu">
-          {(['Core', 'Growth', 'Product', 'System'] as const).map((group) => {
-            const sections = adminSectionLinks.filter((section) => section.group === group)
+        <div className="dam-report-menu__body">
+          <nav className="dam-report-menu__nav" aria-label="Admin menu">
+            {(['Core', 'Growth', 'Product', 'System'] as const).map((group) => {
+              const sections = adminSectionLinks.filter((section) => section.group === group)
 
-            return (
-              <div key={group} className="dam-report-menu__group">
-                <p className="dam-report-menu__group-title">{group}</p>
-                <div className="dam-report-menu__group-links">
-                  {sections.map((section) => {
-                    const isActive =
-                      pathname === section.href ||
-                      (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
+              return (
+                <div key={group} className="dam-report-menu__group">
+                  <p className="dam-report-menu__group-title">{group}</p>
+                  <div className="dam-report-menu__group-links">
+                    {sections.map((section) => {
+                      const isActive =
+                        pathname === section.href ||
+                        (section.href === '/admin/lifetime' && pathname.startsWith('/admin/lifetime'))
 
-                    return (
-                      <Link
-                        key={section.href}
-                        href={section.href}
-                        className="dam-report-menu__link"
-                        data-active={isActive}
-                        onClick={onClose}
-                      >
-                        <div className="dam-report-menu__link-copy">
-                          <strong>{section.title}</strong>
-                          <span>{section.description}</span>
-                        </div>
-                      </Link>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })}
-
-          <div className="dam-report-menu__group">
-            <p className="dam-report-menu__group-title">Reports</p>
-            <div className="dam-report-menu__group-links">
-              {reportLinks.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="dam-report-menu__link"
-                  data-active={item.active}
-                  onClick={onClose}
-                >
-                  <div className="dam-report-menu__link-copy">
-                    <strong>{item.title}</strong>
-                    <span>{item.description}</span>
+                      return (
+                        <Link
+                          key={section.href}
+                          href={section.href}
+                          className="dam-report-menu__link"
+                          data-active={isActive}
+                          onClick={onClose}
+                        >
+                          <div className="dam-report-menu__link-copy">
+                            <strong>{section.title}</strong>
+                            <span>{section.description}</span>
+                          </div>
+                        </Link>
+                      )
+                    })}
                   </div>
-                </Link>
-              ))}
-            </div>
-          </div>
+                </div>
+              )
+            })}
 
-          <button
-            type="button"
-            className="dam-report-menu__link dam-report-menu__link--button"
-            onClick={() => {
-              onClose()
-              onDownloadFullReport()
-            }}
-          >
-            {isExporting ? 'Generating report...' : 'Download Full Report'}
-          </button>
-          <button
-            type="button"
-            className="dam-report-menu__link dam-report-menu__link--button"
-            onClick={() => {
-              onClose()
-              onRefresh()
-            }}
-          >
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-          <button
-            type="button"
-            className="dam-report-menu__link dam-report-menu__link--button"
-            onClick={() => {
-              onClose()
-              onLogout()
-            }}
-          >
-            Logout
-          </button>
-        </nav>
+            <div className="dam-report-menu__group">
+              <p className="dam-report-menu__group-title">Reports</p>
+              <div className="dam-report-menu__group-links">
+                {reportLinks.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="dam-report-menu__link"
+                    data-active={item.active}
+                    onClick={onClose}
+                  >
+                    <div className="dam-report-menu__link-copy">
+                      <strong>{item.title}</strong>
+                      <span>{item.description}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </nav>
+
+          <div className="dam-report-menu__actions">
+            <p className="dam-report-menu__group-title">Actions</p>
+            <button
+              type="button"
+              className="dam-report-menu__link dam-report-menu__link--button"
+              onClick={() => {
+                onClose()
+                onRefresh()
+              }}
+            >
+              {isRefreshing ? 'Refreshing...' : 'Refresh metrics'}
+            </button>
+            <button
+              type="button"
+              className="dam-report-menu__link dam-report-menu__link--button"
+              onClick={() => {
+                onClose()
+                onDownloadFullReport()
+              }}
+            >
+              {isExporting ? 'Generating report...' : 'Download Full Report'}
+            </button>
+            <button
+              type="button"
+              className="dam-report-menu__link dam-report-menu__link--button"
+              onClick={() => {
+                onClose()
+                onLogout()
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        </div>
       </aside>
     </>
   )
@@ -1344,7 +1349,9 @@ function ReportSystemStyles() {
         top: 16px;
         left: 16px;
         width: min(300px, calc(100vw - 32px));
-        display: grid;
+        max-height: calc(100svh - 32px);
+        display: flex;
+        flex-direction: column;
         gap: 16px;
         padding: 14px;
         border: 1px solid rgba(140, 157, 185, 0.18);
@@ -1358,6 +1365,7 @@ function ReportSystemStyles() {
           transform 180ms ease,
           opacity 180ms ease;
         z-index: 70;
+        overflow: hidden;
       }
 
       .dam-report-menu--open {
@@ -1371,6 +1379,7 @@ function ReportSystemStyles() {
         align-items: center;
         justify-content: space-between;
         gap: 12px;
+        flex: 0 0 auto;
       }
 
       .dam-report-menu__brand {
@@ -1411,6 +1420,30 @@ function ReportSystemStyles() {
 
       .dam-report-menu__close span:last-child {
         transform: rotate(-45deg);
+      }
+
+      .dam-report-menu__body {
+        min-height: 0;
+        flex: 1 1 auto;
+        display: grid;
+        align-content: start;
+        gap: 14px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(140, 157, 185, 0.28) transparent;
+      }
+
+      .dam-report-menu__body::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .dam-report-menu__body::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .dam-report-menu__body::-webkit-scrollbar-thumb {
+        background: rgba(140, 157, 185, 0.24);
+        border-radius: 999px;
       }
 
       .dam-report-menu__nav {
@@ -1474,6 +1507,11 @@ function ReportSystemStyles() {
       .dam-report-menu__link--button {
         width: 100%;
         text-align: left;
+      }
+
+      .dam-report-menu__actions {
+        display: grid;
+        gap: 6px;
       }
 
       .dam-report-auth {
