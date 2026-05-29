@@ -443,6 +443,11 @@ export default function SharedResultView({
       reportMeta,
       displayScope,
     })
+    const resultIdentity =
+      reportMeta?.traceId ||
+      [claim.trim(), activeAnalysis.verdict, activeAnalysis.retrievedAt || reportMeta?.timestamp || '']
+        .filter(Boolean)
+        .join('::')
     const resultV2ViewModel = adaptResultToV2ViewModel({
       claim,
       analysis: activeAnalysis,
@@ -644,6 +649,7 @@ export default function SharedResultView({
           claim={claim}
           analysis={activeAnalysis}
           mode={mode}
+          resultIdentity={resultIdentity}
           viewModel={resultV2ViewModel}
           actionStatus={currentActionScope !== '' && actionScope === currentActionScope ? actionMessage : ''}
           actionError={currentActionScope !== '' && actionScope === currentActionScope ? actionError : ''}

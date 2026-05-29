@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Analysis } from '../analyzerData'
 import type { ResultV2ViewModel } from './resultV2Types'
 import ResultDownloadPanel from './ResultDownloadPanel'
@@ -15,6 +16,7 @@ type ResultCommandCenterProps = {
   claim?: string
   analysis: Analysis
   mode?: 'mobile' | 'desktop'
+  resultIdentity: string
   viewModel: ResultV2ViewModel
   actionStatus?: string
   actionError?: string
@@ -27,14 +29,26 @@ function SecondaryPanel({
   title,
   summary,
   defaultOpen = false,
+  open,
+  onToggle,
   children,
 }: {
   title: string
   summary?: string
   defaultOpen?: boolean
+  open?: boolean
+  onToggle?: React.ReactEventHandler<HTMLDetailsElement>
   children: React.ReactNode
 }) {
-  const detailsProps = defaultOpen ? { open: true } : {}
+  const detailsProps =
+    typeof open === 'boolean'
+      ? {
+          open,
+          onToggle,
+        }
+      : defaultOpen
+        ? { open: true }
+        : {}
 
   return (
     <details className="result-v2-secondary" {...detailsProps}>
@@ -56,8 +70,26 @@ function SecondaryPanel({
   )
 }
 
+function AlertsPanel({ emailCapture }: { emailCapture: ResultV2ViewModel['emailCapture'] }) {
+  const [isOpen, setIsOpen] = useState(true)
+
+  return (
+    <SecondaryPanel
+      title="Alerts"
+      summary={emailCapture.summary}
+      open={isOpen}
+      onToggle={(event) => {
+        setIsOpen(event.currentTarget.open)
+      }}
+    >
+      <ResultEmailCapturePanel emailCapture={emailCapture} />
+    </SecondaryPanel>
+  )
+}
+
 export default function ResultCommandCenter({
   mode = 'desktop',
+  resultIdentity,
   viewModel,
   actionStatus,
   actionError,
@@ -98,12 +130,10 @@ export default function ResultCommandCenter({
             onDownload={() => onDownloadSummary(viewModel.download.plainTextExport)}
           />
         </SecondaryPanel>
-        <SecondaryPanel title="Alerts" summary={viewModel.emailCapture.summary} defaultOpen={false}>
-          <ResultEmailCapturePanel emailCapture={viewModel.emailCapture} />
-        </SecondaryPanel>
         <SecondaryPanel title="Review" summary="Feedback coming soon">
           <ResultReviewPanel review={viewModel.review} />
         </SecondaryPanel>
+        <AlertsPanel key={resultIdentity} emailCapture={viewModel.emailCapture} />
       </div>
 
       {actionStatus || actionError ? (

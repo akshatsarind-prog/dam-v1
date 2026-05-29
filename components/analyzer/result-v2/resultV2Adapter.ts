@@ -328,7 +328,6 @@ function classifyEmailCaptureVariant({
 
   if (
     [
-      'Unsupported civic claim',
       'Fake government notice',
     ].includes(analysis?.verdict ?? '') ||
     civicScore > 0
