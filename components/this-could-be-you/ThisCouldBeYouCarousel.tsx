@@ -104,7 +104,6 @@ export default function ThisCouldBeYouCarousel({
         }
 
         viewedStoryIdsRef.current.add(story.id)
-        // TODO: Track viewed story cards once frontend-only analytics hooks can be added without changing API event validation.
       },
       {
         root: trackRef.current,
@@ -208,9 +207,6 @@ export default function ThisCouldBeYouCarousel({
                 className="primary-link story-card-action-link"
                 href={returnHref}
                 scroll={false}
-                onClick={() => {
-                  // TODO: Track CTA clicks once frontend-only analytics hooks can be added without changing API event validation.
-                }}
               >
                 Test a Real Message
               </Link>

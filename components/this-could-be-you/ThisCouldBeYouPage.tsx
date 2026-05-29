@@ -10,7 +10,6 @@ const returnToAnalyzerHref = '/?focus=claim-input#verify'
 export default function ThisCouldBeYouPage() {
   return (
     <main className="dam-shell this-could-be-you-page">
-      {/* TODO: Track this route opening once frontend-only analytics hooks can be added without changing API event validation. */}
       <DamMarketingHeader activeHref="/this-could-be-you" />
 
       <section className="section-frame this-could-be-you-hero">
