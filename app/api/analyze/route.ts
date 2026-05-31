@@ -6,7 +6,15 @@ import {
   retrieveEvidence,
   type ClaimCategory,
 } from '@/lib/retrieval'
-import { isValidRetrievalCategory, routeClaim } from '@/lib/claimRouter'
+import {
+  getExamClaimProfile,
+  getIdentityThreatProfile,
+  getMedicineRumorProfile,
+  getPersonDeathProfile,
+  getProductLaunchProfile,
+  isValidRetrievalCategory,
+  routeClaim,
+} from '@/lib/claimRouter'
 import { withTimeout } from '@/lib/timeout'
 import { redactSensitiveClaimText } from '@/lib/analytics'
 import {
@@ -2704,6 +2712,7 @@ function isCurrentNewsClaim(claim: string): boolean {
     'latest',
     'just announced',
     'confirmed today',
+    'dead',
     'died today',
     'tonight',
     'explosion',
@@ -2779,7 +2788,8 @@ function summarizeEvidenceStrength(input: {
   if (
     (input.evidenceStrength.direction === 'supporting' &&
       (input.evidenceStrength.label === 'strong' || input.evidenceStrength.label === 'moderate') &&
-      input.sourceCredibility.weightedScore >= 50) ||
+      input.sourceCredibility.weightedScore >= 50 &&
+      input.directClaimSupport) ||
     input.directStableFactSupport
   ) {
     return 'Retrieved evidence directly supports the claim.'
@@ -3478,6 +3488,149 @@ function extractDirectSupportTerms(claim: string) {
     )
 }
 
+function hasIdentityThreatGrounding(claim: string, text: string) {
+  const profile = getIdentityThreatProfile(claim)
+
+  if (!profile.matched) {
+    return true
+  }
+
+  const authorityHit = profile.queryTokens.some((token) => text.includes(token))
+  const threatHit =
+    /\b(verify|verification|update|kyc|blocked|deactivated|deactivate|suspended|scam|fraud|phishing|advisory|warning|link)\b/.test(
+      text
+    )
+
+  return authorityHit && threatHit
+}
+
+function hasMedicineAnchor(text: string) {
+  return /\b(paracetamol|acetaminophen|p-500|p\/500|p 500|p500)\b/.test(text)
+}
+
+function hasP500Anchor(text: string) {
+  return /\b(p-500|p\/500|p 500|p500)\b/.test(text)
+}
+
+function hasMedicineRumorAnchor(text: string) {
+  return /\b(machupo|fake|hoax|rumou?r|whatsapp|viral message|forwarded message|fact check|fake news|warning)\b/.test(
+    text
+  )
+}
+
+function hasMedicineRumorGrounding(claim: string, text: string) {
+  const profile = getMedicineRumorProfile(claim)
+
+  if (!profile.matched) {
+    return true
+  }
+
+  const medicineHit = hasMedicineAnchor(text)
+  const rumorHit = hasMedicineRumorAnchor(text)
+  const machupoHit = text.includes('machupo')
+  const contaminationHit = /\b(contains|contain|inside)\b/.test(text) && text.includes('virus')
+  const specificMedicineHit = profile.requiresP500Specificity ? hasP500Anchor(text) : medicineHit
+
+  return specificMedicineHit && (rumorHit || machupoHit || contaminationHit)
+}
+
+function hasProductLaunchGrounding(claim: string, text: string) {
+  const profile = getProductLaunchProfile(claim)
+
+  if (!profile.matched) {
+    return true
+  }
+
+  const productHit =
+    (text.includes('openai') && text.includes('gpt-6')) ||
+    (text.includes('openai') && text.includes('gpt 6')) ||
+    (text.includes('openai') && text.includes('gpt6'))
+  const launchHit = /\b(launch|launched|release|released|public|publicly|available|announce|announced)\b/.test(
+    text
+  )
+
+  return productHit && launchHit
+}
+
+function hasClaimEntityTopicGrounding(claim: string, text: string) {
+  const normalizedText = text.toLowerCase()
+  const personProfile = getPersonDeathProfile(claim)
+
+  if (personProfile.matched && personProfile.fullName && personProfile.surname) {
+    const exactMatch = normalizedText.includes(personProfile.fullName)
+    const surnameMatch = normalizedText.includes(personProfile.surname)
+    const aliasHits = personProfile.aliasSignals.filter((signal) => normalizedText.includes(signal)).length
+
+    if (!exactMatch && !surnameMatch && aliasHits < 2) {
+      return false
+    }
+  }
+
+  const examProfile = getExamClaimProfile(claim)
+
+  if (examProfile.matched) {
+    const familyHit = examProfile.queryTokens.some((token) => normalizedText.includes(token))
+    const institutionalHit = examProfile.institutionalSignals.some((signal) =>
+      normalizedText.includes(signal)
+    )
+    const leakHit =
+      /\b(leak|leaked|paper leak|question paper|integrity|compromised|cancelled|canceled|investigation|postponed)\b/.test(
+        normalizedText
+      )
+    const genericDrift =
+      /net neutrality|net-winged beetle|paper chromatography|\bpaper facts\b|\btopic\/june\b|\btopic\/wikipedia\b/.test(
+        normalizedText
+      )
+
+    if (genericDrift || !familyHit || (!leakHit && !institutionalHit)) {
+      return false
+    }
+  }
+
+  if (!hasIdentityThreatGrounding(claim, normalizedText)) {
+    return false
+  }
+
+  if (!hasMedicineRumorGrounding(claim, normalizedText)) {
+    return false
+  }
+
+  if (!hasProductLaunchGrounding(claim, normalizedText)) {
+    return false
+  }
+
+  return true
+}
+
+function hasGroundedEvidenceMatch(claim: string, evidence: RankedEvidence[]) {
+  return evidence.some((item) =>
+    hasClaimEntityTopicGrounding(claim, `${item.title || ''} ${item.content || ''} ${item.url || ''}`)
+  )
+}
+
+function hasExplicitExamContradictionEvidence(claim: string, evidence: RankedEvidence[]) {
+  const examProfile = getExamClaimProfile(claim)
+
+  if (!examProfile.matched) {
+    return false
+  }
+
+  return evidence.some((item) => {
+    const text = `${item.title || ''} ${item.content || ''} ${item.url || ''}`.toLowerCase()
+    if (!hasClaimEntityTopicGrounding(claim, text)) {
+      return false
+    }
+
+    return (
+      /\b(no paper leak|paper (?:was|were) not leaked|question paper got leaked.*false|not to be related to paper leaks|none of the reports are backed with evidence|no evidence of paper leak|did not indicate a paper leak)\b/.test(
+        text
+      ) ||
+      (text.includes('set the record straight') && text.includes('leaked')) ||
+      (text.includes('to set the record straight') && text.includes('question paper got leaked'))
+    )
+  })
+}
+
 function getClaimLocationTarget(claim: string) {
   const normalized = claim.toLowerCase()
   const match =
@@ -3632,6 +3785,24 @@ const STABLE_FACT_ANCHORS: StableFactAnchorDefinition[] = [
     relationType: 'astronomy',
     directSupport: true,
     reason: 'The Earth revolves around the Sun.',
+  },
+  {
+    pattern: /^(?:the\s+)?earth orbits the sun$/,
+    relationType: 'astronomy',
+    directSupport: true,
+    reason: 'The Earth orbits the Sun.',
+  },
+  {
+    pattern: /^(?:the\s+)?moon orbits earth$/,
+    relationType: 'astronomy',
+    directSupport: true,
+    reason: 'The Moon orbits Earth.',
+  },
+  {
+    pattern: /^(?:the\s+)?moon revolves around earth$/,
+    relationType: 'astronomy',
+    directSupport: true,
+    reason: 'The Moon revolves around Earth.',
   },
   {
     pattern: /^apollo 11 landed humans on the moon in 1969$/,
@@ -4239,6 +4410,22 @@ function hasStableFactRelationSupport(claim: string, evidence: RankedEvidence[],
     }
 
     case 'astronomy': {
+      if (/\bmoon\b.*\b(revolves around|orbits|goes around)\b.*\bearth\b/.test(normalizedClaim)) {
+        return evidence.some((item) => {
+          const text = normalizeStableFactText(`${item.title || ''} ${item.content || ''}`)
+          return (
+            text.includes('moon') &&
+            text.includes('earth') &&
+            (text.includes('orbits the earth') ||
+              text.includes('revolves around the earth') ||
+              text.includes('moon orbits earth') ||
+              text.includes('moon revolves around earth') ||
+              text.includes('earth moon system') ||
+              text.includes('earth-moon system'))
+          )
+        })
+      }
+
       if (/\bsun\b.*\bdoes not\b.*\b(revolves around|orbits|goes around)\b.*\bearth\b/.test(normalizedClaim)) {
         return evidence.some((item) => {
           const text = normalizeStableFactText(`${item.title || ''} ${item.content || ''}`)
@@ -4264,7 +4451,9 @@ function hasStableFactRelationSupport(claim: string, evidence: RankedEvidence[],
               text.includes('orbits the sun') ||
               text.includes('earth revolves around the sun') ||
               text.includes('earth orbits the sun') ||
-              text.includes('heliocentric'))
+              text.includes('heliocentric') ||
+              text.includes('earth sun system') ||
+              text.includes('earth-sun system'))
           )
         })
       }
@@ -5020,6 +5209,10 @@ function hasDirectClaimSupport(claim: string, evidence: RankedEvidence[]) {
     const supportHits = cueScore(text, SUPPORT_STANCE_CUES)
     const termHits = terms.filter((term) => text.includes(term)).length
 
+    if (!hasClaimEntityTopicGrounding(claim, text)) {
+      return false
+    }
+
     if (contradictionHits > 0) {
       return false
     }
@@ -5125,6 +5318,11 @@ function classifyEvidenceStrength(
 
   for (const item of evidence.slice(0, 5)) {
     const text = `${item.title} ${item.content}`.toLowerCase()
+
+    if (!hasClaimEntityTopicGrounding(claim, `${text} ${item.url || ''}`)) {
+      continue
+    }
+
     const keywordHits = keywords.filter((keyword) => text.includes(keyword)).length
     const preferredDomainMatch =
       preferredDomains.some((domain) => item.domain === domain || item.domain.endsWith(`.${domain}`))
@@ -5174,6 +5372,24 @@ function classifyEvidenceStrength(
     supportScore += Math.max(1, keywordHits)
   }
 
+  if (stableFact && directStableFactSupport) {
+    if (authoritativeSources.length > 0) {
+      return {
+        label: 'strong',
+        direction: contradictionScore > supportScore ? 'contradicting' : 'supporting',
+        reason: `${authoritativeSources.slice(0, 3).join(', ')} directly support the stable-fact relation asserted in the claim.`,
+      }
+    }
+
+    if (matchedSources.length > 0) {
+      return {
+        label: 'moderate',
+        direction: contradictionScore > supportScore ? 'contradicting' : 'supporting',
+        reason: `${matchedSources.slice(0, 3).join(', ')} directly support the stable-fact relation, but source authority is mixed.`,
+      }
+    }
+  }
+
   const dominantScore = Math.max(supportScore, contradictionScore)
   const direction: EvidenceStrengthDirection =
     contradictionScore > supportScore ? 'contradicting' : supportScore > 0 ? 'supporting' : 'neutral'
@@ -5217,6 +5433,138 @@ function classifyEvidenceStrength(
       direction,
       reason: 'Retrieved sources were only weakly related to the claim.',
     }
+}
+
+function applyEntityTopicMismatchGuard(
+  analysis: Analysis,
+  claim: string,
+  evidence: RankedEvidence[],
+  claimCategory: string
+) {
+  const examProfile = getExamClaimProfile(claim)
+  const personDeathProfile = getPersonDeathProfile(claim)
+  const supportDriverFiltered = Array.from(
+    new Set(
+      (analysis.confidence.drivers ?? []).filter(
+        (driver) =>
+          !((examProfile.matched || personDeathProfile.matched) &&
+            analysis.verdict !== 'Corroborated' &&
+            analysis.verdict !== 'Likely Reliable' &&
+            /retrieved evidence directly supports the claim|aligns with established factual records/i.test(
+              driver
+            ))
+      )
+    )
+  )
+
+  analysis = {
+    ...analysis,
+    confidence: {
+      ...analysis.confidence,
+      drivers: supportDriverFiltered,
+    },
+  }
+
+  if (
+    examProfile.matched &&
+    analysis.verdict === 'Likely incorrect' &&
+    !hasExplicitExamContradictionEvidence(claim, evidence)
+  ) {
+    const downgradedReason =
+      'Retrieved sources identify the exam entity but do not clearly deny the specific paper-leak claim.'
+
+    return {
+      ...analysis,
+      verdict: 'Evidence insufficient',
+      reason: downgradedReason,
+      reasoning: downgradedReason,
+      uncertaintyReason: downgradedReason,
+      confidenceCapReason: downgradedReason,
+      confidence: {
+        ...analysis.confidence,
+        score: Math.min(readNumber(analysis.confidence.score, 0), 35),
+        label: 'Weak',
+        rationale: downgradedReason,
+        drivers: Array.from(
+          new Set([
+            ...(analysis.confidence.drivers ?? []).filter(
+              (driver) =>
+                !/direct contradiction detected|retrieved evidence conflicts with established factual records/i.test(
+                  driver
+                )
+            ),
+            'Mismatch guard activated: exact exam denial evidence was not established.',
+          ])
+        ),
+      },
+      corroborationLevel: {
+        ...analysis.corroborationLevel,
+        label: 'Insufficient verification',
+        agreement: downgradedReason,
+      },
+      contradictions: {
+        ...analysis.contradictions,
+        label: 'Insufficient verification',
+        level: 'Low',
+        summary: 'No direct contradiction was identified in retrieved evidence.',
+        items: [],
+      },
+      contradictionSummary: 'No direct contradiction was identified in retrieved evidence.',
+    }
+  }
+
+  if (hasGroundedEvidenceMatch(claim, evidence)) {
+    return analysis
+  }
+
+  const breakingOrCurrent = claimCategory === 'breaking_news' || isCurrentNewsClaim(claim)
+  const downgradedVerdict =
+    analysis.verdict === 'Likely incorrect' || analysis.verdict === 'Corroborated' || analysis.verdict === 'Likely Reliable'
+      ? breakingOrCurrent
+        ? 'Unverified'
+        : 'Evidence insufficient'
+      : analysis.verdict
+  const downgradedReason =
+    'Retrieved sources do not clearly match the exact entity or topic in the claim.'
+  const downgradedSummary = 'No direct contradiction was identified in retrieved evidence.'
+  const cleanedDrivers = (analysis.confidence.drivers ?? []).filter(
+    (driver) =>
+      !/retrieved evidence directly supports the claim|aligns with established factual records|direct contradiction detected/i.test(
+        driver
+      )
+  )
+
+  return {
+    ...analysis,
+    verdict: downgradedVerdict,
+    reason: downgradedReason,
+    reasoning: downgradedReason,
+    uncertaintyReason: downgradedReason,
+    confidenceCapReason: downgradedReason,
+    confidence: {
+      ...analysis.confidence,
+      score: Math.min(readNumber(analysis.confidence.score, 0), 35),
+      label: 'Weak',
+      rationale: downgradedReason,
+      drivers: Array.from(new Set([...cleanedDrivers, 'Mismatch guard activated: exact entity/topic match was weak.'])),
+    },
+    corroborationLevel: {
+      ...analysis.corroborationLevel,
+      label: 'Insufficient verification',
+      agreement: downgradedReason,
+      indicators: Array.from(
+        new Set([...(analysis.corroborationLevel?.indicators ?? []), 'Exact entity/topic grounding was not established.'])
+      ),
+    },
+    contradictions: {
+      ...analysis.contradictions,
+      label: 'Insufficient verification',
+      level: 'Low',
+      summary: downgradedSummary,
+      items: [],
+    },
+    contradictionSummary: downgradedSummary,
+  }
 }
 
 function isAuthoritativeHealthEvidence(evidence: RankedEvidence[], preferredDomains: string[]) {
@@ -6562,7 +6910,12 @@ function hasScamPressureSignals(claim: string) {
 
 function isAadhaarLegalThreatClaim(claim: string) {
   const normalized = normalizeStableFactText(claim)
-  return /\baadhaar\b/i.test(normalized) && /\b(police case|case filed|legal|summons|notice|arrest|complaint|blocked|freeze)\b/i.test(normalized)
+  return (
+    /\b(aadhaar|aadhar|uidai|myaadhaar)\b/i.test(normalized) &&
+    /\b(police case|case filed|legal|summons|notice|arrest|complaint|blocked|freeze|deactivated|deactivate|verify|verification|update|kyc)\b/i.test(
+      normalized
+    )
+  )
 }
 
 function isUtilityCutoffThreatClaim(claim: string) {
@@ -6751,8 +7104,11 @@ function applyPass3FinalCleanup<T extends Analysis>(
     'retrieved evidence directly supports the claim',
   ]
 
+  const shouldStripSupportDrivers =
+    (verdictIsEvidenceInsufficient || (!context.directClaimSupport && !context.directStableFactSupport)) &&
+    cleaned.confidence?.drivers
   const sanitizedDrivers =
-    verdictIsEvidenceInsufficient && cleaned.confidence?.drivers
+    shouldStripSupportDrivers
       ? cleaned.confidence.drivers.filter((driver) => {
           const normalized = normalizeStableFactText(driver)
           return !supportLikePhrases.some((phrase) => normalized.includes(phrase))
@@ -9214,11 +9570,13 @@ async function analyzeRequest(
       category: detectedCategory,
       preferredDomains,
       currentOfficeHolder: claimRoute.isCurrentOfficeHolder,
+      claim: rawClaim,
     })
     const uniqueEvidence = dedupeRetrievedEvidence(retrievedEvidenceResult.evidence)
     evidence = rankEvidence(uniqueEvidence, {
       preferredDomains,
       currentOfficeHolder: claimRoute.isCurrentOfficeHolder,
+      claim: rawClaim,
     })
     const directClaimSupport = hasDirectClaimSupport(rawClaim, evidence)
     const officeHolderMetrics = claimRoute.isCurrentOfficeHolder
@@ -9611,7 +9969,7 @@ Sharper wording must not increase confidence.`,
         analysis.verdict = 'Unverified'
       }
     }
-    const response = Response.json(
+    const normalizedResponse = applyEntityTopicMismatchGuard(
       responseNormalizer({
         mode: 'parsed_analysis',
         analysis,
@@ -9630,8 +9988,12 @@ Sharper wording must not increase confidence.`,
         highRiskHealth,
         hasAuthoritativeHealthEvidence,
         dangerousHealthTreatmentSignal,
-      })
+      }),
+      rawClaim,
+      evidence,
+      detectedCategory
     )
+    const response = Response.json(normalizedResponse)
     try {
       if (supabase) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -9768,5 +10130,3 @@ export async function POST(request: Request) {
     }
   }
 }
-
-

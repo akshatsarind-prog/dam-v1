@@ -43,6 +43,7 @@ type RetrievalOptions = {
   preferredDomains?: string[]
   stableFactHint?: string
   currentOfficeHolder?: boolean
+  claim?: string
 }
 
 const GENERAL_AUTHORITATIVE_DOMAINS = ['britannica.com'] as const
@@ -52,6 +53,13 @@ const SCIENCE_DOMAINS = ['nasa.gov', 'esa.int'] as const
 const GOVERNMENT_DOMAINS = ['gov.in', 'pib.gov.in'] as const
 const BREAKING_NEWS_DOMAINS = ['reuters.com', 'apnews.com', 'bbc.com'] as const
 const SCAM_DOMAINS = ['gov.in', 'cybercrime.gov.in', 'rbi.org.in'] as const
+const IDENTITY_THREAT_DOMAINS = [
+  'uidai.gov.in',
+  'myaadhaar.uidai.gov.in',
+  'cybercrime.gov.in',
+  'pib.gov.in',
+  'gov.in',
+] as const
 const SEARCH_PROVIDER_TIMEOUT_SECONDS = 8
 const RETRIEVAL_TIMEOUT_MS = 8500
 const CATEGORY_SEARCH_HINTS: Record<ClaimCategory, string> = {
@@ -63,6 +71,15 @@ const CATEGORY_SEARCH_HINTS: Record<ClaimCategory, string> = {
   scam: 'cybercrime',
   general: 'Britannica/Wikipedia',
 }
+
+const EXAM_PREFERRED_DOMAINS = [
+  'nta.ac.in',
+  'ugcnet.nta.ac.in',
+  'ugc.ac.in',
+  'pib.gov.in',
+  'education.gov.in',
+  'reuters.com',
+] as const
 
 type CurrentOfficeHolderProfile = {
   role: CurrentOfficeHolderRole
@@ -94,6 +111,20 @@ function normalizeText(value: string) {
   return value.trim().toLowerCase()
 }
 
+function hasMedicineAnchor(text: string) {
+  return /\b(paracetamol|acetaminophen|p-500|p\/500|p 500|p500)\b/.test(text)
+}
+
+function hasP500Anchor(text: string) {
+  return /\b(p-500|p\/500|p 500|p500)\b/.test(text)
+}
+
+function hasMedicineRumorAnchor(text: string) {
+  return /\b(machupo|fake|hoax|rumou?r|whatsapp|viral message|forwarded message|fact check|fake news|warning)\b/.test(
+    text
+  )
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -109,6 +140,49 @@ function includesSignal(text: string, signal: string) {
 function buildTargetedQuery(query: string, category: ClaimCategory) {
   if (getCurrentOfficeHolderProfile(query)) {
     return query
+  }
+
+  const personDeathProfile = claimRouter.getPersonDeathProfile(query)
+  if (personDeathProfile.matched) {
+    return includesSignal(normalizeText(query), 'reuters')
+      ? query
+      : `${query} Reuters AP BBC`.trim()
+  }
+
+  const examProfile = claimRouter.getExamClaimProfile(query)
+  if (examProfile.matched) {
+    const examHint = [
+      examProfile.canonicalQuery,
+      'paper leak',
+      'NTA',
+      'CBI',
+      'official',
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    return includesSignal(normalizeText(query), 'paper leak') && includesSignal(normalizeText(query), 'nta')
+      ? query
+      : `${query} ${examHint}`.trim()
+  }
+
+  const identityThreatProfile = claimRouter.getIdentityThreatProfile(query)
+  if (identityThreatProfile.matched) {
+    return /\b(uidai|aadhaar)\b/i.test(query) && /\b(verify|kyc|deactivated|blocked|link)\b/i.test(query)
+      ? query
+      : `${query} UIDAI Aadhaar cybercrime official`.trim()
+  }
+
+  const medicineRumorProfile = claimRouter.getMedicineRumorProfile(query)
+  if (medicineRumorProfile.matched) {
+    return medicineRumorProfile.requiresP500Specificity
+      ? 'paracetamol P-500 Machupo virus fake WhatsApp fact check'
+      : `${medicineRumorProfile.canonicalQuery ?? query} whatsapp fact check`.trim()
+  }
+
+  const productLaunchProfile = claimRouter.getProductLaunchProfile(query)
+  if (productLaunchProfile.matched) {
+    return `${query} OpenAI GPT-6 launch Reuters official`.trim()
   }
 
   const hint = CATEGORY_SEARCH_HINTS[category]
@@ -300,6 +374,11 @@ export function buildRetrievalQueries(
   const preferredDomainHint = preferredDomains[0]?.trim()
   const stableFactHint = options.stableFactHint?.trim()
   const currentOfficeHolderProfile = getCurrentOfficeHolderProfile(cleanClaim)
+  const examClaimProfile = claimRouter.getExamClaimProfile(cleanClaim)
+  const personDeathProfile = claimRouter.getPersonDeathProfile(cleanClaim)
+  const identityThreatProfile = claimRouter.getIdentityThreatProfile(cleanClaim)
+  const medicineRumorProfile = claimRouter.getMedicineRumorProfile(cleanClaim)
+  const productLaunchProfile = claimRouter.getProductLaunchProfile(cleanClaim)
   const queries: string[] = []
 
   if (cleanClaim) {
@@ -308,6 +387,66 @@ export function buildRetrievalQueries(
 
   if (currentOfficeHolderProfile) {
     return uniqueQueries(currentOfficeHolderProfile.queries)
+      .filter((query) => query.length >= 3)
+      .slice(0, 3)
+  }
+
+  if (examClaimProfile.matched) {
+    const yearMatch = cleanClaim.match(/\b(20\d{2}|19\d{2})\b/)
+    const yearText = yearMatch?.[1] ?? ''
+    const canonicalExam = examClaimProfile.canonicalQuery ?? 'UGC NET'
+    return uniqueQueries([
+      `${canonicalExam} ${yearText} paper leak NTA CBI official`.trim(),
+      `${canonicalExam} ${yearText} cancelled investigation Reuters`.trim(),
+      cleanClaim,
+    ])
+      .filter((query) => query.length >= 3)
+      .slice(0, 3)
+  }
+
+  if (identityThreatProfile.matched) {
+    return uniqueQueries([
+      'Aadhaar verify deactivated today link UIDAI cybercrime official',
+      'UIDAI Aadhaar verification scam advisory official',
+      cleanClaim,
+    ])
+      .filter((query) => query.length >= 3)
+      .slice(0, 3)
+  }
+
+  if (medicineRumorProfile.matched) {
+    return uniqueQueries([
+      medicineRumorProfile.requiresP500Specificity
+        ? 'paracetamol P-500 Machupo virus fake'
+        : 'paracetamol virus WhatsApp fact check',
+      medicineRumorProfile.requiresP500Specificity
+        ? 'P/500 paracetamol virus WhatsApp fact check'
+        : 'paracetamol contains virus fake news',
+      medicineRumorProfile.requiresP500Specificity
+        ? 'paracetamol P-500 contains Machupo virus fake news'
+        : 'paracetamol deadly virus rumor forwarded message',
+      cleanClaim,
+    ])
+      .filter((query) => query.length >= 3)
+      .slice(0, 3)
+  }
+
+  if (productLaunchProfile.matched) {
+    return uniqueQueries([
+      'OpenAI GPT-6 launch Reuters official',
+      'OpenAI GPT-6 released publicly official',
+      cleanClaim,
+    ])
+      .filter((query) => query.length >= 3)
+      .slice(0, 3)
+  }
+
+  if (personDeathProfile.matched && personDeathProfile.fullName) {
+    return uniqueQueries([
+      `${personDeathProfile.fullName} death Reuters AP BBC`,
+      `${personDeathProfile.fullName} OpenAI Tesla Reuters`,
+      cleanClaim,
+    ])
       .filter((query) => query.length >= 3)
       .slice(0, 3)
   }
@@ -382,9 +521,23 @@ export function buildRetrievalQueries(
 
 export function getPreferredDomains(category: ClaimCategory, claim = ''): string[] {
   const currentOfficeHolderProfile = getCurrentOfficeHolderProfile(claim)
+  const examClaimProfile = claimRouter.getExamClaimProfile(claim)
+  const personDeathProfile = claimRouter.getPersonDeathProfile(claim)
 
   if (currentOfficeHolderProfile) {
     return [...currentOfficeHolderProfile.preferredDomains]
+  }
+
+  if (examClaimProfile.matched) {
+    return [...EXAM_PREFERRED_DOMAINS]
+  }
+
+  if (personDeathProfile.matched) {
+    return [...BREAKING_NEWS_DOMAINS]
+  }
+
+  if (claimRouter.getIdentityThreatProfile(claim).matched) {
+    return [...IDENTITY_THREAT_DOMAINS]
   }
 
   switch (category) {
@@ -408,6 +561,122 @@ export function getPreferredDomains(category: ClaimCategory, claim = ''): string
 
 export function dedupeRetrievedEvidence(evidence: RetrievedEvidence[]) {
   return Array.from(new Map(evidence.map((item) => [item.url, item])).values())
+}
+
+function buildEvidenceText(item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  return `${item.title || ''} ${item.content || ''} ${item.url || ''}`.toLowerCase()
+}
+
+function hasPersonDeathFit(claim: string, item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  const profile = claimRouter.getPersonDeathProfile(claim)
+
+  if (!profile.matched || !profile.fullName || !profile.surname) {
+    return true
+  }
+
+  const text = buildEvidenceText(item)
+  if (text.includes(profile.fullName)) {
+    return true
+  }
+
+  if (text.includes(profile.surname)) {
+    return true
+  }
+
+  const aliasHits = profile.aliasSignals.filter((signal) => text.includes(signal)).length
+  return aliasHits >= 2
+}
+
+function hasExamTopicFit(claim: string, item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  const profile = claimRouter.getExamClaimProfile(claim)
+
+  if (!profile.matched) {
+    return true
+  }
+
+  const text = buildEvidenceText(item)
+  const familyHit = profile.queryTokens.some((token) => text.includes(token))
+  const institutionalHit = profile.institutionalSignals.some((signal) => text.includes(signal))
+  const leakHit =
+    /\b(leak|leaked|paper leak|question paper|integrity|compromised|cancelled|canceled|investigation|postponed)\b/.test(
+      text
+    )
+  const genericExamDrift =
+    /net neutrality|net-winged beetle|paper chromatography|\bpaper facts\b|\btopic\/june\b|\btopic\/wikipedia\b/.test(
+      text
+    )
+
+  if (genericExamDrift) {
+    return false
+  }
+
+  if (!familyHit) {
+    return false
+  }
+
+  return leakHit || institutionalHit
+}
+
+function hasIdentityThreatFit(claim: string, item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  const profile = claimRouter.getIdentityThreatProfile(claim)
+
+  if (!profile.matched) {
+    return true
+  }
+
+  const text = buildEvidenceText(item)
+  const authorityHit = profile.queryTokens.some((token) => text.includes(token))
+  const threatHit = /\b(verify|verification|update|kyc|blocked|deactivated|deactivate|suspended|scam|fraud|phishing|advisory|warning|link)\b/.test(
+    text
+  )
+
+  return authorityHit && threatHit
+}
+
+function hasMedicineRumorFit(claim: string, item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  const profile = claimRouter.getMedicineRumorProfile(claim)
+
+  if (!profile.matched) {
+    return true
+  }
+
+  const text = buildEvidenceText(item)
+  const medicineHit = hasMedicineAnchor(text)
+  const rumorHit = hasMedicineRumorAnchor(text)
+  const machupoHit = text.includes('machupo')
+  const contaminationHit = /\b(contains|contain|inside)\b/.test(text) && text.includes('virus')
+  const specificMedicineHit = profile.requiresP500Specificity ? hasP500Anchor(text) : medicineHit
+
+  return specificMedicineHit && (rumorHit || machupoHit || contaminationHit)
+}
+
+function hasProductLaunchFit(claim: string, item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  const profile = claimRouter.getProductLaunchProfile(claim)
+
+  if (!profile.matched) {
+    return true
+  }
+
+  const text = buildEvidenceText(item)
+  const productHit =
+    (text.includes('openai') && text.includes('gpt-6')) ||
+    (text.includes('openai') && text.includes('gpt 6')) ||
+    (text.includes('openai') && text.includes('gpt6'))
+  const launchHit = /\b(launch|launched|release|released|public|publicly|available|announce|announced)\b/.test(
+    text
+  )
+
+  return productHit && launchHit
+}
+
+function evidenceMatchesClaimGrounding(claim: string, item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  return (
+    hasPersonDeathFit(claim, item) &&
+    hasExamTopicFit(claim, item) &&
+    hasIdentityThreatFit(claim, item) &&
+    hasMedicineRumorFit(claim, item) &&
+    hasProductLaunchFit(claim, item)
+  )
 }
 
 async function searchEvidence(
@@ -454,12 +723,13 @@ export async function retrieveEvidence(
 ): Promise<RetrievedEvidenceResult> {
   const client = getClient()
   const queries = uniqueQueries(Array.isArray(queryOrQueries) ? queryOrQueries : [queryOrQueries])
-  const category = options.category ?? claimRouter.routeClaim(queries[0] || '').retrievalCategory
+  const claim = (options.claim ?? queries[0] ?? '').trim()
+  const category = options.category ?? claimRouter.routeClaim(claim || queries[0] || '').retrievalCategory
   const preferredDomains = normalizeDomains(
-    options.preferredDomains ?? getPreferredDomains(category, queries[0] || '')
+    options.preferredDomains ?? getPreferredDomains(category, claim || queries[0] || '')
   )
   const currentOfficeHolder =
-    options.currentOfficeHolder ?? claimRouter.routeClaim(queries[0] || '').isCurrentOfficeHolder
+    options.currentOfficeHolder ?? claimRouter.routeClaim(claim || queries[0] || '').isCurrentOfficeHolder
   const retrievalDomains = currentOfficeHolder ? preferredDomains.slice(0, 2) : preferredDomains.slice(0, 1)
   const topic = category === 'breaking_news' ? 'news' : 'general'
   const maxResults = 3
@@ -502,16 +772,25 @@ export async function retrieveEvidence(
             })
           : []
 
-        if (preferredResults.length) {
-          return preferredResults
+        const groundedPreferredResults =
+          claim && preferredResults.length
+            ? preferredResults.filter((result) => evidenceMatchesClaimGrounding(claim, result))
+            : preferredResults
+
+        if (groundedPreferredResults.length) {
+          return groundedPreferredResults
         }
 
-        return await searchEvidence(client, query, {
+        const broadResults = await searchEvidence(client, query, {
           category,
           topic: queryTopic,
           maxResults,
           days,
         })
+
+        return claim
+          ? broadResults.filter((result) => evidenceMatchesClaimGrounding(claim, result))
+          : broadResults
       } catch (error) {
         console.warn('[retrieval] search failed', {
           category,

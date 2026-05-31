@@ -56,6 +56,43 @@ export type ClaimRoute = {
   routingReason: string
 }
 
+export type PersonDeathProfile = {
+  matched: boolean
+  fullName: string | null
+  surname: string | null
+  aliasSignals: string[]
+}
+
+export type ExamClaimProfile = {
+  matched: boolean
+  examFamily: 'ugc_net' | 'net' | 'neet' | 'csir_net' | 'jee' | null
+  canonicalQuery: string | null
+  queryTokens: string[]
+  institutionalSignals: string[]
+}
+
+export type IdentityThreatProfile = {
+  matched: boolean
+  authority: 'aadhaar' | null
+  queryTokens: string[]
+  threatSignals: string[]
+}
+
+export type MedicineRumorProfile = {
+  matched: boolean
+  canonicalQuery: string | null
+  medicineTokens: string[]
+  concernSignals: string[]
+  requiresP500Specificity: boolean
+}
+
+export type ProductLaunchProfile = {
+  matched: boolean
+  organization: string | null
+  productTokens: string[]
+  launchSignals: string[]
+}
+
 const CLAIM_CATEGORIES: ClaimCategory[] = [
   'scam',
   'stable_fact',
@@ -158,6 +195,7 @@ const BREAKING_NEWS_CUES = [
   'announced today',
   'update',
   'confirmed today',
+  'dead',
   'died',
   'death',
   'explosion',
@@ -289,6 +327,8 @@ const HEALTH_CUES = [
   'health',
   'medical',
   'medicine',
+  'paracetamol',
+  'tablet',
   'doctor',
   'hospital',
   'vaccine',
@@ -358,6 +398,31 @@ const ADVERSARIAL_CUES = [
   'prompt injection',
   'act as',
   'bypass',
+] as const
+
+const EXAM_LEAK_CUES = [
+  'exam',
+  'paper leak',
+  'paper leaked',
+  'paper was leaked',
+  'question paper',
+  'nta',
+  'cbi',
+  'cancelled',
+  'canceled',
+  'investigation',
+  'integrity',
+  'telegram',
+  'darknet',
+] as const
+
+const KARPATHY_ALIAS_SIGNALS = [
+  'karpathy',
+  'openai',
+  'tesla',
+  'stanford',
+  'eureka labs',
+  'anthropic',
 ] as const
 
 const CURRENT_OFFICE_HOLDER_ROLE_PATTERNS: Array<{
@@ -467,6 +532,216 @@ function isBreakingNewsClaim(claim: string) {
   return hasAnySignal(normalized, Array.from(BREAKING_NEWS_CUES)) || BREAKING_NEWS_PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(claim))
 }
 
+export function getPersonDeathProfile(claim: string): PersonDeathProfile {
+  const normalized = normalizeText(claim)
+  const deathLike = /\b(dead|death|died|dies|passed away|killed)\b/.test(normalized)
+
+  if (!deathLike) {
+    return {
+      matched: false,
+      fullName: null,
+      surname: null,
+      aliasSignals: [],
+    }
+  }
+
+  const nameSegmentMatch =
+    normalized.match(/\b([a-z][a-z.'-]+(?:\s+[a-z][a-z.'-]+){1,2})\s+is\s+(?:dead|died|dies|killed)\b/) ??
+    normalized.match(/\b([a-z][a-z.'-]+(?:\s+[a-z][a-z.'-]+){1,2})\s+(?:dead|died|dies|passed away|killed)\b/) ??
+    normalized.match(/\b(?:dead|death of|died)\s+([a-z][a-z.'-]+(?:\s+[a-z][a-z.'-]+){1,3})\b/)
+
+  const fullName = nameSegmentMatch?.[1]?.trim() ?? null
+  const fullNameTokens = fullName?.split(/\s+/).filter(Boolean) ?? []
+  const surname = fullNameTokens.length >= 2 ? fullNameTokens[fullNameTokens.length - 1] : null
+  const aliasSignals =
+    fullName === 'andrej karpathy'
+      ? [...KARPATHY_ALIAS_SIGNALS]
+      : surname
+        ? [surname]
+        : []
+
+  return {
+    matched: Boolean(fullName && surname),
+    fullName,
+    surname,
+    aliasSignals,
+  }
+}
+
+export function getExamClaimProfile(claim: string): ExamClaimProfile {
+  const normalized = normalizeText(claim)
+  const leakLike =
+    hasAnySignal(normalized, Array.from(EXAM_LEAK_CUES)) ||
+    /\b(leak|leaked|leaking|postponed|cancelled|canceled|compromised)\b/.test(normalized)
+
+  if (!leakLike) {
+    return {
+      matched: false,
+      examFamily: null,
+      canonicalQuery: null,
+      queryTokens: [],
+      institutionalSignals: [],
+    }
+  }
+
+  let examFamily: ExamClaimProfile['examFamily'] = null
+  let canonicalQuery: string | null = null
+  let queryTokens: string[] = []
+
+  if (/\b(csir[\s-]*net)\b/.test(normalized)) {
+    examFamily = 'csir_net'
+    canonicalQuery = 'CSIR NET'
+    queryTokens = ['csir net', 'csir', 'net']
+  } else if (/\b(ugc[\s-]*net)\b/.test(normalized)) {
+    examFamily = 'ugc_net'
+    canonicalQuery = 'UGC NET'
+    queryTokens = ['ugc net', 'ugc-net', 'ugc', 'net']
+  } else if (/\bneet\b/.test(normalized)) {
+    examFamily = 'neet'
+    canonicalQuery = 'NEET'
+    queryTokens = ['neet']
+  } else if (/\bjee\b/.test(normalized)) {
+    examFamily = 'jee'
+    canonicalQuery = 'JEE'
+    queryTokens = ['jee']
+  } else if (/\bnet\b/.test(normalized) && /\b(paper|exam|ugc|nta|cbi|leak|leaked|cancelled|canceled|investigation)\b/.test(normalized)) {
+    examFamily = 'net'
+    canonicalQuery = 'UGC NET'
+    queryTokens = ['ugc net', 'ugc-net', 'net']
+  }
+
+  if (!examFamily) {
+    return {
+      matched: false,
+      examFamily: null,
+      canonicalQuery: null,
+      queryTokens: [],
+      institutionalSignals: [],
+    }
+  }
+
+  const institutionalSignals = ['nta', 'cbi']
+  if (examFamily === 'ugc_net' || examFamily === 'net' || examFamily === 'csir_net') {
+    institutionalSignals.unshift('ugc')
+  }
+
+  return {
+    matched: true,
+    examFamily,
+    canonicalQuery,
+    queryTokens,
+    institutionalSignals,
+  }
+}
+
+export function getIdentityThreatProfile(claim: string): IdentityThreatProfile {
+  const normalized = normalizeText(claim)
+  const aadhaarLike = /\b(aadhaar|aadhar|uidai|myaadhaar)\b/.test(normalized)
+  const threatSignals = [
+    'verify',
+    'verification',
+    'update',
+    'kyc',
+    'blocked',
+    'deactivated',
+    'deactivate',
+    'suspended',
+    'suspend',
+    'today',
+    'tonight',
+    'link',
+  ].filter((signal) => normalized.includes(signal))
+
+  if (!aadhaarLike || threatSignals.length < 2) {
+    return {
+      matched: false,
+      authority: null,
+      queryTokens: [],
+      threatSignals: [],
+    }
+  }
+
+  return {
+    matched: true,
+    authority: 'aadhaar',
+    queryTokens: ['aadhaar', 'uidai', 'myaadhaar'],
+    threatSignals,
+  }
+}
+
+export function getMedicineRumorProfile(claim: string): MedicineRumorProfile {
+  const normalized = normalizeText(claim)
+  const medicineTokens = ['paracetamol', 'acetaminophen', 'p-500', 'p/500', 'p 500', 'p500'].filter((token) =>
+    normalized.includes(token)
+  )
+  const concernSignals = [
+    'virus',
+    'machupo',
+    'warning',
+    'whatsapp',
+    'message',
+    'fake',
+    'hoax',
+    'rumor',
+    'rumour',
+    'viral message',
+    'fake news',
+  ].filter((signal) => normalized.includes(signal))
+  const requiresP500Specificity = /\bp[\s/-]?500\b/.test(normalized)
+
+  if (!medicineTokens.length || !concernSignals.length) {
+    return {
+      matched: false,
+      canonicalQuery: null,
+      medicineTokens: [],
+      concernSignals: [],
+      requiresP500Specificity: false,
+    }
+  }
+
+  return {
+    matched: true,
+    canonicalQuery: requiresP500Specificity
+      ? 'paracetamol P-500 contains Machupo virus fake news'
+      : 'paracetamol virus WhatsApp rumor fact check',
+    medicineTokens,
+    concernSignals,
+    requiresP500Specificity,
+  }
+}
+
+export function getProductLaunchProfile(claim: string): ProductLaunchProfile {
+  const normalized = normalizeText(claim)
+  const openAiLike = /\bopenai\b/.test(normalized)
+  const gpt6Like = /\bgpt[\s-]?6\b/.test(normalized)
+  const launchSignals = [
+    'launch',
+    'launched',
+    'release',
+    'released',
+    'public',
+    'publicly',
+    'today',
+    'announced',
+  ].filter((signal) => normalized.includes(signal))
+
+  if (!openAiLike || !gpt6Like || !launchSignals.length) {
+    return {
+      matched: false,
+      organization: null,
+      productTokens: [],
+      launchSignals: [],
+    }
+  }
+
+  return {
+    matched: true,
+    organization: 'openai',
+    productTokens: ['gpt-6', 'gpt 6', 'gpt6', 'openai'],
+    launchSignals,
+  }
+}
+
 export function detectCurrentOfficeHolderClaim(claim: string): CurrentOfficeHolderMatch {
   const normalized = normalizeText(claim)
 
@@ -534,6 +809,14 @@ function isStableFactCandidate(claim: string) {
     return false
   }
 
+  if (getExamClaimProfile(claim).matched) {
+    return false
+  }
+
+  if (getMedicineRumorProfile(claim).matched || getProductLaunchProfile(claim).matched) {
+    return false
+  }
+
   if (hasAnySignal(normalized, Array.from(STABLE_FACT_NEGATIVE_SIGNALS))) {
     return false
   }
@@ -543,7 +826,7 @@ function isStableFactCandidate(claim: string) {
 
 function isHealthClaim(claim: string) {
   const normalized = normalizeText(claim)
-  return hasAnySignal(normalized, Array.from(HEALTH_CUES))
+  return hasAnySignal(normalized, Array.from(HEALTH_CUES)) || getMedicineRumorProfile(claim).matched
 }
 
 function isFinanceClaim(claim: string) {
@@ -553,9 +836,14 @@ function isFinanceClaim(claim: string) {
 
 function isScamLikeClaim(claim: string) {
   const normalized = normalizeText(claim)
+  const identityThreatProfile = getIdentityThreatProfile(claim)
 
   if (!normalized) {
     return false
+  }
+
+  if (identityThreatProfile.matched) {
+    return true
   }
 
   const isCivicLike =
@@ -624,9 +912,24 @@ function isScamLikeClaim(claim: string) {
 
 function detectRetrievalCategory(claim: string): RetrievalCategory {
   const normalized = normalizeText(claim)
+  const examClaim = getExamClaimProfile(claim)
+  const identityThreatProfile = getIdentityThreatProfile(claim)
+  const medicineRumorProfile = getMedicineRumorProfile(claim)
 
   if (hasAnySignal(normalized, Array.from(SCAM_SIGNAL_CUES))) {
     return 'scam'
+  }
+
+  if (identityThreatProfile.matched) {
+    return 'scam'
+  }
+
+  if (examClaim.matched) {
+    return 'government'
+  }
+
+  if (medicineRumorProfile.matched) {
+    return 'health'
   }
 
   if (hasAnySignal(normalized, Array.from(BREAKING_NEWS_CUES))) {
@@ -683,6 +986,8 @@ function getRoutingReason(category: ClaimCategory, retrievalCategory: RetrievalC
 }
 
 function getRouteCategory(claim: string): ClaimCategory {
+  const examClaim = getExamClaimProfile(claim)
+
   if (detectCurrentOfficeHolderClaim(claim).matched) {
     return 'general'
   }
@@ -693,6 +998,10 @@ function getRouteCategory(claim: string): ClaimCategory {
 
   if (isBreakingNewsClaim(claim)) {
     return 'breaking_news'
+  }
+
+  if (examClaim.matched) {
+    return 'civic_rumor'
   }
 
   if (isCivicRumorClaim(claim)) {

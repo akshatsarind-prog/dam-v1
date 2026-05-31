@@ -1,4 +1,11 @@
 import { type RetrievedEvidence } from '@/lib/retrieval'
+import {
+  getExamClaimProfile,
+  getIdentityThreatProfile,
+  getMedicineRumorProfile,
+  getPersonDeathProfile,
+  getProductLaunchProfile,
+} from '@/lib/claimRouter'
 
 export type CredibilityLabel = 'High' | 'Moderate' | 'Low' | 'Unknown'
 
@@ -166,6 +173,20 @@ function cueScore(text: string, cues: readonly string[]) {
   return cues.reduce((total, cue) => total + (text.includes(cue) ? 1 : 0), 0)
 }
 
+function hasMedicineAnchor(text: string) {
+  return /\b(paracetamol|acetaminophen|p-500|p\/500|p 500|p500)\b/.test(text)
+}
+
+function hasP500Anchor(text: string) {
+  return /\b(p-500|p\/500|p 500|p500)\b/.test(text)
+}
+
+function hasMedicineRumorAnchor(text: string) {
+  return /\b(machupo|fake|hoax|rumou?r|whatsapp|viral message|forwarded message|fact check|fake news|warning)\b/.test(
+    text
+  )
+}
+
 function pluralize(count: number, singular: string) {
   return `${count} ${singular}${count === 1 ? '' : 's'}`
 }
@@ -296,9 +317,128 @@ function credibilityRationale(label: CredibilityLabel, domain: string, preferred
   return 'Source domain is not in the trust registry.'
 }
 
+function buildClaimEvidenceText(item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>) {
+  return `${item.title || ''} ${item.content || ''} ${item.url || ''}`.toLowerCase()
+}
+
+function getGroundingPenalty(
+  claim: string | undefined,
+  item: Pick<RetrievedEvidence, 'title' | 'content' | 'url'>
+) {
+  if (!claim?.trim()) {
+    return {
+      penalty: 0,
+      mismatch: false,
+      reason: '',
+    }
+  }
+
+  const text = buildClaimEvidenceText(item)
+  const personProfile = getPersonDeathProfile(claim)
+
+  if (personProfile.matched && personProfile.fullName && personProfile.surname) {
+    const exactMatch = text.includes(personProfile.fullName)
+    const surnameMatch = text.includes(personProfile.surname)
+    const aliasHits = personProfile.aliasSignals.filter((signal) => text.includes(signal)).length
+
+    if (!exactMatch && !surnameMatch && aliasHits < 2) {
+      return {
+        penalty: 80,
+        mismatch: true,
+        reason: 'Entity mismatch: source does not clearly match the exact person.',
+      }
+    }
+  }
+
+  const examProfile = getExamClaimProfile(claim)
+
+  if (examProfile.matched) {
+    const familyHit = examProfile.queryTokens.some((token) => text.includes(token))
+    const institutionalHit = examProfile.institutionalSignals.some((signal) => text.includes(signal))
+    const leakHit =
+      /\b(leak|leaked|paper leak|question paper|integrity|compromised|cancelled|canceled|investigation|postponed)\b/.test(
+        text
+      )
+    const genericDrift =
+      /net neutrality|net-winged beetle|paper chromatography|\bpaper facts\b|\btopic\/june\b|\btopic\/wikipedia\b/.test(
+        text
+      )
+
+    if (genericDrift || !familyHit || (!leakHit && !institutionalHit)) {
+      return {
+        penalty: 85,
+        mismatch: true,
+        reason: 'Topic mismatch: source does not clearly match the exact exam-leak topic.',
+      }
+    }
+  }
+
+  const identityThreatProfile = getIdentityThreatProfile(claim)
+
+  if (identityThreatProfile.matched) {
+    const authorityHit = identityThreatProfile.queryTokens.some((token) => text.includes(token))
+    const threatHit =
+      /\b(verify|verification|update|kyc|blocked|deactivated|deactivate|suspended|scam|fraud|phishing|advisory|warning|link)\b/.test(
+        text
+      )
+
+    if (!authorityHit || !threatHit) {
+      return {
+        penalty: 80,
+        mismatch: true,
+        reason: 'Topic mismatch: source does not clearly match the Aadhaar verification-threat claim.',
+      }
+    }
+  }
+
+  const medicineRumorProfile = getMedicineRumorProfile(claim)
+
+  if (medicineRumorProfile.matched) {
+    const medicineHit = hasMedicineAnchor(text)
+    const rumorHit = hasMedicineRumorAnchor(text)
+    const machupoHit = text.includes('machupo')
+    const contaminationHit = /\b(contains|contain|inside)\b/.test(text) && text.includes('virus')
+    const specificMedicineHit = medicineRumorProfile.requiresP500Specificity ? hasP500Anchor(text) : medicineHit
+
+    if (!specificMedicineHit || !(rumorHit || machupoHit || contaminationHit)) {
+      return {
+        penalty: 82,
+        mismatch: true,
+        reason: 'Topic mismatch: source does not clearly match the medicine-rumor claim.',
+      }
+    }
+  }
+
+  const productLaunchProfile = getProductLaunchProfile(claim)
+
+  if (productLaunchProfile.matched) {
+    const productHit =
+      (text.includes('openai') && text.includes('gpt-6')) ||
+      (text.includes('openai') && text.includes('gpt 6')) ||
+      (text.includes('openai') && text.includes('gpt6'))
+    const launchHit = /\b(launch|launched|release|released|public|publicly|available|announce|announced)\b/.test(
+      text
+    )
+
+    if (!productHit || !launchHit) {
+      return {
+        penalty: 78,
+        mismatch: true,
+        reason: 'Entity mismatch: source does not clearly match the exact product-launch claim.',
+      }
+    }
+  }
+
+  return {
+    penalty: 0,
+    mismatch: false,
+    reason: '',
+  }
+}
+
 export function rankEvidence(
   evidence: RetrievedEvidence[],
-  options: { preferredDomains?: string[]; currentOfficeHolder?: boolean } = {}
+  options: { preferredDomains?: string[]; currentOfficeHolder?: boolean; claim?: string } = {}
 ): RankedEvidence[] {
   const preferredDomains = normalizeDomains(options?.preferredDomains)
   const seenUrls = new Set<string>()
@@ -329,19 +469,29 @@ export function rankEvidence(
         domainMatches(domain, CURRENT_OFFICE_HOLDER_LOW_SIGNAL_DOMAINS)
           ? 40
           : 0
+      const groundingPenalty = getGroundingPenalty(options.claim, item)
+      const credibilityOverride = groundingPenalty.mismatch
+        ? {
+            label: 'Low' as const,
+            weightedScore: Math.min(credibility.weightedScore, 28),
+          }
+        : credibility
       const rankingScore =
-        credibility.weightedScore +
+        credibilityOverride.weightedScore +
         item.score +
         (preferredDomainMatch ? (options.currentOfficeHolder ? 36 : 18) : 0) -
-        lowSignalPenalty
+        lowSignalPenalty -
+        groundingPenalty.penalty
 
       return {
         ...item,
         id: `E${String(index + 1).padStart(2, '0')}`,
         domain,
-        credibility: credibility.label,
-        credibilityScore: credibility.weightedScore,
-        credibilityRationale: credibilityRationale(credibility.label, domain, preferredDomains),
+        credibility: credibilityOverride.label,
+        credibilityScore: credibilityOverride.weightedScore,
+        credibilityRationale: groundingPenalty.mismatch
+          ? groundingPenalty.reason
+          : credibilityRationale(credibilityOverride.label, domain, preferredDomains),
         rankingScore,
       }
     })
