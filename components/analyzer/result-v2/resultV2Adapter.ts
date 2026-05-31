@@ -139,6 +139,61 @@ function getDetectedClaimType(claim: string, analysis?: Analysis | null) {
   return undefined
 }
 
+function isStableFactClaim(claim: string, analysis?: Analysis | null) {
+  const subject = `${claim} ${analysis?.reasoning ?? ''} ${analysis?.operationalGuidance?.action ?? ''}`.toLowerCase()
+
+  if (!subject.trim()) {
+    return false
+  }
+
+  const stableFactSignals = [
+    /\bearth\b/,
+    /\bsun\b/,
+    /\borbits?\b/,
+    /\bwater boils?\b/,
+    /\bplanet\b/,
+    /\bgravity\b/,
+    /\bcapital of\b/,
+    /\bphotosynthesis\b/,
+  ]
+
+  const currentEventSignals = [
+    /\bdied\b/,
+    /\bdead\b/,
+    /\bdeath\b/,
+    /\bx\b/,
+    /\bposted?\b/,
+    /\bbreaking\b/,
+    /\btoday\b/,
+    /\bnow\b/,
+    /\brecent(?:ly)?\b/,
+    /\bviral\b/,
+    /\balert\b/,
+  ]
+
+  return stableFactSignals.some((pattern) => pattern.test(subject)) &&
+    !currentEventSignals.some((pattern) => pattern.test(subject))
+}
+
+function isHealthClaim(claim: string, analysis?: Analysis | null) {
+  const subject = `${claim} ${analysis?.reasoning ?? ''} ${analysis?.operationalGuidance?.action ?? ''}`.toLowerCase()
+
+  return /(doctor|medical|health|hospital|vaccine|treatment|medicine|symptom|disease|cure|paracetamol|tablet|drug|pharmacist|virus)/.test(
+    subject
+  )
+}
+
+function isUnconfirmedDeathOrCurrentEventClaim(claim: string, analysis?: Analysis | null) {
+  const subject =
+    `${claim} ${analysis?.verdict ?? ''} ${analysis?.reasoning ?? ''} ${analysis?.operationalGuidance?.action ?? ''}`.toLowerCase()
+
+  const deathSignals = /\b(died|dead|death|passed away|killed|obituary|rip)\b/.test(subject)
+  const fastMovingSignals =
+    /\b(x|twitter|post(?:ing|ed)?|social|viral|breaking|headline|reports?|rumor)\b/.test(subject)
+
+  return deathSignals || (fastMovingSignals && /\b(unverified|verification incomplete|evidence insufficient)\b/.test(subject))
+}
+
 function getTone(analysis?: Analysis | null): ResultV2Tone {
   if (!analysis) {
     return 'neutral'
@@ -235,6 +290,42 @@ function getClaimTypeActions(claimType: string | undefined) {
         'Use DAM again if more evidence appears.',
       ]
   }
+}
+
+function getRecommendedNextSteps(claim: string, analysis?: Analysis | null) {
+  if (
+    analysis &&
+    (analysis.verdict === 'Corroborated' || analysis.verdict === 'Likely Reliable') &&
+    isStableFactClaim(claim, analysis)
+  ) {
+    return [
+      'This is safe to treat as an established fact.',
+      'No urgent action is needed.',
+      'You can share it normally if the context is not misleading.',
+    ]
+  }
+
+  if (isHealthClaim(claim, analysis)) {
+    return [
+      'Do not panic based on a forwarded message.',
+      'Do not stop prescribed medicine only because of a viral forward.',
+      'Ask a doctor, pharmacist, or check an official health advisory.',
+    ]
+  }
+
+  if (
+    analysis &&
+    (analysis.verdict === 'Unverified' || analysis.verdict === 'Verification incomplete') &&
+    isUnconfirmedDeathOrCurrentEventClaim(claim, analysis)
+  ) {
+    return [
+      'No reliable confirmation was found.',
+      'Do not treat social posts as confirmation.',
+      'Wait for direct reporting from reliable or official sources.',
+    ]
+  }
+
+  return getClaimTypeActions(getDetectedClaimType(claim, analysis))
 }
 
 function countMatches(value: string, patterns: readonly RegExp[]) {
@@ -433,7 +524,11 @@ function buildMainProblems(claim: string, analysis?: Analysis | null) {
   }
 
   if (analysis.contradictions?.level === 'Moderate' || analysis.contradictions?.level === 'High') {
-    problems.push('Retrieved evidence shows meaningful contradictions or missing support.')
+    problems.push(
+      isUnconfirmedDeathOrCurrentEventClaim(claim, analysis)
+        ? 'No reliable confirmation was found in the retrieved evidence.'
+        : 'Retrieved evidence shows contradictions or missing support.'
+    )
   }
 
   if (analysis.corroborationLevel?.sourceCount === 0 || analysis.sourceCredibility?.label === 'Unknown') {
@@ -498,7 +593,7 @@ export function adaptResultToV2ViewModel({
   const tone = getTone(analysis)
   const toneLabel = getToneLabel(tone)
   const mainProblems = buildMainProblems(trimmedClaim, analysis)
-  const recommendedNextSteps = toListItems(getClaimTypeActions(detectedClaimType))
+  const recommendedNextSteps = toListItems(getRecommendedNextSteps(trimmedClaim, analysis))
   const evidenceSources =
     analysis?.evidence?.map((item) => ({
       id: item.id || item.url || item.title,
